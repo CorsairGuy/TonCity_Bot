@@ -1,0 +1,74 @@
+# Вариант docker-compose.yml для запуска стеком Portainer (Stacks → Add stack). Отличия от обычного:
+#  • Portainer хранит файл стека у себя (/data/compose/<id>), поэтому относительные пути ./config,
+#    ./db_data и файл .env рядом с ним не работают. Все данные лежат в ОДНОЙ папке хоста DATA_DIR
+#    (абсолютный путь, например /DOCKER/toncity_bot), переменные вводятся в Portainer
+#    (Environment variables или «Load variables from .env file»), а не читаются из .env.
+#  • Канал обновлений (BOT_TAG) — переменная стека в Portainer. Панель меняет её через сервис
+#    updater, который ходит в API Portainer по токену (PORTAINER_URL/PORTAINER_TOKEN) и передеплоит
+#    стек. Без токена всё работает, кроме переключения версии из панели.
+# Пошагово — docs/portainer.md.
+services:
+  db:
+    image: mariadb:10.11
+    container_name: ${STACK_NAME:-toncity}_db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?задайте DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-db_main}
+    ports:
+      - "${DB_EXPOSED_PORT:-3377}:3306"
+    volumes:
+      - ${DATA_DIR:?задайте DATA_DIR — абсолютный путь к папке с данными бота}/db_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 15s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  bot:
+    image: ${BOT_IMAGE:-ghcr.io/corsairguy/toncity_bot}:${BOT_TAG:-latest}
+    container_name: ${STACK_NAME:-toncity}_bot
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-db_main}
+      WEB_BIND: 0.0.0.0
+      WEB_PORT: ${WEB_PORT:-3000}
+      STACK_NAME: ${STACK_NAME:-toncity}
+      BOT_TAG: ${BOT_TAG:-}
+      TONCITYQUESTS_BOT_HASH: ${TONCITYQUESTS_BOT_HASH:-}
+    init: true
+    ports:
+      - "${WEB_PORT:-3000}:${WEB_PORT:-3000}"
+    volumes:
+      - ${DATA_DIR}/logs:/app/logs
+      - ${DATA_DIR}/config:/app/config
+    stop_grace_period: 15s
+    restart: unless-stopped
+    mem_limit: 4g
+    memswap_limit: 4g
+  updater:
+    image: ${BOT_IMAGE:-ghcr.io/corsairguy/toncity_bot}:updater
+    container_name: ${STACK_NAME:-toncity}_updater
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # нужна только config/updater (заявки и статус); .env в этом режиме не используется
+      - ${DATA_DIR}/config:/project/config
+    environment:
+      BOT_CONTAINER: ${STACK_NAME:-toncity}_bot
+      TZ: UTC
+      # API Portainer: адрес, как он виден из контейнера (host.docker.internal = сам сервер),
+      # токен — Portainer → My account → Access tokens. PORTAINER_INSECURE=1 — самоподписанный
+      # сертификат на :9443. PORTAINER_STACK — имя стека, если отличается от имени проекта бота.
+      PORTAINER_URL: ${PORTAINER_URL:-https://host.docker.internal:9443}
+      PORTAINER_TOKEN: ${PORTAINER_TOKEN:-}
+      PORTAINER_INSECURE: ${PORTAINER_INSECURE:-1}
+      PORTAINER_STACK: ${PORTAINER_STACK:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

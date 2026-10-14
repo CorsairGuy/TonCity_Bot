@@ -14,6 +14,12 @@
 # (метки com.docker.compose.* контейнера бота), папка проекта смонтирована в /project, а по
 # хостовому пути на неё ставится симлинк — так относительные пути (./config, ./logs, .env)
 # раскрываются в правильные пути хоста.
+#
+# Режим Portainer (docker-compose.portainer.yml, заданы PORTAINER_URL и PORTAINER_TOKEN): стек
+# принадлежит Portainer, его файл и переменные лежат в базе Portainer, а не на диске. Поэтому
+# обновлятель не зовёт docker compose сам, а через API Portainer меняет переменную BOT_TAG стека и
+# передеплоивает его с pullImage. Portainer пересоздаёт только то, что изменилось (обычно бота),
+# база не трогается, а BOT_TAG в Portainer всегда показывает реальную версию.
 set -u
 
 PROJECT_MNT=/project
@@ -22,7 +28,9 @@ BOT="${BOT_CONTAINER:?нужен BOT_CONTAINER}"
 SERVICE="${BOT_SERVICE:-bot}"
 POLL="${POLL_SECONDS:-3}"
 HEARTBEAT="${HEARTBEAT_SECONDS:-20}"
-VERSION=2
+VERSION=3
+PORTAINER_URL="${PORTAINER_URL:-}"
+PORTAINER_TOKEN="${PORTAINER_TOKEN:-}"
 
 mkdir -p "$Q"
 now(){ date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -55,6 +63,44 @@ set_env_tag(){
     echo "BOT_TAG=$1" >> "$f"
   fi
 }
+# --- Portainer ---
+portainer(){ # METHOD path [json-тело] → тело ответа; ошибка HTTP = ненулевой код
+  set -- "$1" "${PORTAINER_URL%/}/api$2" "${3:-}"
+  k=; [ "${PORTAINER_INSECURE:-0}" = 1 ] && k=-k   # самоподписанный сертификат Portainer (:9443)
+  if [ -n "$3" ]; then
+    printf '%s' "$3" | curl -sS --fail-with-body --max-time 900 $k -X "$1" \
+      -H "X-API-Key: $PORTAINER_TOKEN" -H 'Content-Type: application/json' --data-binary @- "$2"
+  else
+    curl -sS --fail-with-body --max-time 60 $k -X "$1" -H "X-API-Key: $PORTAINER_TOKEN" "$2"
+  fi
+}
+process_portainer(){ # id tag
+  id="$1"; tag="$2"
+  name="${PORTAINER_STACK:-$(label "$BOT" com.docker.compose.project)}"
+  [ -n "$name" ] || { status "$id" error "$tag" "не найдено имя стека (задайте PORTAINER_STACK)"; return; }
+  if ! stacks=$(portainer GET /stacks 2>&1); then status "$id" error "$tag" "Portainer не ответил: $(echo "$stacks" | tail -n 2 | tr '\n' ' ')"; return; fi
+  stack=$(echo "$stacks" | jq -c --arg n "$name" '[.[]|select((.Name|ascii_downcase)==($n|ascii_downcase))][0] // empty')
+  [ -n "$stack" ] || { status "$id" error "$tag" "в Portainer нет стека «$name»"; return; }
+  sid=$(echo "$stack" | jq -r .Id); eid=$(echo "$stack" | jq -r .EndpointId)
+  env=$(echo "$stack" | jq -c --arg t "$tag" '(.Env // []) as $e | if any($e[]; .name=="BOT_TAG") then [$e[]|if .name=="BOT_TAG" then .value=$t else . end] else $e+[{name:"BOT_TAG",value:$t}] end')
+  before=$(docker inspect -f '{{.Id}}' "$BOT" 2>/dev/null)
+  status "$id" pulling "$tag" "Portainer скачивает образ и перезапускает бота"
+  if [ "$(echo "$stack" | jq -r '.GitConfig // empty | .URL // empty')" ]; then
+    # стек из репозитория: передеплой из той же ветки репозитория с новой переменной
+    body=$(echo "$stack" | jq -c --argjson env "$env" '{env:$env,prune:false,pullImage:true,repositoryReferenceName:.GitConfig.ReferenceName}')
+    out=$(portainer PUT "/stacks/$sid/git/redeploy?endpointId=$eid" "$body" 2>&1); rc=$?
+  else
+    if ! file=$(portainer GET "/stacks/$sid/file" 2>&1); then status "$id" error "$tag" "не прочитан файл стека: $(echo "$file" | tail -n 2 | tr '\n' ' ')"; return; fi
+    body=$(echo "$file" | jq -c --argjson env "$env" '{stackFileContent:.StackFileContent,env:$env,prune:false,pullImage:true}')
+    out=$(portainer PUT "/stacks/$sid?endpointId=$eid" "$body" 2>&1); rc=$?
+  fi
+  [ "$rc" -eq 0 ] || { status "$id" error "$tag" "Portainer не обновил стек: $(echo "$out" | tail -n 3 | tr '\n' ' ')"; return; }
+  after=$(docker inspect -f '{{.Id}}' "$BOT" 2>/dev/null)
+  CUR_TAG="$tag"
+  if [ -n "$before" ] && [ "$before" = "$after" ]; then status "$id" unchanged "$tag" "эта версия уже установлена"
+  else status "$id" updated "$tag" "бот перезапущен"; docker image prune -f >/dev/null 2>&1; fi
+}
+
 env_tag(){ sed -n 's/^BOT_TAG=//p' "$PROJECT_MNT/.env" 2>/dev/null | tail -n1 | tr -d '\r'; }
 
 process(){ # id tag
@@ -92,9 +138,17 @@ process(){ # id tag
   else status "$id" updated "$tag" "бот перезапущен"; docker image prune -f >/dev/null 2>&1; fi
 }
 
-log "запущен, бот: $BOT"
-CUR_TAG=$(env_tag)
+if [ -n "$PORTAINER_URL" ] && [ -n "$PORTAINER_TOKEN" ]; then
+  MODE=portainer; CUR_TAG=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$BOT" 2>/dev/null | sed -n 's/^BOT_TAG=//p')
+else MODE=compose; CUR_TAG=$(env_tag); fi
+log "запущен ($MODE), бот: $BOT"
 last_id=$(jq -r '.id // empty' "$Q/status.json" 2>/dev/null)
+# обновлятель перезапустили посреди заявки (в Portainer он пересоздаётся вместе со стеком, если
+# вышел новый образ обновлятеля): итог неизвестен, честно закрываем заявку, чтобы панель не ждала
+last_state=$(jq -r '.state // empty' "$Q/status.json" 2>/dev/null)
+case "$last_state" in pulling|restarting)
+  status "$last_id" error "$(jq -r '.tag // empty' "$Q/status.json")" "обновлятель перезапустился во время обновления, проверьте версию в панели";;
+esac
 beat=0
 while :; do
   if [ -f "$Q/request.json" ]; then
@@ -105,6 +159,7 @@ while :; do
       last_id="$id"
       # заявка старше 10 минут — забытая (обновлятель был выключен), не исполняем её внезапно
       if [ $(( $(date +%s) - ${ts%.*} )) -gt 600 ]; then status "$id" error "$tag" "заявка устарела, повторите из панели"
+      elif [ "$MODE" = portainer ]; then process_portainer "$id" "$tag"
       else process "$id" "$tag"; fi
       heartbeat; beat=0
     fi
