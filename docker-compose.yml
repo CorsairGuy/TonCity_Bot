@@ -59,6 +59,11 @@ services:
       # ВАЖНО для НОВОГО/чистого разворачивания: перед первым запуском обязательно собрать фронтенд
       # на хосте (cd src/web/client && npm install && npm run build), иначе dist/ будет пуст.
       - ./nodemon.json:/app/nodemon.json
+      # Проверка новой версии (плашка внизу меню панели) берёт текущий коммит из .git. В образ .git
+      # не копируется, поэтому, если папка на сервере — git-клон, раскомментируйте строку ниже
+      # (применится после docker compose down && docker compose up -d). Без неё панель покажет
+      # только последнюю версию на GitHub. Альтернатива — APP_COMMIT=<sha> в .env.
+      # - ./.git:/app/.git:ro
     restart: unless-stopped
     mem_limit: 4g
     memswap_limit: 4g

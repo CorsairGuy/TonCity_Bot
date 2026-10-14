@@ -58,6 +58,12 @@ module.exports=function(app,ctx){
   });
 
   // статус техработ игры (автопауза запросов) — для баннера в панели
+  // проверка новой версии бота на GitHub (кэш 30 мин, ?force=1 — ручная проверка, не чаще раза в минуту)
+  app.get('/api/version',async(req,res)=>{
+    try{res.json(await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'}));}
+    catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   app.get('/api/maintenance',(req,res)=>{
     try{res.json({ok:true,...require('../../utils/maintenance').status()});}
     catch(e){res.status(500).json({ok:false,error:e.message});}

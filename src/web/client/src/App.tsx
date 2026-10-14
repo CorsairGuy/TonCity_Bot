@@ -47,6 +47,7 @@ import { PanelToggleProvider, usePanelToggleSlot } from './contexts/PanelToggleC
 import { OverlayScrollbarsComponent } from 'overlayscrollbars-react';
 import { LoginGate } from './components/LoginGate';
 import { MaintenanceBanner } from './components/MaintenanceBanner';
+import { VersionBadge } from './components/VersionBadge';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
 
 // Страницы грузятся лениво, каждая — своим чанком. Раньше все они лежали в одном бандле
@@ -347,6 +348,7 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
         <div className="nav-separator" />
         {item('logs',     'Логи',       FileIcon)}
         {item('settings', 'Настройки',  GearIcon)}
+        <VersionBadge />
       </OverlayScrollbarsComponent>
     </nav>
   );

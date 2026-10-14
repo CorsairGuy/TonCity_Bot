@@ -14,6 +14,11 @@
 
 ---
 
+## 2026-10-14 — Проверка новой версии на GitHub
+- Внизу меню панели плашка версии: текущий коммит и метка «Новая версия: +N» со ссылкой на сравнение коммитов (или на релиз) на GitHub. Кнопка рядом проверяет вручную. Само обновление не делается.
+- Бэкенд: `src/utils/versionCheck.js` + `GET /api/version` (`routes/core.js`). Публичный GitHub API без токена (лимит 60 запросов/час на IP), кэш 30 минут, ручная проверка не чаще раза в минуту, при ошибке повтор через 5 минут. Репозиторий и ветка — `UPDATE_REPO`/`UPDATE_BRANCH` в env (по умолчанию `CorsairGuy/TonCity_Bot`, `main`).
+- Локальный коммит читается из `.git` в корне без бинарника git (HEAD, refs, packed-refs) или из `APP_COMMIT`. В Docker `.git` не попадает в образ: в `docker-compose.yml` добавлена закомментированная строка монтирования `./.git:/app/.git:ro`.
+
 ## 2026-10-14 — Вечный аудиториум: витрина и обмен Почёта на предметы
 - Реверс свежего бандла (`entry-*.js` → `timelessAuditorium`, `chunks/timeless_auditorium-*.js`): у игры три эндпоинта — `GET /timeless-auditorium/status` (условия входа + `in_guild`/`has_auditorium`), `GET /timeless-auditorium/catalog` (`{balance,lifetime_earned,tiers[],sections[{key,skus[]}]}`, только открытым аккаунтам), `POST /timeless-auditorium/buy {sku:code}` → `{balance,limits,purchasable}`. Эндпоинта `/enter`, который звала панель, у игры нет — роут и кнопка «Войти» удалены.
 - `modules/guildBuildings.js runAuditorium`: гейт `hasBuilding('auditorium_level')` убран (как у технофабрики: `guild_special_buildings` видит только лидер/офицер), `/status` зовётся всем, `/catalog` — только при `unlocked`. В `auditorium_status` новые колонки `in_guild`, `has_auditorium`, `catalog LONGTEXT` (миграции `ALTER TABLE`).
