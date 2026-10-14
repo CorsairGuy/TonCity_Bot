@@ -337,7 +337,12 @@ export function Reserve() {
     setCancelling(s => ({ ...s, [e.entry_id]: true }));
     try {
       const r = await api.stakingCancel(e.entry_id);
-      if (r.ok) { showFlash(`Вклад ${e.account} отменён`, true); await load(true); }
+      if (r.ok) {
+        // игра в ответе отдаёт amount — сколько вернула на баланс
+        const back = r.result?.amount;
+        showFlash(`Вклад ${e.account} отменён${back != null ? `, возвращено ${fmt(back)}` : ''}`, true);
+        await load(true);
+      }
       else showFlash(`Вклад ${e.account} не отменён: ${r.error ?? 'ошибка'}`, false);
     } catch (err) {
       showFlash(`Вклад ${e.account} не отменён: ${(err as Error).message}`, false);
@@ -359,7 +364,10 @@ export function Reserve() {
   const totalCollectCoins  = sum(coins, 'amount_to_collect');
   const totalCollectCrysts = sum(crysts, 'amount_to_collect');
 
-  const data = [...entries]
+  // переключатель «Собранные» показывает в таблице ТОЛЬКО собранные вклады; сводка сверху
+  // по-прежнему считается по активным (сервер с ?collected=1 отдаёт и те, и другие)
+  const data = entries
+    .filter(e => e.collected === showCollected)
     .sort((a, b) => {
       if (a.collected !== b.collected) return a.collected ? 1 : -1;
       const aReady = new Date(a.can_collect_at).getTime() <= Date.now();
@@ -431,7 +439,7 @@ export function Reserve() {
 
           <Table.Container>
             <Table.Title as="h3" id="staking-table">
-              {showCollected ? 'Все вклады' : 'Активные вклады'}
+              {showCollected ? 'Собранные вклады' : 'Активные вклады'}
             </Table.Title>
             {data.length === 0 ? (
               <Box sx={{ p: 4, textAlign: 'center', color: 'fg.muted' }}>
