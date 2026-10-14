@@ -21,7 +21,9 @@ const GH='https://api.github.com/repos/'+REPO;
 const REPO_URL='https://github.com/'+REPO;
 const WORKFLOW='.github/workflows/docker.yml';
 
-let cache=null,cacheAt=0,inFlight=null;
+const BUILD_MS=3*60*1000;         // пока образ собирается — проверяем чаще, чтобы «Обновить» появилась сразу после сборки
+const ERROR_MS=5*60*1000;         // GitHub не ответил — повторим через 5 минут
+let cache=null,cacheAt=0,cacheTtl=CACHE_MS,inFlight=null;
 
 function readLocalCommit(){
   const env=(process.env.APP_COMMIT||'').trim();
@@ -139,14 +141,18 @@ async function check(){
 // force — ручная проверка из панели (кэш игнорируется, но не чаще MIN_FORCE_MS)
 async function getVersionInfo({force=false,maxAge=CACHE_MS}={}){
   const age=Date.now()-cacheAt;
-  if(cache&&(age<maxAge)&&!(force&&age>=MIN_FORCE_MS))return cache;
+  if(cache&&(age<Math.min(maxAge,cacheTtl))&&!(force&&age>=MIN_FORCE_MS))return cache;
   if(inFlight)return inFlight;
-  inFlight=check().then(v=>{cache=v;cacheAt=Date.now();return v;}).catch(e=>{
+  inFlight=check().then(v=>{
+    cache=v;cacheAt=Date.now();
+    cacheTtl=v.build&&v.build.status!=='completed'?BUILD_MS:CACHE_MS;
+    return v;
+  }).catch(e=>{
     logger.warn(`[version] проверка обновлений не удалась: ${e.message}`);
     const v={...(cache||{ok:true,repo:REPO,repoUrl:REPO_URL,local:readLocalCommit(),channel:channelOf(currentTag(),[],[]),
       branches:[],releases:[],stable:null,branch:null,remote:null,release:null,status:'unknown',behindBy:null,compareUrl:null,build:null,newerReleases:0}),
       checkedAt:Date.now(),error:e.message};
-    cache=v;cacheAt=Date.now()-CACHE_MS+5*60*1000; // при ошибке повторим через 5 минут
+    cache=v;cacheAt=Date.now();cacheTtl=ERROR_MS;
     return v;
   }).finally(()=>{inFlight=null;});
   return inFlight;
@@ -155,4 +161,7 @@ async function getVersionInfo({force=false,maxAge=CACHE_MS}={}){
 // после смены канала кэш устарел
 const invalidate=()=>{cache=null;cacheAt=0;};
 
-module.exports={getVersionInfo,readLocalCommit,invalidate,channelOf,branchTag};
+// сразу после запуска бота: панель, открытая после старта, получает готовый ответ, а не ждёт GitHub
+function warmUp(){getVersionInfo().catch(()=>{});}
+
+module.exports={getVersionInfo,readLocalCommit,invalidate,warmUp,channelOf,branchTag};

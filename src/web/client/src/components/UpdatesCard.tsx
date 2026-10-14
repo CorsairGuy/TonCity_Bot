@@ -10,6 +10,8 @@ import {
 import { api, VersionInfo, UpdateRelease } from '../api';
 import { useSelfUpdate } from '../hooks/useSelfUpdate';
 
+const SmallSpinner = () => <Spinner size="small" sx={{ width: 14, height: 14 }} />;
+
 // Настройки → Обновления: выбор канала (ветка / stable / закреплённая версия), автообновление,
 // откат и список релизов с изменениями. Переключение делает обновлятель (сервис updater):
 // скачивает образ нужного тега, прописывает BOT_TAG в .env и перезапускает бота.
@@ -169,7 +171,7 @@ export function UpdatesCard() {
     <Card innerRef={ref}
       right={<>
         <Text sx={{ fontSize: 0, color: 'fg.muted' }}>проверено {new Date(v.checkedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</Text>
-        <IconButton icon={SyncIcon} aria-label="Проверить обновления" size="small" variant="invisible" disabled={loading || upd.updating} onClick={() => load(true)} />
+        <Button size="small" leadingVisual={loading ? SmallSpinner : SyncIcon} disabled={loading || upd.updating} onClick={() => load(true)}>Проверить</Button>
       </>}
     >
       <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>

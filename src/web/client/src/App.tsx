@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { Box, IconButton, Spinner } from '@primer/react';
@@ -48,6 +48,7 @@ import { OverlayScrollbarsComponent } from 'overlayscrollbars-react';
 import { LoginGate } from './components/LoginGate';
 import { MaintenanceBanner } from './components/MaintenanceBanner';
 import { VersionBadge } from './components/VersionBadge';
+import { startBuildWatcher, check as checkBuild } from './hooks/useBuildWatcher';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
 
 // Страницы грузятся лениво, каждая — своим чанком. Раньше все они лежали в одном бандле
@@ -381,6 +382,13 @@ export default function App() {
   // закрываем меню при смене маршрута (на случай навигации не через клик по пункту) и блокируем
   // прокрутку фона, пока открыт полноэкранный оверлей меню
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+  // бот перезапустился на новой версии — перезагружаем панель на любой странице; переход между
+  // страницами тоже повод проверить сразу (см. hooks/useBuildWatcher)
+  const firstRoute = useRef(true);
+  useEffect(() => {
+    if (firstRoute.current) { firstRoute.current = false; startBuildWatcher(); return; }
+    checkBuild();
+  }, [location.pathname]);
   // запоминаем каждую реальную страницу (кроме "/", это transient-редирект, а не контент) — читает
   // loadLastPage() ниже при следующем открытии PWA. Невалидный/удалённый путь не страшен: маршрут
   // "*" ниже сам уводит на /accounts.

@@ -15,6 +15,7 @@ export const api = {
   maintenance: () => req<{ ok: boolean; active: boolean; since: number | null; retryInMs: number }>('/api/maintenance'),
 
   // проверка новой версии бота на GitHub (только чтение)
+  build: () => req<{ ok: boolean; commit: string | null; startedAt: number; busy: boolean }>('/api/build'),
   version: (force = false) => req<VersionInfo>('/api/version' + (force ? '?force=1' : '')),
   // обновление или смена канала через обновлятель (tag не задан — свежий образ текущего канала);
   // если образ новый, бот перезапустится раньше ответа
