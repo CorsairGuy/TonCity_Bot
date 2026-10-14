@@ -337,7 +337,12 @@ export function Reserve() {
     setCancelling(s => ({ ...s, [e.entry_id]: true }));
     try {
       const r = await api.stakingCancel(e.entry_id);
-      if (r.ok) { showFlash(`Вклад ${e.account} отменён`, true); await load(true); }
+      if (r.ok) {
+        // игра в ответе отдаёт amount — сколько вернула на баланс
+        const back = r.result?.amount;
+        showFlash(`Вклад ${e.account} отменён${back != null ? `, возвращено ${fmt(back)}` : ''}`, true);
+        await load(true);
+      }
       else showFlash(`Вклад ${e.account} не отменён: ${r.error ?? 'ошибка'}`, false);
     } catch (err) {
       showFlash(`Вклад ${e.account} не отменён: ${(err as Error).message}`, false);
