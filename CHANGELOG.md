@@ -14,6 +14,10 @@
 
 ---
 
+## 2026-10-14 — Образы под arm64
+- Сервер оказался ARM: `docker pull` падал с «no matching manifest for linux/arm64/v8». `.github/workflows/docker.yml` собирает бота и обновлятель под `linux/amd64,linux/arm64` (QEMU).
+- `Dockerfile` двухстадийный: веб-панель собирается один раз на платформе сборщика (`--platform=$BUILDPLATFORM`), в образ каждой платформы копируется готовый `dist`, без `node_modules` клиента.
+
 ## 2026-10-14 — Запуск стеком Portainer
 - `docker-compose.portainer.yml`: все данные (`config/`, `logs/`, `db_data/`) от абсолютного `DATA_DIR`, переменные вводятся в Portainer и передаются явным `environment` (без `env_file: .env`, которого у стека Portainer нет).
 - `updater/updater.sh` (версия 3): при `PORTAINER_URL`+`PORTAINER_TOKEN` смена канала идёт через API Portainer — правит `BOT_TAG` в переменных стека и передеплоит стек с `pullImage` (стек из редактора или из репозитория). В образ обновлятеля добавлен `curl`. Если обновлятель перезапустился посреди заявки, она закрывается ошибкой, а не висит до таймаута панели.

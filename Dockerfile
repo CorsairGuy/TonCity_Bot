@@ -1,19 +1,23 @@
+# Образ собирается под amd64 и arm64. Веб-панель — чистая статика, её собираем один раз на машине
+# сборки ($BUILDPLATFORM, без эмуляции), в образ под каждую платформу кладём готовый dist.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+WORKDIR /app
+COPY src/web/client/package.json src/web/client/package-lock.json ./src/web/client/
+RUN cd src/web/client && npm ci
+COPY . .
+# Сборка веб-панели → src/web/dist/
+RUN cd src/web/client && npm run build
+
 FROM node:22-alpine
 WORKDIR /app
 RUN apk add --no-cache tzdata
 
-# Зависимости бэкенда
+# Зависимости бэкенда (только чистый JS, под эмуляцией ставятся быстро)
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Зависимости веб-панели
-COPY src/web/client/package.json src/web/client/package-lock.json ./src/web/client/
-RUN cd src/web/client && npm ci
-
 COPY . .
-
-# Сборка веб-панели → src/web/dist/
-RUN cd src/web/client && npm run build
+COPY --from=web /app/src/web/dist ./src/web/dist
 
 # Справочники из config/ (здания, координаты, фазы, слова вордли) — копия в образе. config/ на сервере
 # подключается с хоста (там же settings.json и кэши), поэтому при старте недостающие файлы
