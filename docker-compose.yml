@@ -22,10 +22,11 @@ services:
       timeout: 5s
       retries: 10
   bot:
-    # Готовый образ из GitHub Container Registry (собирает .github/workflows/docker.yml на каждый
-    # push в main). Код, зависимости и собранная панель — внутри образа, на сервере ничего не
-    # собирается. BOT_TAG=sha-<коммит> в .env — откат на конкретную версию (по умолчанию latest).
-    # Для разработки с правкой кода на месте — docker-compose.dev.yml (см. README).
+    # Готовый образ из GitHub Container Registry (собирает .github/workflows/docker.yml). Код,
+    # зависимости и собранная панель — внутри образа, на сервере ничего не собирается.
+    # BOT_TAG в .env — канал обновлений: имя ветки (main, latest = main), stable (последний релиз),
+    # номер релиза (1.0) или sha-<коммит>. Его меняет панель (Настройки → Обновления) через
+    # сервис updater, руками править не нужно. Для разработки — docker-compose.dev.yml (см. README).
     image: ${BOT_IMAGE:-ghcr.io/corsairguy/toncity_bot}:${BOT_TAG:-latest}
     container_name: ${STACK_NAME:-toncity}_bot
     depends_on:
@@ -39,8 +40,6 @@ services:
       # В контейнере слушаем на всех интерфейсах, иначе публикация порта (ports) не достучится
       # до приложения. Доступ снаружи защищён паролем веб-панели (задаётся в Настройках).
       WEB_BIND: 0.0.0.0
-      # Адрес Watchtower внутри сети compose — для кнопки «Обновить» в панели.
-      WATCHTOWER_URL: http://watchtower:8080
     # init: tini пробрасывает SIGTERM процессу node → срабатывает graceful shutdown (src/index.js).
     init: true
     ports:
@@ -50,37 +49,25 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config
-    labels:
-      # Watchtower обновляет только этот контейнер и только «свой» (scope = STACK_NAME), чтобы
-      # несколько копий бота на одном хосте не трогали друг друга. База не обновляется никогда.
-      com.centurylinklabs.watchtower.enable: "true"
-      com.centurylinklabs.watchtower.scope: ${STACK_NAME:-toncity}
     # SIGTERM бот обрабатывает штатно (закрывает WS и БД, src/index.js gracefulShutdown)
     stop_grace_period: 15s
     restart: unless-stopped
     mem_limit: 4g
     memswap_limit: 4g
-  watchtower:
-    # Обновлятель: скачивает новый образ бота и перезапускает контейнер. Поддерживаемый форк
-    # (исходный containrrr/watchtower не обновлялся с 2024 и не работает с новыми версиями Docker).
-    # По умолчанию обновляет ТОЛЬКО по кнопке в панели (HTTP API). Автообновление по расписанию —
-    # WATCHTOWER_AUTO=true и WATCHTOWER_SCHEDULE в .env (см. .env.example).
-    image: ghcr.io/nicholas-fedor/watchtower:1.23
-    container_name: ${STACK_NAME:-toncity}_watchtower
+  updater:
+    # Обновлятель (updater/updater.sh): по заявке из панели скачивает образ нужного тега, прописывает
+    # BOT_TAG в .env и пересоздаёт ТОЛЬКО контейнер бота своего STACK_NAME (база не трогается).
+    # Заявки и статус — файлы в config/updater/, сеть и ключи не нужны, наружу ничего не открыто.
+    # Когда ставить обновления (сразу или только по кнопке), решает бот: Настройки → Обновления.
+    image: ${BOT_IMAGE:-ghcr.io/corsairguy/toncity_bot}:updater
+    container_name: ${STACK_NAME:-toncity}_updater
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # папка проекта целиком: docker-compose.yml, .env (BOT_TAG) и config/updater/
+      - .:/project
     environment:
-      WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_SCOPE: ${STACK_NAME:-toncity}
-      WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_HTTP_API_UPDATE: "true"
-      WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_TOKEN:?задайте WATCHTOWER_TOKEN в .env}
-      WATCHTOWER_HTTP_API_PERIODIC_POLLS: ${WATCHTOWER_AUTO:-false}
-      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 21 * * *}
+      BOT_CONTAINER: ${STACK_NAME:-toncity}_bot
       TZ: UTC
-    labels:
-      com.centurylinklabs.watchtower.scope: ${STACK_NAME:-toncity}
-    # Порт наружу НЕ публикуется: HTTP API доступен только боту внутри сети compose.
     restart: unless-stopped
 volumes:
   db_data:

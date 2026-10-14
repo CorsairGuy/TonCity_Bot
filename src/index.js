@@ -210,6 +210,9 @@ async function main(){
   // (process.exit) после ретраев, и до refresh-ов дело не дойдёт. Так исключается гонка ротации
   // refresh_token между накладывающимися процессами (первопричина вылета аккаунтов).
   await startWebServer(cfg.webPort);
+  // версия для отката (Настройки → Обновления) и автообновление по каналу
+  require('./utils/selfUpdate').recordStart();
+  require('./utils/autoUpdate').autoUpdateLoop().catch(e=>logger.error(`auto-update fatal: ${e.message}`));
   const accounts=await Account.findAll({order:[['id','ASC']]});
   const clients=accounts.map(a=>{
     const api=new ApiClient(a.access_token||'placeholder');

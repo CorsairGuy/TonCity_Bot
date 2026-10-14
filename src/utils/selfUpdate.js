@@ -1,33 +1,72 @@
 'use strict';
-// Обновление бота из панели через Watchtower (docker-compose.yml). Бот сам себя не обновляет:
-// он просит Watchtower скачать новый образ и пересоздать контейнер. Watchtower отвечает только
-// после конца обновления, а если образ новый — останавливает бота (SIGTERM → gracefulShutdown)
-// ещё до ответа, поэтому оборванный запрос здесь = обновление началось.
-const axios=require('axios');
+// Обновление и смена канала бота через обновлятель (сервис updater в docker-compose.yml,
+// updater/updater.sh). Бот сам себя не перезапускает: он кладёт заявку «перейди на тег X» в
+// config/updater/request.json, обновлятель скачивает образ, прописывает BOT_TAG в .env и
+// пересоздаёт контейнер бота. Если образ новый, этот процесс получит SIGTERM ещё до конца ожидания —
+// поэтому оборванный запрос панели = обновление идёт.
+const fs=require('fs');
+const path=require('path');
+const crypto=require('crypto');
 const logger=require('./logger');
 
-const URL_=process.env.WATCHTOWER_URL||'';
-const TOKEN=process.env.WATCHTOWER_TOKEN||'';
+const DIR=path.resolve(__dirname,'..','..','config','updater');
+const REQ=path.join(DIR,'request.json');
+const STATUS=path.join(DIR,'status.json');
+const HEARTBEAT=path.join(DIR,'heartbeat.json');
+const HISTORY=path.join(DIR,'history.json');
+const ALIVE_MS=90*1000;          // обновлятель пишет heartbeat раз в 20 с
+const WAIT_MS=10*60*1000;        // скачивание образа на медленном канале
+const TAG_RE=/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 let running=false;
 
-const isConfigured=()=>!!(URL_&&TOKEN);
+const readJson=(f)=>{try{return JSON.parse(fs.readFileSync(f,'utf8'));}catch(_){return null;}};
+const writeJson=(f,v)=>{fs.mkdirSync(DIR,{recursive:true});fs.writeFileSync(f+'.tmp',JSON.stringify(v,null,2));fs.renameSync(f+'.tmp',f);};
 
-async function requestUpdate(){
-  if(!isConfigured())throw new Error('обновление не настроено: нужны WATCHTOWER_URL и WATCHTOWER_TOKEN (запуск через docker-compose.yml)');
+// текущий тег образа: BOT_TAG приходит из .env (env_file), пусто — latest
+const currentTag=()=>(process.env.BOT_TAG||'').trim()||'latest';
+
+function updaterInfo(){
+  const hb=readJson(HEARTBEAT);
+  const at=hb&&Date.parse(hb.at);
+  return{alive:!!(at&&Date.now()-at<ALIVE_MS),heartbeatAt:hb?hb.at:null,version:hb?hb.version:null,last:readJson(STATUS)};
+}
+const isConfigured=()=>updaterInfo().alive;
+
+// tag — новый тег (по умолчанию текущий: «скачать свежий образ этого же канала»)
+async function requestSwitch(tag=currentTag(),reason='manual'){
+  if(!TAG_RE.test(tag))throw new Error('недопустимый тег образа');
+  if(!isConfigured())throw new Error('обновлятель не запущен: нужен сервис updater из docker-compose.yml (docker compose up -d)');
   if(running)throw new Error('обновление уже запущено');
   running=true;
-  logger.info('[update] прошу Watchtower обновить бота');
+  const id=crypto.randomBytes(8).toString('hex');
+  logger.info(`[update] заявка обновлятелю: ${currentTag()} → ${tag} (${reason})`);
   try{
-    const r=await axios.post(URL_.replace(/\/$/,'')+'/v1/update',null,
-      {headers:{Authorization:'Bearer '+TOKEN},timeout:10*60*1000,validateStatus:()=>true});
-    if(r.status===401)throw new Error('Watchtower отклонил ключ (WATCHTOWER_TOKEN в .env не совпадает)');
-    if(r.status!==200)throw new Error(`Watchtower ответил ${r.status}`);
-    const sum=r.data&&r.data.summary||{};
-    // сюда доходим, только если бот НЕ перезапустили: нового образа нет или обновление не удалось
-    if(sum.failed>0)throw new Error('Watchtower не смог обновить контейнер, подробности — docker logs watchtower');
-    logger.info(`[update] нового образа нет (${JSON.stringify(sum)})`);
-    return{updated:sum.updated||0,summary:sum};
+    writeJson(REQ,{id,tag,reason,from:{tag:currentTag(),commit:process.env.APP_COMMIT||null},ts:Math.floor(Date.now()/1000)});
+    const started=Date.now();
+    // ждём итог; при успешной смене образа сюда не дойдём — процесс остановят раньше
+    while(Date.now()-started<WAIT_MS){
+      await new Promise(r=>setTimeout(r,1500));
+      const st=readJson(STATUS);
+      if(!st||st.id!==id)continue;
+      if(st.state==='error')throw new Error(st.message||'обновлятель не смог переключить версию');
+      if(st.state==='unchanged'){logger.info(`[update] ${tag}: нового образа нет`);return{updated:0,tag};}
+      if(st.state==='updated')return{updated:1,tag};
+    }
+    throw new Error('обновлятель не ответил за 10 минут, подробности — docker logs '+(process.env.STACK_NAME||'toncity')+'_updater');
   }finally{running=false;}
 }
 
-module.exports={isConfigured,requestUpdate};
+// история запущенных версий (для отката): пишется при старте, если коммит сменился
+function recordStart(){
+  const commit=(process.env.APP_COMMIT||'').trim();
+  if(!commit)return;
+  try{
+    const h=readJson(HISTORY)||[];
+    if(h[0]&&h[0].commit===commit)return;
+    h.unshift({commit,ref:process.env.APP_REF||null,tag:currentTag(),at:new Date().toISOString()});
+    writeJson(HISTORY,h.slice(0,15));
+  }catch(e){logger.warn(`[update] история версий не записана: ${e.message}`);}
+}
+const history=()=>readJson(HISTORY)||[];
+
+module.exports={isConfigured,updaterInfo,requestSwitch,requestUpdate:()=>requestSwitch(),currentTag,recordStart,history,TAG_RE};

@@ -22,8 +22,10 @@ RUN mkdir -p logs config && cp -r config /app/config-defaults
 
 # Коммит, из которого собран образ (передаёт GitHub Actions). По нему панель показывает версию
 # и сравнивает её с GitHub. Объявлен в конце, чтобы смена коммита не сбрасывала кэш слоёв выше.
+# APP_REF — ветка или номер релиза, из которых собран образ.
 ARG APP_COMMIT=
-ENV APP_COMMIT=$APP_COMMIT
+ARG APP_REF=
+ENV APP_COMMIT=$APP_COMMIT APP_REF=$APP_REF
 
 # exec — чтобы SIGTERM от Docker/Watchtower доходил до node (штатное закрытие WS и БД)
 CMD ["sh", "-c", "for f in /app/config-defaults/*; do [ -e \"/app/config/${f##*/}\" ] || cp -r \"$f\" /app/config/; done; exec node --max-old-space-size=3072 src/index.js"]

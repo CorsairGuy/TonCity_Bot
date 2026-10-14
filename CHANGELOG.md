@@ -14,6 +14,13 @@
 
 ---
 
+## 2026-10-14 — Канал обновлений в настройках: ветка, stable или закреплённая версия
+- Настройки → Обновления (`components/UpdatesCard.tsx`): текущий канал и коммит, метка «Доступна новая», выбор канала плитками (свежая сборка ветки / стабильный / закрепить релиз или прошлую сборку), переключатель автообновления, «Обновить сейчас», откат «Вернуться на …», список релизов с датой и раскрывающимся описанием. Подтверждение через `ConfirmationDialog`. Плашка версии в меню показывает канал и «Есть релизы новее».
+- `.github/workflows/docker.yml`: образ на каждую ветку (кроме `claude/**`) с тегом-именем ветки (`main` ещё и `latest`), на тег `vX.Y` — неизменяемый `X.Y` и `stable` (если не пре-релиз), всегда `sha-<коммит>`; `APP_REF` в образе. Обновлятель публикуется тегом `updater` того же пакета.
+- Watchtower заменён своим `updater` (`updater/`, docker CLI + compose): Watchtower не умеет менять тег. Заявки и статус — файлы `config/updater/*.json`, ключ `WATCHTOWER_TOKEN` больше не нужен. Переключение пишет `BOT_TAG` в `.env`, поэтому ручной `docker compose up -d` поднимает ту же версию.
+- Бэкенд: `utils/selfUpdate.js` (заявки, история версий), `utils/versionCheck.js` (ветки, релизы, голова канала), новый `utils/autoUpdate.js` (автообновление раз в 10 мин, `settings.update.auto`, по умолчанию включено), `POST /api/update {tag}`, `startedAt` в `/api/version`.
+- На сервере один раз: новый `docker-compose.yml` → `docker compose up -d --remove-orphans` (уберёт watchtower, поднимет updater). Переменные `WATCHTOWER_*` из `.env` можно удалить.
+
 ## 2026-10-14 — Чистка неиспользуемого кода, nodemon убран
 - Удалены файлы, на которые нет ни одного `require`/импорта: заглушки `modules/auditorium.js` и `modules/techfactory.js` (настоящие функции давно в `modules/guildBuildings.js`), генератор референсов `web/cityGen.js`, компоненты панели `Btn`, `GlassCard`, `Flash`, `CityMapCanvas`, страница `Placeholder`, `src/web/client/.icons_src.json`, дубли `src/web/sprites/road-map.json` и `capital-road-map.json` (карта берёт их из `client/src/data/`).
 - Удалены эталонные планы фаз: эндпоинты `/api/refplans*`, `/api/phases`, `/api/building-phases`, `/api/cityplan`, `/api/capitalplan` и файлы `config/city-refplans.json`, `capital-refplans.json`, `city-plan.json`, `capital-plan.json`, `phases.json`, `city-building-phases.json`. На сервере эти файлы в `config/` можно удалить руками, бот их больше не читает.
