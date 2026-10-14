@@ -28,7 +28,7 @@ BOT="${BOT_CONTAINER:?нужен BOT_CONTAINER}"
 SERVICE="${BOT_SERVICE:-bot}"
 POLL="${POLL_SECONDS:-3}"
 HEARTBEAT="${HEARTBEAT_SECONDS:-20}"
-VERSION=3
+VERSION=4
 PORTAINER_URL="${PORTAINER_URL:-}"
 PORTAINER_TOKEN="${PORTAINER_TOKEN:-}"
 
@@ -45,7 +45,14 @@ status(){ # id state tag message
   log "$1: $2 $3 $4"
 }
 heartbeat(){
-  write_json "$Q/heartbeat.json" "$(jq -nc --arg at "$(now)" --argjson v "$VERSION" --arg tag "${CUR_TAG:-}" '{at:$at,version:$v,botTag:$tag}')"
+  write_json "$Q/heartbeat.json" "$(jq -nc --arg at "$(now)" --argjson v "$VERSION" --arg tag "${CUR_TAG:-}" --arg mode "${MODE:-}" '{at:$at,version:$v,botTag:$tag,mode:$mode}')"
+}
+# пока идёт заявка (скачивание, деплой — минуты), основной цикл занят: пульс стучит в фоне,
+# иначе панель посреди обновления решает, что обновлятель не запущен
+busy(){ # команда…
+  ( while :; do sleep "$HEARTBEAT"; heartbeat; done ) & hb_pid=$!
+  "$@"
+  kill "$hb_pid" 2>/dev/null; wait "$hb_pid" 2>/dev/null
 }
 
 label(){ # container label
@@ -202,8 +209,8 @@ while :; do
       last_id="$id"
       # заявка старше 10 минут — забытая (обновлятель был выключен), не исполняем её внезапно
       if [ $(( $(date +%s) - ${ts%.*} )) -gt 600 ]; then status "$id" error "$tag" "заявка устарела, повторите из панели"
-      elif [ "$MODE" = portainer ]; then process_portainer "$id" "$tag"
-      else process "$id" "$tag"; fi
+      elif [ "$MODE" = portainer ]; then busy process_portainer "$id" "$tag"
+      else busy process "$id" "$tag"; fi
       heartbeat; beat=0
     fi
   fi

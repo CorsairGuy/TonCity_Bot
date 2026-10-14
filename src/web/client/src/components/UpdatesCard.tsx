@@ -97,6 +97,22 @@ export function UpdatesCard() {
   };
 
   useEffect(() => { load(); }, []);
+  // обновление идёт (например, страницу перезагрузили посреди него): следим, пока бот не
+  // перезапустится на новой версии, тогда перезагружаем панель — у новой версии свой фронт
+  const busy = !!v?.updater?.busy;
+  useEffect(() => {
+    if (!busy || !v) return;
+    const started = v.startedAt;
+    const t = setInterval(async () => {
+      try {
+        const d = await api.version();
+        if (!d || !d.ok) return;
+        if (started && d.startedAt && d.startedAt !== started) { window.location.reload(); return; }
+        setV(d);
+      } catch { /* бот перезапускается */ }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [busy, v?.startedAt]);
   useEffect(() => {
     if (v && location.hash === '#updates') ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [!!v, location.hash]);
@@ -157,10 +173,19 @@ export function UpdatesCard() {
       </>}
     >
       <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {!v.updater?.alive && (
+        {busy && v.updater?.last && (
+          <Flash>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Spinner size="small" />
+              <Text>Идёт обновление на {v.updater.last.tag}: {v.updater.last.message}. Когда бот перезапустится, страница обновится сама.</Text>
+            </Box>
+          </Flash>
+        )}
+        {!busy && !v.updater?.alive && (
           <Flash variant="warning">
             Обновлятель не запущен, поэтому переключать версии из панели пока нельзя. На сервере нужен сервис
-            {' '}<Text sx={{ fontFamily: 'mono' }}>updater</Text> из docker-compose.yml: <Text sx={{ fontFamily: 'mono' }}>docker compose up -d --remove-orphans</Text>.
+            {' '}<Text sx={{ fontFamily: 'mono' }}>updater</Text>: в Portainer — обновите стек с «Re-pull image», при запуске из консоли —
+            {' '}<Text sx={{ fontFamily: 'mono' }}>docker compose up -d --remove-orphans</Text>.
           </Flash>
         )}
         {v.error && <Flash variant="warning">Нет связи с GitHub: {v.error}</Flash>}
