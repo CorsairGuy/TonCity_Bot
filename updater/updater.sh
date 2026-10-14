@@ -103,21 +103,45 @@ process_portainer(){ # id tag
   sid=$(echo "$stack" | jq -r .Id); eid=$(echo "$stack" | jq -r .EndpointId)
   env=$(echo "$stack" | jq -c --arg t "$tag" '(.Env // []) as $e | if any($e[]; .name=="BOT_TAG") then [$e[]|if .name=="BOT_TAG" then .value=$t else . end] else $e+[{name:"BOT_TAG",value:$t}] end')
   before=$(docker inspect -f '{{.Id}}' "$BOT" 2>/dev/null)
-  status "$id" pulling "$tag" "Portainer скачивает образ и перезапускает бота"
+  # Образ скачиваем сами: так сразу видно, есть ли что ставить, и не дёргаем Portainer зря.
+  # Portainer (2.2x) выкатывает стек в фоне: PUT отвечает раньше, чем пересоздан бот, а пока идёт
+  # деплой, следующий PUT получает 409 «Stack deployment is already in progress».
+  cur_img=$(docker inspect -f '{{.Image}}' "$BOT" 2>/dev/null)
+  ref=$(docker inspect -f '{{.Config.Image}}' "$BOT" 2>/dev/null); ref="${ref%:*}:$tag"
+  status "$id" pulling "$tag" "скачиваю образ"
+  if ! out=$(docker pull -q "$ref" 2>&1); then status "$id" error "$tag" "не удалось скачать образ: $(echo "$out" | tail -n 2 | tr '\n' ' ')"; return; fi
+  new_img=$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null)
+  if [ -n "$cur_img" ] && [ "$cur_img" = "$new_img" ] && [ "$tag" = "${CUR_TAG:-latest}" ]; then
+    status "$id" unchanged "$tag" "эта версия уже установлена"; return
+  fi
+  status "$id" restarting "$tag" "Portainer перезапускает бота"
   if [ "$(echo "$stack" | jq -r '.GitConfig // empty | .URL // empty')" ]; then
     # стек из репозитория: передеплой из той же ветки репозитория с новой переменной
     body=$(echo "$stack" | jq -c --argjson env "$env" '{env:$env,prune:false,pullImage:true,repositoryReferenceName:.GitConfig.ReferenceName}')
-    out=$(portainer PUT "/stacks/$sid/git/redeploy?endpointId=$eid" "$body" 2>&1); rc=$?
+    path="/stacks/$sid/git/redeploy?endpointId=$eid"
   else
     if ! file=$(portainer GET "/stacks/$sid/file" 2>&1); then status "$id" error "$tag" "не прочитан файл стека: $(echo "$file" | tail -n 2 | tr '\n' ' ')"; return; fi
     body=$(echo "$file" | jq -c --argjson env "$env" '{stackFileContent:.StackFileContent,env:$env,prune:false,pullImage:true}')
-    out=$(portainer PUT "/stacks/$sid?endpointId=$eid" "$body" 2>&1); rc=$?
+    path="/stacks/$sid?endpointId=$eid"
   fi
-  [ "$rc" -eq 0 ] || { status "$id" error "$tag" "Portainer не обновил стек: $(echo "$out" | tail -n 3 | tr '\n' ' ')"; return; }
-  after=$(docker inspect -f '{{.Id}}' "$BOT" 2>/dev/null)
+  # идёт прошлый деплой — ждём и повторяем, до 5 минут
+  n=0
+  while :; do
+    out=$(portainer PUT "$path" "$body" 2>&1); rc=$?
+    [ "$rc" -eq 0 ] && break
+    if echo "$out" | grep -q 'already in progress' && [ "$n" -lt 30 ]; then n=$((n+1)); sleep 10; continue; fi
+    status "$id" error "$tag" "Portainer не обновил стек: $(echo "$out" | tail -n 3 | tr '\n' ' ')"; return
+  done
   CUR_TAG="$tag"
-  if [ -n "$before" ] && [ "$before" = "$after" ]; then status "$id" unchanged "$tag" "эта версия уже установлена"
-  else status "$id" updated "$tag" "бот перезапущен"; docker image prune -f >/dev/null 2>&1; fi
+  # ждём, пока Portainer пересоздаст бота (до 5 минут)
+  i=0; after="$before"
+  while [ "$i" -lt 100 ]; do
+    after=$(docker inspect -f '{{.Id}}' "$BOT" 2>/dev/null)
+    [ -n "$after" ] && [ "$after" != "$before" ] && break
+    i=$((i+1)); sleep 3
+  done
+  if [ -n "$after" ] && [ "$after" != "$before" ]; then status "$id" updated "$tag" "бот перезапущен"; docker image prune -f >/dev/null 2>&1
+  else status "$id" error "$tag" "Portainer принял обновление, но бот за 5 минут не перезапустился — проверьте стек в Portainer"; fi
 }
 
 env_tag(){ sed -n 's/^BOT_TAG=//p' "$PROJECT_MNT/.env" 2>/dev/null | tail -n1 | tr -d '\r'; }
