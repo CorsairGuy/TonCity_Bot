@@ -52,3 +52,9 @@ export function useSelfUpdate() {
 
   return { updating, msg, busyOps, setBusyOps, run };
 }
+
+// подпись после ручной проверки: свежий ответ GitHub или повтор из кэша (клик раньше чем через 10 с)
+export const checkNote = (d: { cached?: boolean; checkedAt: number; error?: string | null }) =>
+  d.error ? null
+  : d.cached ? `Проверено ${Math.max(1, Math.round((Date.now() - d.checkedAt) / 1000))} с назад, повторить можно через несколько секунд`
+  : 'Проверено только что';
