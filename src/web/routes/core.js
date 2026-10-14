@@ -60,8 +60,20 @@ module.exports=function(app,ctx){
   // статус техработ игры (автопауза запросов) — для баннера в панели
   // проверка новой версии бота на GitHub (кэш 30 мин, ?force=1 — ручная проверка, не чаще раза в минуту)
   app.get('/api/version',async(req,res)=>{
-    try{res.json(await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'}));}
+    try{res.json({...await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'}),canUpdate:require('../../utils/selfUpdate').isConfigured()});}
     catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
+  // обновление бота через Watchtower. Не стартует посреди ручных «Обновить» (opRegistry), если не
+  // передан force. Если образ новый, бот перезапустится раньше ответа — панель это ждёт.
+  app.post('/api/update',async(req,res)=>{
+    try{
+      const upd=require('../../utils/selfUpdate');
+      if(!upd.isConfigured())return res.status(400).json({ok:false,error:'обновление не настроено (нужен запуск через docker-compose.yml с Watchtower)'});
+      const busy=require('../lib/opRegistry').activeKeys();
+      if(busy.length&&!(req.body&&req.body.force))return res.status(409).json({ok:false,busy,error:`идут операции: ${busy.join(', ')}`});
+      res.json({ok:true,...await upd.requestUpdate()});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
   app.get('/api/maintenance',(req,res)=>{

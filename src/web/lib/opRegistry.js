@@ -24,4 +24,7 @@ function statusOf(keys) {
   return out;
 }
 
-module.exports = { run, statusOf };
+// ключи всех идущих сейчас операций — обновление бота не стартует посреди них
+function activeKeys() { return [...running.keys()]; }
+
+module.exports = { run, statusOf, activeKeys };

@@ -47,7 +47,7 @@ const gh=(url)=>axios.get(GH+url,{timeout:10000,headers:{Accept:'application/vnd
 async function check(){
   const local=readLocalCommit();
   const out={ok:true,repo:REPO,branch:BRANCH,repoUrl:'https://github.com/'+REPO,local,remote:null,release:null,
-    status:'unknown',behindBy:null,compareUrl:null,checkedAt:Date.now(),error:null};
+    status:'unknown',behindBy:null,compareUrl:null,build:null,checkedAt:Date.now(),error:null};
   const r=await gh('/commits/'+encodeURIComponent(BRANCH));
   if(r.status!==200)throw new Error(r.status===403?'лимит GitHub API исчерпан, повторите позже':`GitHub ответил ${r.status}`);
   const c=r.data||{};
@@ -64,6 +64,15 @@ async function check(){
         out.status=st==='identical'?'current':st==='ahead'?'behind':st==='behind'?'ahead':'diverged';
       }else out.status='unknown_local'; // локального коммита нет на GitHub (локальные правки)
     }
+  }
+  // готов ли образ последнего коммита (сборка .github/workflows/docker.yml) — кнопка «Обновить»
+  // имеет смысл только после неё, иначе Watchtower не найдёт нового образа
+  if(out.status==='behind'||out.status==='unknown'){
+    try{
+      const runs=await gh(`/actions/runs?head_sha=${c.sha}&per_page=10`);
+      const run=runs.status===200&&(runs.data.workflow_runs||[]).find(w=>w.path==='.github/workflows/docker.yml');
+      if(run)out.build={status:run.status,conclusion:run.conclusion,url:run.html_url};
+    }catch(_){}
   }
   try{
     const rel=await gh('/releases/latest');

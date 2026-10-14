@@ -1,0 +1,16 @@
+# Режим разработки: код с хоста подключается в контейнер, nodemon перезапускает бота при правках
+# src/, образ собирается локально из Dockerfile. Watchtower в этом режиме не нужен.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build bot db
+# Фронт в этом режиме собирается на хосте: cd src/web/client && npm install && npm run build
+services:
+  bot:
+    build: .
+    image: toncity_bot:dev
+    command: npx nodemon
+    volumes:
+      - ./src:/app/src
+      - ./nodemon.json:/app/nodemon.json
+      # текущий коммит для плашки версии (если папка — git-клон)
+      - ./.git:/app/.git:ro
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"

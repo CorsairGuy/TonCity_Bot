@@ -22,7 +22,11 @@ services:
       timeout: 5s
       retries: 10
   bot:
-    build: .
+    # Готовый образ из GitHub Container Registry (собирает .github/workflows/docker.yml на каждый
+    # push в main). Код, зависимости и собранная панель — внутри образа, на сервере ничего не
+    # собирается. BOT_TAG=sha-<коммит> в .env — откат на конкретную версию (по умолчанию latest).
+    # Для разработки с правкой кода на месте — docker-compose.dev.yml (см. README).
+    image: ${BOT_IMAGE:-ghcr.io/corsairguy/toncity_bot}:${BOT_TAG:-latest}
     container_name: ${STACK_NAME:-toncity}_bot
     depends_on:
       db:
@@ -35,37 +39,48 @@ services:
       # В контейнере слушаем на всех интерфейсах, иначе публикация порта (ports) не достучится
       # до приложения. Доступ снаружи защищён паролем веб-панели (задаётся в Настройках).
       WEB_BIND: 0.0.0.0
-    command: npx nodemon
+      # Адрес Watchtower внутри сети compose — для кнопки «Обновить» в панели.
+      WATCHTOWER_URL: http://watchtower:8080
     ports:
       # ОБЕ стороны берём из WEB_PORT — приложение внутри контейнера слушает именно этот порт
-      # (src/config.js: webPort=process.env.WEB_PORT), а не захардкоженный 3000. Раньше правая
-      # часть была захардкожена как 3000 — при смене WEB_PORT в .env на что-то другое (напр. 3396)
-      # проброс уезжал "хост:3396 → контейнер:3000", а внутри контейнера уже никто не слушал 3000
-      # (переехало на 3396) — панель становилась недоступна снаружи без единой ошибки в логах.
+      # (src/config.js: webPort=process.env.WEB_PORT), а не захардкоженный 3000.
       - "${WEB_PORT:-3000}:${WEB_PORT:-3000}"
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config
-      - ./src:/app/src
-      # РАНЬШЕ здесь был отдельный именованный volume поверх ./src/web/dist — специально чтобы
-      # пустой bind-mount с хоста (если фронтенд там ещё ни разу не собирали) не затирал собранный
-      # В ОБРАЗЕ фронтенд пустой директорией. Убрано (31.07.2026): раз фронтенд теперь регулярно
-      # пересобирается ПРЯМО НА ХОСТЕ (npm run build в src/web/client → src/web/dist), тот volume
-      # только мешал — держал СТАРУЮ копию, никогда не обновлявшуюся сам по себе, и каждое
-      # обновление фронта требовало ручного docker cp внутрь контейнера. Теперь dist читается
-      # НАПРЯМУЮ из хоста через bind-mount ./src — простой пересборки на хосте (npm run build)
-      # достаточно, контейнер видит файлы сразу же, без docker cp/restart, PWA-автообновление
-      # (registerSW.ts) само подхватывает новый бандл при обновлении страницы.
-      # ВАЖНО для НОВОГО/чистого разворачивания: перед первым запуском обязательно собрать фронтенд
-      # на хосте (cd src/web/client && npm install && npm run build), иначе dist/ будет пуст.
-      - ./nodemon.json:/app/nodemon.json
-      # Проверка новой версии (плашка внизу меню панели) берёт текущий коммит из .git. В образ .git
-      # не копируется, поэтому, если папка на сервере — git-клон, раскомментируйте строку ниже
-      # (применится после docker compose down && docker compose up -d). Без неё панель покажет
-      # только последнюю версию на GitHub. Альтернатива — APP_COMMIT=<sha> в .env.
-      # - ./.git:/app/.git:ro
+      # иконки предметов из игры: иначе после каждого обновления контейнера качаются заново
+      - ./items-live:/app/items-live
+    labels:
+      # Watchtower обновляет только этот контейнер и только «свой» (scope = STACK_NAME), чтобы
+      # несколько копий бота на одном хосте не трогали друг друга. База не обновляется никогда.
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: ${STACK_NAME:-toncity}
+    # SIGTERM бот обрабатывает штатно (закрывает WS и БД, src/index.js gracefulShutdown)
+    stop_grace_period: 15s
     restart: unless-stopped
     mem_limit: 4g
     memswap_limit: 4g
+  watchtower:
+    # Обновлятель: скачивает новый образ бота и перезапускает контейнер. Поддерживаемый форк
+    # (исходный containrrr/watchtower не обновлялся с 2024 и не работает с новыми версиями Docker).
+    # По умолчанию обновляет ТОЛЬКО по кнопке в панели (HTTP API). Автообновление по расписанию —
+    # WATCHTOWER_AUTO=true и WATCHTOWER_SCHEDULE в .env (см. .env.example).
+    image: ghcr.io/nicholas-fedor/watchtower:1.23
+    container_name: ${STACK_NAME:-toncity}_watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_SCOPE: ${STACK_NAME:-toncity}
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_HTTP_API_UPDATE: "true"
+      WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_TOKEN:?задайте WATCHTOWER_TOKEN в .env}
+      WATCHTOWER_HTTP_API_PERIODIC_POLLS: ${WATCHTOWER_AUTO:-false}
+      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 21 * * *}
+      TZ: UTC
+    labels:
+      com.centurylinklabs.watchtower.scope: ${STACK_NAME:-toncity}
+    # Порт наружу НЕ публикуется: HTTP API доступен только боту внутри сети compose.
+    restart: unless-stopped
 volumes:
   db_data:

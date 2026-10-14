@@ -14,10 +14,14 @@
 
 ---
 
-## 2026-10-14 — Проверка новой версии на GitHub
-- Внизу меню панели плашка версии: текущий коммит и метка «Новая версия: +N» со ссылкой на сравнение коммитов (или на релиз) на GitHub. Кнопка рядом проверяет вручную. Само обновление не делается.
-- Бэкенд: `src/utils/versionCheck.js` + `GET /api/version` (`routes/core.js`). Публичный GitHub API без токена (лимит 60 запросов/час на IP), кэш 30 минут, ручная проверка не чаще раза в минуту, при ошибке повтор через 5 минут. Репозиторий и ветка — `UPDATE_REPO`/`UPDATE_BRANCH` в env (по умолчанию `CorsairGuy/TonCity_Bot`, `main`).
-- Локальный коммит читается из `.git` в корне без бинарника git (HEAD, refs, packed-refs) или из `APP_COMMIT`. В Docker `.git` не попадает в образ: в `docker-compose.yml` добавлена закомментированная строка монтирования `./.git:/app/.git:ro`.
+## 2026-10-14 — Обновление бота из панели: образ из GitHub Actions + Watchtower
+- Внизу меню панели плашка версии: текущий коммит, метка «Новая версия: +N» со ссылкой на сравнение коммитов (или релиз), статус сборки образа и кнопка «Обновить» с подтверждением. После обновления панель ждёт новый процесс и перезагружается сама.
+- `.github/workflows/docker.yml`: на каждый push в `main` образ собирается и публикуется в `ghcr.io/corsairguy/toncity_bot` (теги `latest` и `sha-<коммит>`, коммит в `APP_COMMIT`). Секреты не нужны, хватает `GITHUB_TOKEN`.
+- `docker-compose.yml`: `bot` теперь из образа (без `./src` и nodemon), подключены только `config/`, `logs/`, `items-live/`; новый сервис `watchtower` (форк `nicholas-fedor`, только свой `STACK_NAME`, наружу не открыт, по умолчанию только по кнопке). `docker-compose.dev.yml` — прежний режим с кодом с хоста.
+- `Dockerfile`: `npm ci` по lock-файлам, `APP_COMMIT`, справочники `config/` докладываются из образа только если их нет, запуск через `exec node` (SIGTERM доходит до бота).
+- Бэкенд: `utils/versionCheck.js` + `GET /api/version` (публичный GitHub API без токена, кэш 30 мин, ручная проверка не чаще раза в минуту), `utils/selfUpdate.js` + `POST /api/update` (не стартует посреди операций `opRegistry` без `force`), `opRegistry.activeKeys()`.
+- Проверено локально: сборка образа, копирование справочников, штатный SIGTERM, Watchtower 1.23.1 с локальным реестром (обновляет только свой scope, отвечает после обновления, без нового образа — `updated:0`). На боевом сервере ещё не запускалось: нужен переезд (README → «Как запустить», `WATCHTOWER_TOKEN` в `.env`).
+- Внимание: изменения справочников в `config/` на сервер с образом не приезжают (папка подключается с хоста).
 
 ## 2026-10-14 — Вечный аудиториум: витрина и обмен Почёта на предметы
 - Реверс свежего бандла (`entry-*.js` → `timelessAuditorium`, `chunks/timeless_auditorium-*.js`): у игры три эндпоинта — `GET /timeless-auditorium/status` (условия входа + `in_guild`/`has_auditorium`), `GET /timeless-auditorium/catalog` (`{balance,lifetime_earned,tiers[],sections[{key,skus[]}]}`, только открытым аккаунтам), `POST /timeless-auditorium/buy {sku:code}` → `{balance,limits,purchasable}`. Эндпоинта `/enter`, который звала панель, у игры нет — роут и кнопка «Войти» удалены.

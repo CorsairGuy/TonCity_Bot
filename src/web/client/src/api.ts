@@ -16,6 +16,8 @@ export const api = {
 
   // проверка новой версии бота на GitHub (только чтение)
   version: (force = false) => req<VersionInfo>('/api/version' + (force ? '?force=1' : '')),
+  // обновление бота через Watchtower; если образ новый, бот перезапустится раньше ответа
+  update: (force = false) => req<{ ok: boolean; updated?: number; busy?: string[]; error?: string }>('/api/update', post({ force })),
 
   // auth
   authStatus: () => req<{ ok: boolean; required: boolean; authed: boolean }>('/api/auth/status'),
@@ -2199,5 +2201,8 @@ export interface VersionInfo {
   status: 'current' | 'behind' | 'ahead' | 'diverged' | 'unknown_local' | 'unknown';
   behindBy: number | null;
   compareUrl: string | null;
+  // сборка Docker-образа последнего коммита в GitHub Actions
+  build: { status: string; conclusion: string | null; url: string } | null;
+  canUpdate?: boolean;
   checkedAt: number;
 }
