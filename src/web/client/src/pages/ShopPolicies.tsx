@@ -7,6 +7,7 @@ import { QtyPicker, affordableCount } from '../components/QtyPicker';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { IC_COIN, IC_CRYSTAL } from '../components/Icons';
+import { useItemCatalog, itemName } from '../hooks/useItemCatalog';
 
 // вкладка "Политики" появилась в Магазине после обновления 06.07.2026 (Бюро политик) —
 // продаёт осколки/тайные политики (id 16-29, см. config/items.json), реализовано по
@@ -116,7 +117,8 @@ function PolicyShopCard({ item, onBought, balances }: { item: PivotedItem; onBou
 
   const meta = ITEMS_BY_ID[item.item_id] ?? null;
   const color = RARITY_COLOR[meta ? rarityFromTag(meta.tag) : 'common'];
-  const name = meta?.name ?? `Предмет #${item.item_id}`;
+  const catalog = useItemCatalog();
+  const name = itemName(item.item_id, catalog);
 
   const eligibleAccounts = item.accounts.filter(acc => {
     if (acc.error) return false;

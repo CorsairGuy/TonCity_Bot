@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api';
+import { ITEMS_BY_ID } from '../utils';
 
 // Каталог предметов игры (id → тип/имя/редкость), который бот забирает из /storage/allitemdata и
 // кэширует на сервере (см. src/utils/itemCatalog.js). Нужен, чтобы новые предметы — билеты,
 // летний/алмазный набор, камни реформ, чертёж — показывались названием и картинкой, а не «#40»:
 // их id заранее не известны и меняются от события к событию.
-export interface CatalogItem { item_id: number; type: string | null; name: string | null; rarity: string | null }
+// title — готовое русское название из локализации игры (бот достаёт её из бандла, utils/itemLocale.js).
+export interface CatalogItem { item_id: number; type: string | null; name: string | null; rarity: string | null; title?: string | null }
 
 let cache: Map<number, CatalogItem> | null = null;
 let pending: Promise<Map<number, CatalogItem>> | null = null;
@@ -66,6 +68,7 @@ const TYPE_RU: Record<string, string> = {
 
 export function catalogItemName(it: CatalogItem | undefined): string | null {
   if (!it) return null;
+  if (it.title) return it.title;
   const slug = it.name ?? '';
   if (!slug) return it.type ? (TYPE_RU[it.type] ?? it.type) : null;
   if (SIMPLE_RU[slug]) return SIMPLE_RU[slug];
@@ -81,8 +84,22 @@ export function catalogItemName(it: CatalogItem | undefined): string | null {
   }
 }
 
+// Название предмета по id для любой страницы: сначала название из локализации игры (каталог бота),
+// затем статическая таблица клиента, затем имя, собранное из слага; «Предмет #id» — только если
+// предмет неизвестен вообще. Читает уже загруженный каталог — страница, которой нужны свежие
+// названия, вызывает useItemCatalog(), чтобы перерисоваться после его загрузки.
+export function knownItemName(itemId: number | null | undefined, catalog?: Map<number, CatalogItem>): string | null {
+  if (itemId == null) return null;
+  const it = (catalog ?? cache)?.get(Number(itemId));
+  return it?.title ?? ITEMS_BY_ID[Number(itemId)]?.name ?? catalogItemName(it);
+}
+export function itemName(itemId: number | null | undefined, catalog?: Map<number, CatalogItem>): string {
+  if (itemId == null) return 'Предмет';
+  return knownItemName(itemId, catalog) ?? `Предмет #${itemId}`;
+}
+
 // Иконку для неизвестного предмета отдаёт сам бот: он скачал её из ассетов игры при обновлении
-// каталога (src/items/live/<id>.png раздаётся как /items/live/<id>.png).
+// каталога (items-live/<id>.png в корне проекта раздаётся как /items/live/<id>.png).
 export function catalogItemImg(itemId: number): string {
   return `/items/live/${itemId}.png`;
 }

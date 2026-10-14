@@ -91,10 +91,13 @@ function normalize(raw){
   return entries.map(([key,it])=>{
     const id=Number(it.item_id??it.id??key);
     if(!Number.isFinite(id))return null;
+    // у остальных видов (осколки, тайные политики, расходники) слаг лежит в одноимённом вложенном
+    // объекте — разбираем теми же правилами, что и одиночный ответ (normalizeSingle)
+    const nested=(!it.name&&!it.booster&&!it.booster_pack)?normalizeSingle(it,id):null;
     return{
       item_id:id,
-      type:it.type||(it.booster?'booster':it.booster_pack?'booster_pack':null),
-      name:it.name||it.booster?.rarity||it.booster_pack?.type||null,
+      type:it.type||(it.booster?'booster':it.booster_pack?'booster_pack':null)||nested?.type||null,
+      name:it.name||it.booster?.rarity||it.booster_pack?.type||nested?.name||null,
       rarity:it.rarity||it.booster?.rarity||it.booster_pack?.type||null,
     };
   }).filter(Boolean);

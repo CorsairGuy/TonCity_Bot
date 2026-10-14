@@ -10,7 +10,7 @@ import {
 import { ITEMS_BY_ID, itemImgSrc, fmt, fmtInt } from '../utils';
 import { ItemThumb } from '../components/ItemThumb';
 import { RARITY_COLOR } from '../components/PolicyCardModal';
-import { useItemCatalog, catalogItemName, type CatalogItem } from '../hooks/useItemCatalog';
+import { useItemCatalog, itemName, type CatalogItem } from '../hooks/useItemCatalog';
 import { RenownValue } from '../components/Icons';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
@@ -107,14 +107,16 @@ const TIER_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
 function ItemChip({ itemId, quantity, size = 44 }: { itemId: number; quantity: number; size?: number }) {
   const meta = ITEMS_BY_ID[itemId];
+  const catalog = useItemCatalog();
+  const name = itemName(itemId, catalog);
   return (
-    <Tooltip text={meta?.name ?? `#${itemId}`} direction="n" noDelay>
-      <div className="item-card" aria-label={meta?.name ?? `#${itemId}`}>
+    <Tooltip text={name} direction="n" noDelay>
+      <div className="item-card" aria-label={name}>
         <div className={`item-card__box${meta ? ` ic-${meta.tag}` : ' ic-common'}`} style={{ width: size, height: size }}>
           {meta
             ? <img className="item-card__img" src={itemImgSrc(meta.tag)} alt="" style={{ height: size }}
                 onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
-            : <span style={{ fontSize: 9 }}>#{itemId}</span>}
+            : <ItemThumb itemId={itemId} item={catalog.get(itemId)} size={size} style={{ fontSize: 9 }} />}
           <span className="item-card__count">{quantity}</span>
         </div>
       </div>
@@ -516,7 +518,7 @@ function resetIn(iso: string | null): string {
 }
 
 function skuName(sku: AuditoriumSku, catalog: Map<number, CatalogItem>): string {
-  return ITEMS_BY_ID[sku.item_id]?.name ?? catalogItemName(catalog.get(sku.item_id)) ?? `Предмет #${sku.item_id}`;
+  return itemName(sku.item_id, catalog);
 }
 
 function SkuIcon({ sku, catalog, size }: { sku: AuditoriumSku; catalog: Map<number, CatalogItem>; size: number }) {

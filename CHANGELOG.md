@@ -14,6 +14,13 @@
 
 ---
 
+## 2026-10-14 — Названия предметов из игры, удалена src/items/live
+- `src/items/live/` удалена: иконки по id с 13.10 качаются в `items-live/` в корне (`utils/itemCatalog.js`), `/items/live` раздаётся оттуда (`web/server.js`), из кода старую папку никто не читал. В `.gitignore`/`.dockerignore` упоминаний `src/items/live` не было.
+- Новый `utils/itemLocale.js`: раз в сутки берёт с `game.toncity.io` свежий `entry-*.js` и вынимает из ru-локали разделы `boosters`, `booster_packs`, `policy_shards`, `mystery_policies`, `consumables`, `masterplans/components/snowflakes/tickets`, а из `chunks/storage-*.js` — полный справочник id→{name,type} (сейчас 0–42, без 30). Кэш — `config/items-locale.json`. `/api/items` склеивает справочник с каталогом аккаунтов и отдаёт каждому предмету готовое `title` (название собирается как в игре: «Редкий ускоритель», «Летний набор», «Редкий набор политик»…).
+- `itemCatalog.normalize`: у осколков/тайных политик/расходников слаг ищется во вложенном объекте (как в `normalizeSingle`).
+- Панель: `itemName`/`knownItemName` в `hooks/useItemCatalog.ts`, вместо «#id»/«Предмет #id» теперь название из игры в складской модалке (выпавшие награды, цель набора), массовых действиях, магазине политик, лотах/сделках рынка, снайпах, технофабрике и аудиториуме. «Предмет #id» остаётся, только если предмета нет нигде.
+- На проде первая загрузка `/api/items` после деплоя ждёт скачивания бандла (≈2 МБ), дальше обновление в фоне.
+
 ## 2026-10-14 — Вечный аудиториум: витрина и обмен Почёта на предметы
 - Реверс свежего бандла (`entry-*.js` → `timelessAuditorium`, `chunks/timeless_auditorium-*.js`): у игры три эндпоинта — `GET /timeless-auditorium/status` (условия входа + `in_guild`/`has_auditorium`), `GET /timeless-auditorium/catalog` (`{balance,lifetime_earned,tiers[],sections[{key,skus[]}]}`, только открытым аккаунтам), `POST /timeless-auditorium/buy {sku:code}` → `{balance,limits,purchasable}`. Эндпоинта `/enter`, который звала панель, у игры нет — роут и кнопка «Войти» удалены.
 - `modules/guildBuildings.js runAuditorium`: гейт `hasBuilding('auditorium_level')` убран (как у технофабрики: `guild_special_buildings` видит только лидер/офицер), `/status` зовётся всем, `/catalog` — только при `unlocked`. В `auditorium_status` новые колонки `in_guild`, `has_auditorium`, `catalog LONGTEXT` (миграции `ALTER TABLE`).

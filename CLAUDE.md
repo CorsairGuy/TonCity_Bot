@@ -86,7 +86,7 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 - **Панель:** статус `GET /api/maintenance` (`{active,since,retryInMs}`), баннер `components/MaintenanceBanner.tsx` лишь ОТОБРАЖАЕТ состояние (опрос раз в 5 минут), детект от него не зависит.
 
 ### Утилиты `src/utils/`
-`logger.js` (winston, `logs/bot*.log`), `helpers.js` (`sleep`, `sleepUntilUtcMidnight`), `lock.js` (`apiLock`), `botState.js` (`bot-state.json`: `isCityPaused/setCityPaused`), `maintenance.js` (автопауза техработ, см. выше), `itemCache.js`, `dailyStatus` (в модулях), `reqSign.js`/`wsSession.js` (подпись и WS, см. выше), `telegram.js` (`sendToMainThread`), `accountLoops.js` (живой реестр `clients` для общих циклов и запуск циклов для аккаунта, добавленного на работающем боте; удаление аккаунта вычищает его из реестра), `satoshi*.js`/`gramPrice.js`/`candleAggregator.js` (Башня Сатоши), решатели мини-игр карнавала (`connectFour`, `battleship`, `dotsAndBoxes`, `pentago`, `quoridor`).
+`logger.js` (winston, `logs/bot*.log`), `helpers.js` (`sleep`, `sleepUntilUtcMidnight`), `lock.js` (`apiLock`), `botState.js` (`bot-state.json`: `isCityPaused/setCityPaused`), `maintenance.js` (автопауза техработ, см. выше), `itemCache.js`, `dailyStatus` (в модулях), `reqSign.js`/`wsSession.js` (подпись и WS, см. выше), `telegram.js` (`sendToMainThread`), `itemCatalog.js` (каталог предметов из `/storage/allitemdata` → `config/items-live.json`, иконки → `items-live/` в корне, раздаются как `/items/live`), `itemLocale.js` (русские названия предметов и справочник id→{name,type} прямо из бандла игры → `config/items-locale.json`, раз в сутки; `/api/items` отдаёт готовое `title`), `accountLoops.js` (живой реестр `clients` для общих циклов и запуск циклов для аккаунта, добавленного на работающем боте; удаление аккаунта вычищает его из реестра), `satoshi*.js`/`gramPrice.js`/`candleAggregator.js` (Башня Сатоши), решатели мини-игр карнавала (`connectFour`, `battleship`, `dotsAndBoxes`, `pentago`, `quoridor`).
 
 ---
 
@@ -167,6 +167,8 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 Меню (сайдбар, группы): Аккаунты, Инвентарь, **Федеральный Резерв**(Стейкинг), **Павильон удачи**(Фортуна), **Оплот Мудрости**(Вордли/Сапёр/Судоку/Викторина), **Профиль**(Путь Мэра/Достижения/Промокоды), Строители, МИД, Гильдии, **Сфера миссий**(Дорога верности/Квесты), Столицы, Города, Аудиториум, Фабрика, **Задания**(Ежедневный вход/реклама), **Мэрия**(Распределение/Политика/Разнообразие), **Магазин**(Ускорители/Наборы), **Центральный рынок**(Лоты/Листинги/Статистика/Покупки/Продажи), Настройки, Логи. Хидер убран; `--header-h:0`.
 
 Ключевые страницы: `Accounts`, `Inventory`+`StorageModal` (склад live: продажа/актив/комбо/открытие паков с показом выпавшего), `Reserve` (стейкинг), `Fortune`, мини-игры, `Plans` (референсы города/столицы), `CityMapEditor`+`MapEditor` (canvas-редактор карты), `City`/`CityMap`, `Capitals`, `Mid`, `Guilds`, `MarketStats/MarketLots/MarketDeals`, `DailyAds`, `Loyalty`, `Quests`, `Settings`, `Logs`.
+
+Название предмета по id на любой странице — `itemName(id, catalog)`/`knownItemName` из `hooks/useItemCatalog.ts` (локализация игры → `ITEMS_BY_ID` → слаг → «Предмет #id»), страница вызывает `useItemCatalog()`, чтобы перерисоваться после загрузки каталога.
 
 Утилиты формата `src/web/client/src/utils.ts`: `fmt` (сокращения K/M/B/T), `fmtInt` (точное целое, разделение тысяч — баланс алмазов), `fmtCr` (дробное до 1 знака — прибыль в алмазах), `fmtDate`, `fmtPop`, `sortByName`. API-обёртка — `src/web/client/src/api.ts`.
 
