@@ -60,14 +60,12 @@ export function VersionBadge() {
 
   return (
     <>
-      {/* есть обновление или ошибка — у карточки своя заметная рамка, разделитель над ней лишний */}
-      {!pinnedToBottom && !v.error && <div className="nav-separator" />}
       {/* карточка ровно по ширине пунктов меню (nav-item): те же края, радиус 9px и внутренний
           отступ 8px с рамкой (7+1), поэтому текст и иконки стоят на одной вертикали с «Логи»/«Настройки» */}
       {/* есть что ставить (или уже ставится) — карточка прилипает к низу меню и видна при любой
           прокрутке; иначе стоит на своём месте после «Настроек» */}
-      <div className={pinnedToBottom ? 'version-dock' : undefined}>
-      <Box sx={{ mb: 2, px: '7px', py: '8px', borderRadius: '9px', border: '1px solid', borderColor: 'border.muted', bg: 'canvas.subtle',
+      <div className={pinnedToBottom ? 'version-dock' : undefined} style={pinnedToBottom ? undefined : { marginTop: 8 }}>
+      <Box sx={{ px: '7px', py: '8px', borderRadius: '9px', border: '1px solid', borderColor: 'border.muted', bg: 'canvas.subtle',
         fontSize: '12px', lineHeight: '18px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', height: 20 }}>
           <Text sx={{ fontSize: '14px', fontWeight: 'semibold', color: 'fg.default' }}>Версия</Text>
