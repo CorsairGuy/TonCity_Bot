@@ -7,7 +7,8 @@ import { ITEMS_BY_ID } from '../utils';
 // летний/алмазный набор, камни реформ, чертёж — показывались названием и картинкой, а не «#40»:
 // их id заранее не известны и меняются от события к событию.
 // title — готовое русское название из локализации игры (бот достаёт её из бандла, utils/itemLocale.js).
-export interface CatalogItem { item_id: number; type: string | null; name: string | null; rarity: string | null; title?: string | null }
+// tag — имя файла иконки в src/items (/items/<tag>.png), тот же тег, что и в ITEMS_BY_ID.
+export interface CatalogItem { item_id: number; type: string | null; name: string | null; rarity: string | null; title?: string | null; tag?: string | null }
 
 let cache: Map<number, CatalogItem> | null = null;
 let pending: Promise<Map<number, CatalogItem>> | null = null;
@@ -98,31 +99,16 @@ export function itemName(itemId: number | null | undefined, catalog?: Map<number
   return knownItemName(itemId, catalog) ?? `Предмет #${itemId}`;
 }
 
-// Иконку для неизвестного предмета отдаёт сам бот: он скачал её из ассетов игры при обновлении
-// каталога (items-live/<id>.png в корне проекта раздаётся как /items/live/<id>.png).
-export function catalogItemImg(itemId: number): string {
-  return `/items/live/${itemId}.png`;
+// Иконка предмета — /items/<тег>.png. Тег отдаёт бот в каталоге (utils/itemCatalog.js tagOf), он же
+// докачивает туда недостающие картинки из ассетов игры; для известных предметов тег есть и в ITEMS_BY_ID.
+export function catalogItemImg(itemId: number, it?: CatalogItem): string | null {
+  const tag = it?.tag ?? cache?.get(itemId)?.tag ?? ITEMS_BY_ID[itemId]?.tag;
+  return tag ? `/items/${tag}.png` : null;
 }
 
-// Часть картинок новых предметов уже лежит в src/items под слагом игры (скачаны заранее:
-// crystal/summer наборы, blueprint_tome, reform_stone_*, eternal ускоритель) — используем их как
-// запасной вариант, если бот ещё не успел обновить каталог и докачать иконку по id.
-export function catalogItemImgBySlug(it: CatalogItem | undefined): string | null {
-  const slug = it?.name;
-  if (!slug) return null;
-  if (it?.type === 'booster' && slug === 'eternal') return '/items/eternal_booster.png';
-  return `/items/${slug}.png`;
-}
-
-// <img> с цепочкой запасных адресов: сначала иконка по id, затем по слагу, иначе прячемся.
 export function itemImgProps(itemId: number, it: CatalogItem | undefined) {
-  const fallback = catalogItemImgBySlug(it);
   return {
-    src: catalogItemImg(itemId),
-    onError: (e: React.SyntheticEvent<HTMLImageElement>) => {
-      const img = e.target as HTMLImageElement;
-      if (fallback && !img.dataset.fallbackTried) { img.dataset.fallbackTried = '1'; img.src = fallback; return; }
-      img.style.display = 'none';
-    },
+    src: catalogItemImg(itemId, it) ?? '',
+    onError: (e: React.SyntheticEvent<HTMLImageElement>) => { (e.target as HTMLImageElement).style.display = 'none'; },
   };
 }

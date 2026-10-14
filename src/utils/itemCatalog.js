@@ -4,18 +4,14 @@
 // Зачем: id новых предметов мы заранее не знаем (игра добавляет их с каждым событием — билеты,
 // летний/алмазный набор, камни реформ, чертёж), а панель показывала такие награды как «#40».
 // Спрашиваем каталог у самой игры (GET /storage/allitemdata) и складываем в config/items-live.json,
-// иконки качаем из ассетов игры в items-live/<item_id>.png (раздаётся как /items/live, см. server.js).
+// иконки качаем из ассетов игры в src/items/<тег>.png (раздаётся как /items, см. server.js).
 //
-// 13.10.2026: раньше иконки качались в src/items/live/ — это ПОД src/, которую nodemon отслеживает
-// (watch:["src",".env"], legacyWatch:true — полный опрос файлов, нужен из-за сетевого диска). Новый
-// файл под src/ заставляет nodemon перезапустить весь процесс бота — при докачке иконки НОВОГО
-// предмета (появляется только с обновлениями игры, редко) это била бы настоящую перезагрузку панели
-// без видимой причины. Не основная причина частого зависания после рекламы+сапёра (это бывает
-// слишком часто для раз-в-полгода события) — но латентный баг сам по себе, поэтому вынесено не
-// дожидаясь локализации основной причины. Доказано датой файла: items/live/6.png докачан 04.10, на
-// 6 дней позже остальной партии от 27.09 — докачка реально происходит на лету в проде. Теперь
-// каталог иконок лежит в items-live/ (корень проекта, рядом с logs/config/db_data) — вне зоны
-// видимости nodemon, без изменения публичного URL (/items/live/<id>.png).
+// 14.10.2026: иконки лежат прямо в src/items/<тег>.png — там же, где и заранее скачанные, под тем же
+// тегом, что и в ITEMS_BY_ID клиента (rare, shard_rare, mystery_rare, policy_pack_rare,
+// eternal_booster…), и раздаются как /items/<тег>.png. Раньше докачка шла в src/items/live/<id>.png,
+// затем (13.10) в items-live/ в корне — из-за nodemon, который перезапускал бота на любой новый файл
+// под src/. В контейнере бот теперь запускается без nodemon (docker-compose.yml), а для
+// npm run dev папка src/items в nodemon.json игнорируется.
 //
 // Правила путей к картинкам сверены с бандлом (компонент иконки предмета):
 //   masterplan → /assets/masterplans/masterplan.png      component  → /assets/components/component.png
@@ -28,7 +24,7 @@ const https=require('https');
 const logger=require('./logger');
 
 const FILE=path.join(process.cwd(),'config','items-live.json');
-const ICON_DIR=path.join(process.cwd(),'items-live');
+const ICON_DIR=path.join(__dirname,'..','items');
 const BASE='https://game.toncity.io';
 const TTL_MS=12*60*60*1000;
 let inFlight=null,cache=null,cacheAt=0;
@@ -46,6 +42,21 @@ function assetPath(it){
     case 'consumable':return `/assets/consumables/${n}.png`;
     case 'booster':return `/assets/boosters/${n}.png`;
     default:return `/assets/${n}.png`;
+  }
+}
+
+// Тег картинки предмета — тот же, что в ITEMS_BY_ID клиента (web/client/src/utils.ts): по нему
+// файл и лежит в src/items. Слаги разных видов совпадают (rare у ускорителя, осколка и тайной
+// политики), поэтому к ним добавляется приставка вида. null — собрать тег не из чего.
+function tagOf(it){
+  const n=it?.name||'';
+  switch(it?.type){
+    case 'booster':return n?(n==='eternal'?'eternal_booster':n):null;
+    case 'booster_pack':return n?(n.startsWith('policy_')?`policy_pack_${n.slice(7)}`:n):null;
+    case 'policy_shard':return n?`shard_${n.replace(/^shard_/,'')}`:null;
+    case 'mystery_policy':return n?`mystery_${n.replace(/^mystery_/,'')}`:null;
+    case 'masterplan':case 'component':case 'snowflake':case 'ticket':return it.type;
+    default:return n&&/^[a-z0-9_]+$/.test(n)?n:null;
   }
 }
 
@@ -103,15 +114,16 @@ function normalize(raw){
   }).filter(Boolean);
 }
 
-// картинки качаем только для тех предметов, которых ещё нет локально
+// картинки качаем только для тех предметов, которых ещё нет в src/items
 async function fetchIcons(items){
   try{fs.mkdirSync(ICON_DIR,{recursive:true});}catch(_){}
   let got=0;
   for(const it of items){
-    const dest=path.join(ICON_DIR,`${it.item_id}.png`);
-    if(fs.existsSync(dest))continue;
     // без слага путь к картинке собрать не из чего — игра ответит 403 на .../null.png
-    if(!it.name&&!['masterplan','component','snowflake','ticket'].includes(it.type||''))continue;
+    const tag=tagOf(it);
+    if(!tag)continue;
+    const dest=path.join(ICON_DIR,`${tag}.png`);
+    if(fs.existsSync(dest))continue;
     try{await download(BASE+assetPath(it),dest);got++;}
     catch(e){logger.warn(`[items] иконка ${it.item_id} (${it.type}/${it.name}): ${e.message}`);}
   }
@@ -193,4 +205,4 @@ async function ensureFresh(api){
   return inFlight;
 }
 
-module.exports={refresh,ensureFresh,read,ageMs};
+module.exports={refresh,ensureFresh,read,ageMs,tagOf,fetchIcons};

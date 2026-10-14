@@ -57,7 +57,7 @@ module.exports=function(app,ctx){
         const b=byId.get(it.item_id);
         byId.set(it.item_id,b?{...b,...Object.fromEntries(Object.entries(it).filter(([,v])=>v!=null))}:it);
       }
-      const items=[...byId.values()].sort((a,b)=>a.item_id-b.item_id).map(it=>({...it,title:itemLocale.titleOf(it)}));
+      const items=[...byId.values()].sort((a,b)=>a.item_id-b.item_id).map(it=>({...it,title:itemLocale.titleOf(it),tag:itemCatalog.tagOf(it)}));
       res.json({ok:true,items});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });

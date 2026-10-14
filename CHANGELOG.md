@@ -14,8 +14,9 @@
 
 ---
 
-## 2026-10-14 — Названия предметов из игры, удалена src/items/live
-- `src/items/live/` удалена: иконки по id с 13.10 качаются в `items-live/` в корне (`utils/itemCatalog.js`), `/items/live` раздаётся оттуда (`web/server.js`), из кода старую папку никто не читал. В `.gitignore`/`.dockerignore` упоминаний `src/items/live` не было.
+## 2026-10-14 — Названия предметов из игры, иконки в src/items, бот без nodemon
+- Бот в контейнере запускается обычным `node` (`docker-compose.yml`: `command` + `init: true`, монтирование `nodemon.json` убрано). Код теперь приходит через git, обновление — `git pull` и `docker compose restart bot`. Изменение compose применяется только `docker compose down && docker compose up -d`. `npm run dev` по-прежнему nodemon, `src/items` у него в игноре.
+- Иконки предметов: `src/items/<тег>.png` с тем же тегом, что в `ITEMS_BY_ID` (`itemCatalog.tagOf`: `rare`, `shard_rare`, `mystery_rare`, `policy_pack_rare`, `eternal_booster`…). Недостающие бот докачивает туда из ассетов игры (по каталогу аккаунтов и по справочнику из бандла). Маршрут `/items/live` и папки `src/items/live/`, `items-live/` больше не используются; `items-live/` на сервере можно удалить.
 - Новый `utils/itemLocale.js`: раз в сутки берёт с `game.toncity.io` свежий `entry-*.js` и вынимает из ru-локали разделы `boosters`, `booster_packs`, `policy_shards`, `mystery_policies`, `consumables`, `masterplans/components/snowflakes/tickets`, а из `chunks/storage-*.js` — полный справочник id→{name,type} (сейчас 0–42, без 30). Кэш — `config/items-locale.json`. `/api/items` склеивает справочник с каталогом аккаунтов и отдаёт каждому предмету готовое `title` (название собирается как в игре: «Редкий ускоритель», «Летний набор», «Редкий набор политик»…).
 - `itemCatalog.normalize`: у осколков/тайных политик/расходников слаг ищется во вложенном объекте (как в `normalizeSingle`).
 - Панель: `itemName`/`knownItemName` в `hooks/useItemCatalog.ts`, вместо «#id»/«Предмет #id» теперь название из игры в складской модалке (выпавшие награды, цель набора), массовых действиях, магазине политик, лотах/сделках рынка, снайпах, технофабрике и аудиториуме. «Предмет #id» остаётся, только если предмета нет нигде.

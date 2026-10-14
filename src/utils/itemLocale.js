@@ -15,7 +15,7 @@
 //   consumables{types{<slug>}}                        → «Камень реформ (эпический)»
 //   masterplans/components/snowflakes/tickets{name}   → «Мастерплан», «Компонент», …
 // Заодно берём справочник id→{name,type} из chunks/storage-*.js (см. extractItems).
-// Кэш — config/items-locale.json (вне src/, чтобы nodemon не перезапускал бота).
+// Кэш — config/items-locale.json. Недостающие иконки справочника докачиваются в src/items (itemCatalog.fetchIcons).
 const fs=require('fs'),path=require('path');
 const https=require('https');
 const logger=require('./logger');
@@ -154,6 +154,10 @@ async function refresh(){
   const data={entry,updated_at:new Date().toISOString(),sections:loc,items};
   fs.writeFileSync(FILE,JSON.stringify(data,null,1),'utf8');
   cache=data;
+  if(items){
+    try{const got=await require('./itemCatalog').fetchIcons(bundleItems());if(got)logger.info(`[items] скачано иконок по справочнику игры: ${got}`);}
+    catch(e){logger.warn(`[items] иконки по справочнику: ${e.message}`);}
+  }
   logger.info(`[items] локализация предметов из бандла игры обновлена (${entry}, разделов: ${n}, предметов в справочнике: ${items?Object.keys(items).length:0})`);
   return data;
 }
