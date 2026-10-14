@@ -6,7 +6,7 @@
 //   sha-<коммит> — закреплённая сборка. Для плавающих каналов считаем, сколько новых коммитов и
 //   собран ли уже образ (.github/workflows/docker.yml), для закреплённых — есть ли релизы новее.
 // Лимит GitHub без токена — 60 запросов/час на IP, поэтому ответ кэшируется на CACHE_MS,
-// ручная проверка — не чаще раза в MIN_FORCE_MS.
+// ручная проверка идёт на GitHub всегда, кроме повторного клика в пределах MIN_FORCE_MS.
 const fs=require('fs');
 const path=require('path');
 const axios=require('axios');
@@ -16,7 +16,7 @@ const{currentTag}=require('./selfUpdate');
 const REPO=process.env.UPDATE_REPO||'CorsairGuy/TonCity_Bot';
 const ROOT=path.resolve(__dirname,'..','..');
 const CACHE_MS=30*60*1000;
-const MIN_FORCE_MS=60*1000;
+const MIN_FORCE_MS=10*1000;      // ручная проверка: условные запросы с ETag (304) лимит GitHub не тратят
 const GH='https://api.github.com/repos/'+REPO;
 const REPO_URL='https://github.com/'+REPO;
 const WORKFLOW='.github/workflows/docker.yml';
@@ -170,10 +170,11 @@ async function check(){
   return out;
 }
 
-// force — ручная проверка из панели (кэш игнорируется, но не чаще MIN_FORCE_MS)
+// force — ручная проверка из панели: кэш (и ошибочный тоже) игнорируется, если ему больше
+// MIN_FORCE_MS. Ответ из кэша помечается cached:true, чтобы панель не выдавала его за свежую проверку.
 async function getVersionInfo({force=false,maxAge=CACHE_MS}={}){
   const age=Date.now()-cacheAt;
-  if(cache&&(age<Math.min(maxAge,cacheTtl))&&!(force&&age>=MIN_FORCE_MS))return cache;
+  if(cache&&(age<Math.min(maxAge,cacheTtl))&&!(force&&age>=MIN_FORCE_MS))return{...cache,cached:true};
   if(inFlight)return inFlight;
   inFlight=check().then(v=>{
     cache=v;cacheAt=Date.now();

@@ -3,7 +3,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { Box, Text, Link, Label, ConfirmationDialog, Spinner } from '@primer/react';
 import { SyncIcon, PinIcon, GitBranchIcon, TagIcon, DownloadIcon } from '@primer/octicons-react';
 import { api, VersionInfo } from '../api';
-import { useSelfUpdate } from '../hooks/useSelfUpdate';
+import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
 
 // Плашка версии внизу меню: канал обновлений, текущий коммит, есть ли новее и кнопка обновления
@@ -12,6 +12,7 @@ import { useBuildState } from '../hooks/useBuildWatcher';
 export function VersionBadge() {
   const [v, setV] = useState<VersionInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const upd = useSelfUpdate();
   // обновление идёт на сервере (в т.ч. начатое с другой страницы/вкладки или автообновлением)
@@ -19,7 +20,14 @@ export function VersionBadge() {
 
   const load = async (force = false) => {
     setBusy(true);
-    try { const d = await api.version(force); if (d && d.ok) setV(d); } catch { /* панель офлайн — молчим */ }
+    if (force) setNote(null);
+    try {
+      const d = await api.version(force);
+      if (d && d.ok) {
+        setV(d);
+        if (force) { setNote(checkNote(d)); setTimeout(() => setNote(null), 6000); }
+      }
+    } catch { if (force) setNote('Панель не отвечает'); }
     finally { setBusy(false); }
   };
 
@@ -109,6 +117,7 @@ export function VersionBadge() {
             <DownloadIcon /><span>Обновить</span>
           </button>
         )}
+        {note && <Text sx={{ color: 'fg.subtle' }}>{note}</Text>}
         {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
         {v.error && <Text sx={{ color: 'attention.fg' }}>Нет связи с GitHub: {v.error}</Text>}
       </Box>

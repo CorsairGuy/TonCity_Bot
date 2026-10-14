@@ -2183,4 +2183,6 @@ export interface VersionInfo {
     last: { id: string; state: string; tag: string; message: string; at: string } | null };
   history?: { commit: string; ref: string | null; tag: string; at: string }[];
   checkedAt: number;
+  // ответ из кэша сервера (ручная проверка повторена раньше чем через 10 с)
+  cached?: boolean;
 }

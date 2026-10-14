@@ -8,7 +8,7 @@ import {
   SyncIcon, GitBranchIcon, TagIcon, PinIcon, HistoryIcon, ChevronDownIcon, ChevronRightIcon, LinkExternalIcon,
 } from '@primer/octicons-react';
 import { api, VersionInfo, UpdateRelease } from '../api';
-import { useSelfUpdate } from '../hooks/useSelfUpdate';
+import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 
 const SmallSpinner = () => <Spinner size="small" sx={{ width: 14, height: 14 }} />;
 
@@ -92,9 +92,17 @@ export function UpdatesCard() {
     else { setKind('pin'); setPin(ch.tag); }
   };
 
+  const [note, setNote] = useState<string | null>(null);
   const load = async (force = false) => {
     setLoading(true);
-    try { const d = await api.version(force); if (d && d.ok) { setV(d); if (!v) applyFrom(d); } } catch { /* офлайн */ }
+    if (force) setNote(null);
+    try {
+      const d = await api.version(force);
+      if (d && d.ok) {
+        setV(d); if (!v) applyFrom(d);
+        if (force) { setNote(checkNote(d)); setTimeout(() => setNote(null), 6000); }
+      }
+    } catch { if (force) setNote('Панель не отвечает'); }
     finally { setLoading(false); }
   };
 
@@ -292,6 +300,7 @@ export function UpdatesCard() {
           )}
           {upd.updating && <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}><Spinner size="small" /><Text sx={{ color: 'fg.muted' }}>Скачиваю образ и перезапускаю бота…</Text></Box>}
         </Box>
+        {note && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{note}</Text>}
         {upd.msg && <Flash variant="warning">{upd.msg}</Flash>}
 
         {/* релизы */}
