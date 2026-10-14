@@ -66,13 +66,23 @@ function timeLeftText(ms: number): string {
   return `${Math.max(0, m)}м`;
 }
 
-function AccountRow({ row, now, onClaimed }: { row: CivicDrawAccount; now: number; onClaimed: (result: unknown) => void }) {
+function AccountRow({ row, now, onClaimed, onRefresh }: { row: CivicDrawAccount; now: number; onClaimed: (result: unknown) => void; onRefresh: () => void }) {
   const [busy, setBusy] = useState(false);
   const { flash, showFlash } = useFlash();
+  // Игра ответила «ещё не готово» — значит наша ОЦЕНКА готовности врала. Гасим кнопку до прихода
+  // новых данных по этому аккаунту, иначе получался цикл: клиентский прогноз снова включает
+  // кнопку → снова та же ошибка. Сбрасываем, как только строка реально обновится с сервера.
+  const [serverSaysNotReady, setServerSaysNotReady] = useState(false);
+  useEffect(() => { setServerSaysNotReady(false); }, [row]);
   const drawsReady = row.draws_ready ?? 0;
   const readyAtMs = row.ready_at ? new Date(row.ready_at).getTime() : null;
   const readyByForecast = readyAtMs != null && now >= readyAtMs;
-  const ready = row.claimable || drawsReady > 0 || readyByForecast;
+  // Готовность: живой флаг игры ЛИБО наступивший прогноз ready_at. Прогноз снова участвует —
+  // после починки формулы в modules/townhall.js он честный (раньше при накопленном draws_ready>=1
+  // он давал «готово прямо сейчас», из-за чего кнопка долбила игру одним и тем же отказом).
+  // ВАЖНО: сырой draws_ready в условие НЕ входит — именно он приходит равным 1 при claimable:false.
+  // Если прогноз всё же ошибётся, serverSaysNotReady погасит кнопку после первого отказа.
+  const ready = !serverSaysNotReady && (!!row.claimable || readyByForecast);
   // прогресс-бар: реальный draw_progress НА МОМЕНТ снимка, экстраполированный вперёд по прошедшему
   // времени × скорости (draws_per_day) — тикает вживую между синками, не трогая прогноз ready_at
   // (используется только для готовности/обратного отсчёта). ВАЖНО: раньше бар считал долю пути
@@ -91,7 +101,13 @@ function AccountRow({ row, now, onClaimed }: { row: CivicDrawAccount; now: numbe
     try {
       const r = await api.policyAction(row.account_id, 'civic-draw-claim');
       if (r.ok) { showFlash('Получено', true); onClaimed(r.result); }
-      else showFlash(r.error ?? 'Ошибка', false);
+      else {
+        // сервер на отказе уже переспросил игру и обновил снимок в БД — подтягиваем его, иначе
+        // страница осталась бы со старым «готово: 1» и той же кнопкой (см. web/routes/policies.js)
+        setServerSaysNotReady(true);
+        showFlash(r.error ?? 'Ошибка', false);
+        onRefresh();
+      }
     } catch (e) { showFlash(String(e), false); }
     finally { setBusy(false); }
   };
@@ -141,6 +157,11 @@ export function CivicDraw() {
   // тикает раз в минуту, чтобы "готово"/прогресс/обратный отсчёт по прогнозу (ready_at) обновлялись
   // вживую между синками бота, без нажатия "Обновить"
   const [now, setNow] = useState(() => Date.now());
+  // Аккаунты, по которым игра ЯВНО ответила «ещё не готово». Наша оценка готовности (draws_ready из
+  // снимка + экстраполяция ready_at) может врать — и тогда получался цикл: кнопка снова активна →
+  // снова тот же отказ. Для таких аккаунтов до конца сессии страницы верим ТОЛЬКО живому
+  // claimable из снимка, игнорируя оценку. Сбрасывается кнопкой «Обновить» и успешным сбором.
+  const [denied, setDenied] = useState<Set<string>>(new Set());
   const { flash, showFlash } = useFlash();
 
   const load = async (silent = false) => {
@@ -155,7 +176,7 @@ export function CivicDraw() {
 
   const refresh = async () => {
     setRefreshing(true);
-    try { await api.refresh('townhall' as Parameters<typeof api.refresh>[0]); await load(true); showFlash('Обновлено', true); }
+    try { setDenied(new Set()); await api.refresh('townhall' as Parameters<typeof api.refresh>[0]); await load(true); showFlash('Обновлено', true); }
     catch (e) { showFlash(String(e), false); }
     finally { setRefreshing(false); }
   };
@@ -174,6 +195,9 @@ export function CivicDraw() {
         const flashMsg = `Собрано с ${r.succeeded}/${r.total} аккаунтов` + (failed.length && failed[0].error ? ` (${failed[0].error})` : '');
         showFlash(flashMsg, (r.succeeded ?? 0) > 0);
         setLastResults(results.map(x => ({ account: x.account, result: x.result, error: x.ok ? undefined : (x.error ?? 'Ошибка') })));
+        // аккаунты, которым игра отказала, гасим до явного «Обновить» — страховка от повторного
+        // клика по тому же обречённому сбору, даже если снимок почему-то остался прежним
+        setDenied(prev => { const s = new Set(prev); for (const x of failed) s.add(x.account); return s; });
         await load(true);
       } else showFlash(r.error ?? 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); }
@@ -186,7 +210,10 @@ export function CivicDraw() {
   if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
 
   const sorted = [...accounts].sort((a, b) => a.account.localeCompare(b.account, 'ru', { numeric: true }));
-  const isReady = (a: CivicDrawAccount) => a.claimable || (a.draws_ready ?? 0) > 0 || (a.ready_at != null && now >= new Date(a.ready_at).getTime());
+  // то же правило, что и в строке аккаунта: живой claimable ЛИБО наступивший прогноз ready_at
+  // (сырой draws_ready намеренно не участвует — он бывает 1 при claimable:false, см. AccountRow)
+  const isReady = (a: CivicDrawAccount) =>
+    !denied.has(a.account) && (!!a.claimable || (a.ready_at != null && now >= new Date(a.ready_at).getTime()));
   const readyCount = sorted.filter(isReady).length;
 
   return (
@@ -250,6 +277,7 @@ export function CivicDraw() {
             <AccountRow
               key={row.account_id} row={row} now={now}
               onClaimed={result => { setLastResults([{ account: row.account, result }]); load(true); }}
+              onRefresh={() => load(true)}
             />
           ))}
     </Box>

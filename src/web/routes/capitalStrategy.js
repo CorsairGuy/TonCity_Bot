@@ -76,7 +76,7 @@ module.exports=function(app,ctx){
       const{CapitalSnapshot,CapitalStrategy}=require('../../db/index');
       const snap=await CapitalSnapshot.findOne({where:{guild_title:req.params.guildTitle}});
       if(!snap?.guild_id)return res.json({ok:true,targets:[],queue:[]});
-      const row=await CapitalStrategy.findOne({where:{guild_id:snap.guild_id}});
+      const row=await CapitalStrategy.findOne({where:{guild_id:snap.guild_id},order:[['id','DESC']]});
       let targets=[],queue=[];
       if(row?.targets){try{targets=JSON.parse(row.targets)||[];}catch(_){}}
       if(row?.queue){try{queue=JSON.parse(row.queue)||[];}catch(_){}}
@@ -221,7 +221,7 @@ module.exports=function(app,ctx){
       if(r?.coins!==undefined){
         try{
           const{CapitalStrategy}=require('../../db/index');
-          const row=await CapitalStrategy.findOne({where:{guild_id:guildId}});
+          const row=await CapitalStrategy.findOne({where:{guild_id:guildId},order:[['id','DESC']]});
           const patch={};
           if(row?.targets){
             const arr=JSON.parse(row.targets);

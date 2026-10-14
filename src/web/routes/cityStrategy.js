@@ -6,7 +6,7 @@ const cityLive=require('../../utils/cityLive');
 
 // Действия по городу (страница "Города" → "Карта" → редактор карты, см. client/src/pages/CityMap.tsx)
 // — заменяет автоматику по эталонному плану (см. modules/progress.js). Только цели улучшений
-// сохраняются (CityStrategy.targets) — их читает уже существующий цикл ожидания строителей.
+// сохраняются (city_upgrade_target) — их читает уже существующий цикл ожидания строителей.
 // Строительство/перемещение/снос/реконструкция/реновация — разовые живые действия, клетку выбирает
 // пользователь кликом на реальной карте аккаунта, никуда не сохраняются.
 //
@@ -41,8 +41,14 @@ module.exports=function(app,ctx){
       const{CitySnapshot}=require('../../db/index');
       const prog=await api.get('/progress/');
       const buildings=Array.isArray(prog?.progress?.data?.buildings)?prog.progress.data.buildings:[];
-      const unlockedSections=Array.isArray(prog?.progress?.unlocked_sections)?prog.progress.unlocked_sections:[];
-      await CitySnapshot.upsert({account:name,buildings:JSON.stringify(buildings),unlocked_sections:JSON.stringify(unlockedSections),updated_at:new Date()},{conflictFields:['account']});
+      // список секций пишем ТОЛЬКО если игра его дала: "[]" означало бы «всё заперто» и карта
+      // нарисовала бы замки на всём городе (см. progress.js unlockedSectionsOf)
+      const rawSections=prog?.progress?.unlocked_sections;
+      const unlockedSections=Array.isArray(rawSections)?rawSections:null;
+      const row={account:name,buildings:JSON.stringify(buildings),updated_at:new Date()};
+      if(unlockedSections)row.unlocked_sections=JSON.stringify(unlockedSections);
+      await CitySnapshot.upsert(row,{conflictFields:['account']});
+      logger.info(`[${name}] [city-strategy] снимок: построек ${buildings.length}, секций ${unlockedSections?unlockedSections.length:'игра не прислала список'}`);
       cityLive.broadcast(name,buildings);
       return{buildings,unlockedSections};
     }catch(e){logger.warn(`[${name}] [city-strategy] resync: ${e.message}`);return null;}
@@ -123,27 +129,22 @@ module.exports=function(app,ctx){
   // критерии доступности построек — живой эндпоинт игры (GET /buildings/criteria, найден в бандле:
   // маршрут buildings.criteria в общей карте эндпоинтов), отдаёт настоящее условие покупки для
   // каждого здания (напр. нужное население) — вместо того чтобы угадывать пороги в своём статичном
-  // config/buildings.txt. Форма ответа пока не проверена вживую (нет доступа к живому аккаунту в
-  // этой среде) — логируем сырой JSON, чтобы свериться по логам бота, и отдаём как есть на клиент.
+  // config/buildings.txt.
   app.get('/api/city-strategy/:account/build-criteria',async(req,res)=>{
     try{
       const acc=await findAccountByName(req.params.account);
       const api=await makeApiForAccount(acc.id,{noLock:true});
       const d=await api.get('/buildings/criteria');
-      logger.info(`[${acc.name}] [city-strategy] /buildings/criteria: ${JSON.stringify(d)}`);
       res.json({ok:true,criteria:d});
     }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
 
+  // Планы лежат построчно (строка = клетка), см. db/cityPlans.js. Форма ответа осталась прежней
+  // (targets/queue/reconstructPlan), поэтому фронтенд не менялся.
   app.get('/api/city-strategy/:account',async(req,res)=>{
     try{
-      const{CityStrategy}=require('../../db/index');
-      const row=await CityStrategy.findOne({where:{account:req.params.account}});
-      let targets=[],queue=[],reconstructPlan=[];
-      if(row?.targets){try{targets=JSON.parse(row.targets)||[];}catch(_){}}
-      if(row?.queue){try{queue=JSON.parse(row.queue)||[];}catch(_){}}
-      if(row?.reconstruct_plan){try{reconstructPlan=JSON.parse(row.reconstruct_plan)||[];}catch(_){}}
-      res.json({ok:true,targets,queue,reconstructPlan});
+      const plans=await require('../../db/cityPlans').loadPlans(req.params.account);
+      res.json({ok:true,...plans});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
@@ -151,12 +152,8 @@ module.exports=function(app,ctx){
   // личным планом (targets) и общим планом по семействам, см. modules/progress.js
   app.post('/api/city-strategy/:account/queue',async(req,res)=>{
     try{
-      const{CityStrategy}=require('../../db/index');
       const queue=Array.isArray(req.body?.queue)?req.body.queue:[];
-      const clean=queue
-        .filter(q=>q&&q.x!=null&&q.y!=null)
-        .map(q=>({x:Number(q.x),y:Number(q.y)}));
-      await CityStrategy.upsert({account:req.params.account,queue:JSON.stringify(clean),updated_at:new Date()},{conflictFields:['account']});
+      await require('../../db/cityPlans').saveQueue(req.params.account,queue);
       try{
         const acc=await findAccountByName(req.params.account);
         const api=await makeApiForAccount(acc.id,{noLock:true});
@@ -172,12 +169,8 @@ module.exports=function(app,ctx){
   // достигнет required_lvl и не будет занято стройкой — пользователю не нужно возвращаться руками.
   app.post('/api/city-strategy/:account/reconstruct-plan',async(req,res)=>{
     try{
-      const{CityStrategy}=require('../../db/index');
       const plan=Array.isArray(req.body?.plan)?req.body.plan:[];
-      const clean=plan
-        .filter(p=>p&&p.x!=null&&p.y!=null)
-        .map(p=>({x:Number(p.x),y:Number(p.y)}));
-      await CityStrategy.upsert({account:req.params.account,reconstruct_plan:JSON.stringify(clean),updated_at:new Date()},{conflictFields:['account']});
+      await require('../../db/cityPlans').saveReconstruct(req.params.account,plan);
       require('../../utils/cityWake').wake(req.params.account);
       res.json({ok:true});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
@@ -204,20 +197,29 @@ module.exports=function(app,ctx){
       let activeTypeName=null;
       for(const r of rows)if(isStillActive(r)){activeTypeName=r.name;break;}
       const autoMap=new Map(settings.map(s=>[s.booster_name,!!s.enabled]));
+      const posMap=new Map(settings.map(s=>[s.booster_name,s.queue_pos]));
       const boosters=rows.map(r=>{
         const stillActive=isStillActive(r);
         return{
           name:r.name,
           label:items[r.name]?.name||r.name,
-          available:r.marketable??0,
+          // ВАЖНО: считаем и soulbound-экземпляры (locked). Ускоритель, полученный за билеты
+          // события, приходит непродаваемым — marketable=0, locked=1, — и панель показывала
+          // «В наличии: 0», не давая поставить его в очередь, хотя активировать его можно.
+          available:(r.marketable??0)+(r.locked??0),
           active_limit:r.booster_active_limit??0,
           currently_active:stillActive?(r.booster_currently_active??0):0,
           ends_at:stillActive?new Date(r.booster_active_until).getTime():null,
           blocked_by_other:activeTypeName!=null&&activeTypeName!==r.name,
           auto:autoMap.get(r.name)??false,
+          queue_pos:posMap.get(r.name)??null,
         };
       });
-      res.json({ok:true,boosters});
+      // очередь активации: строка = ОДИН экземпляр, повторы одного типа разрешены
+      const{BoosterQueue}=require('../../db/index');
+      const qrows=await BoosterQueue.findAll({where:{account:req.params.account},order:[['pos','ASC'],['id','ASC']]});
+      const queue=qrows.map(q=>({id:q.id,name:q.booster_name,label:items[q.booster_name]?.name||q.booster_name}));
+      res.json({ok:true,boosters,queue});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
@@ -258,6 +260,29 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  // Очередь активации: сохраняем ВЕСЬ порядок разом (массив имён ускорителей). Попадание в очередь
+  // = включённая автоактивация (enabled), позиция = индекс в массиве; всё, чего в массиве нет,
+  // из очереди выбывает (enabled=0). Такой «полный снимок» проще частичных правок: фронт всегда
+  // шлёт то, что видит пользователь, и рассинхрону взяться неоткуда.
+  app.put('/api/city-strategy/:account/boosters/queue',async(req,res)=>{
+    try{
+      const{BoosterQueue}=require('../../db/index');
+      const order=Array.isArray(req.body?.order)?req.body.order.map(String):null;
+      if(!order)return res.status(400).json({ok:false,error:'order (массив имён ускорителей) обязателен'});
+      const account=req.params.account;
+      // Полный снимок: удаляем всё и пишем заново по индексу. Повторы одного типа — норма (одно
+      // нажатие «В очередь» = +1 экземпляр), поэтому апсертить по имени нельзя, только пересоздавать.
+      await BoosterQueue.destroy({where:{account}});
+      const now=new Date();
+      for(let i=0;i<order.length;i++){
+        await BoosterQueue.create({account,booster_name:order[i],pos:i,created_at:now});
+      }
+      // будим цикл: очередь могла измениться так, что активировать надо прямо сейчас
+      try{require('../../utils/cityWake').wake(account);}catch(_){}
+      res.json({ok:true});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   // ручная активация — правило "currently_active<active_limit" сверено с бандлом игры
   // (chunks/storage1.js: кнопка "Активировать" задизейблена при обратном условии), сервер её тоже
   // применит сам, фронт лишь заранее отражает то же правило. После активации — resyncSnapshot
@@ -280,9 +305,12 @@ module.exports=function(app,ctx){
           const nextActive=(row.booster_currently_active??0)+1;
           const endMs=r?.end_time?new Date(r.end_time).getTime():null;
           const prevUntil=row.booster_active_until?new Date(row.booster_active_until).getTime():0;
+          // списываем сначала свободный экземпляр, а если их нет — непродаваемый (soulbound):
+          // событийные ускорители приходят именно такими (см. boosterAutomation.spendOne)
+          const free=row.marketable??0;
           await row.update({
             booster_currently_active:row.booster_active_limit!=null?Math.min(nextActive,row.booster_active_limit):nextActive,
-            marketable:Math.max(0,(row.marketable??0)-1),
+            ...(free>0?{marketable:free-1}:{locked:Math.max(0,(row.locked??0)-1)}),
             booster_active_until:endMs?new Date(Math.max(endMs,prevUntil)):row.booster_active_until,
           });
         }
@@ -311,24 +339,38 @@ module.exports=function(app,ctx){
     try{
       const acc=await findAccountByName(req.params.account);
       const api=await makeApiForAccount(acc.id,{noLock:true});
+      // Каталог берём локальный: он обновляется кнопкой «Обновить», а не при каждом открытии
+      // прогноза (см. utils/buildingCatalog.js). Страховка на случай отсутствия файла.
+      await require('../../utils/buildingCatalog').ensureExists(api).catch(()=>{});
       const{buildingsMap:cityBuildingsMap,computeCityStats}=require('../cityStats');
-      const{loadStrategy,loadGlobalPlan,loadGuildBonuses,loadPolicyEffects,loadConstructionBoostMods,simulateFutureActions}=require('../../modules/progress');
+      const{loadStrategy,loadGlobalPlan,loadGuildBonuses,loadPolicyEffects,loadConstructionBoostMods,loadBoosterTimeline,measureActualVsPredicted,simulateFutureActions}=require('../../modules/progress');
       const prog=await api.get('/progress/');
       const data=prog?.progress?.data||{};
       const current=Array.isArray(data.buildings)?data.buildings:[];
       const coins=data.coins||0;
       const buildingsMap=cityBuildingsMap();
-      const[{discount,additionalBuilder,reducedUpgradeTimes},{builderBonus:policyBuilderBonus,upgradeCostMultiplier,constructionTimeMultiplier},{targets,queue},globalPlan,booster]=await Promise.all([
-        loadGuildBonuses(api),loadPolicyEffects(api),loadStrategy(acc.name),loadGlobalPlan(),loadConstructionBoostMods(api,acc.name),
+      const[{discount,additionalBuilder,reducedUpgradeTimes},{builderBonus:policyBuilderBonus,upgradeCostMultiplier,constructionTimeMultiplier},{targets,queue},globalPlan,booster,boosterTimeline]=await Promise.all([
+        loadGuildBonuses(api),loadPolicyEffects(api),loadStrategy(acc.name),loadGlobalPlan(),loadConstructionBoostMods(api,acc.name),loadBoosterTimeline(api,acc.name),
       ]);
       const builders=(prog?.progress?.builders||1)+additionalBuilder+policyBuilderBonus;
       const stats=computeCityStats(current,buildingsMap);
       const cityProfitPerHour=stats?.profit||0; // прибыль/час — та же величина, что везде в проекте
-      // реальные бонусы на время улучшения — гильдийский (бонус от столицы) + политика +
-      // активный ускоритель (с учётом автопродления, см. loadConstructionBoostMods) — точно как в игре
-      const durationMods={reducedUpgradeTimes,constructionTimeMultiplier,booster};
+      // реальные бонусы на время улучшения — гильдийский (бонус от столицы) + политика + ускорители.
+      // boosterTimeline — ВСЯ очередь активации (текущий буст + запланированные, каждый со своим
+      // множителем и длительностью, см. loadBoosterTimeline). Если очереди нет, остаётся прежнее
+      // поведение: одно окно текущего ускорителя с автопродлением (loadConstructionBoostMods) —
+      // передавать оба сразу нельзя, иначе один и тот же запас посчитается дважды.
+      // ДИАГНОСТИКА, а не поправка: сверяем нашу формулу с фактическими start/end идущих строек.
+      // Автоматически домножать на это нельзя — стройки под ускорителем дают те же отклонения,
+      // что и ивентовый бонус, и разделить их задним числом нечем (см. measureActualVsPredicted).
+      const actualVsPredicted=measureActualVsPredicted(current,buildingsMap,{reducedUpgradeTimes,constructionTimeMultiplier},boosterTimeline);
+      const durationMods=boosterTimeline
+        ?{reducedUpgradeTimes,constructionTimeMultiplier,boosterTimeline}
+        :{reducedUpgradeTimes,constructionTimeMultiplier,booster};
       const events=simulateFutureActions(current,queue,targets,globalPlan,buildingsMap,discount,upgradeCostMultiplier,builders,coins,cityProfitPerHour,durationMods);
-      res.json({ok:true,events});
+      // отдаём и сами модификаторы: без них прогноз — чёрный ящик, и расхождение с игрой не с чем
+      // сверить. boosterTimeline — окна ускорителей, mods — гильдийское сокращение и множитель политик
+      res.json({ok:true,events,boosterTimeline:boosterTimeline||null,mods:{reducedUpgradeTimes,constructionTimeMultiplier},actualVsPredicted});
     }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
 
@@ -363,12 +405,8 @@ module.exports=function(app,ctx){
 
   app.post('/api/city-strategy/:account',async(req,res)=>{
     try{
-      const{CityStrategy}=require('../../db/index');
       const targets=Array.isArray(req.body?.targets)?req.body.targets:[];
-      const clean=targets
-        .filter(t=>t&&t.x!=null&&t.y!=null&&Number(t.target_level)>0)
-        .map(t=>({x:Number(t.x),y:Number(t.y),target_level:Math.floor(Number(t.target_level))}));
-      await CityStrategy.upsert({account:req.params.account,targets:JSON.stringify(clean),updated_at:new Date()},{conflictFields:['account']});
+      await require('../../db/cityPlans').saveTargets(req.params.account,targets);
       // сразу подтягиваем актуальную карту построек с живой игры — иначе таблица городов и карта
       // ещё какое-то время показывали бы старый снимок, дожидаясь планового цикла бота
       try{
@@ -405,7 +443,7 @@ module.exports=function(app,ctx){
     }catch(e){res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});}
   });
 
-  // ── Перемещение: разово. Цель улучшения привязана к клетке (см. CityStrategy.targets) — если на
+  // ── Перемещение: разово. Цель улучшения привязана к клетке (см. db/cityPlans.js) — если на
   // перемещаемой клетке была цель, переносим её координату вместе со зданием, иначе она стала бы
   // указывать в пустоту.
   app.post('/api/city-actions/:account/move',async(req,res)=>{
@@ -418,31 +456,8 @@ module.exports=function(app,ctx){
       await resyncSnapshot(api,acc.name);
       if(r?.coins!==undefined){
         try{
-          const{CityStrategy}=require('../../db/index');
-          const row=await CityStrategy.findOne({where:{account:acc.name}});
-          const patch={};
-          if(row?.targets){
-            const arr=JSON.parse(row.targets);
-            if(Array.isArray(arr)){
-              const t=arr.find(t=>Number(t.x)===Number(from.x)&&Number(t.y)===Number(from.y));
-              if(t){t.x=Number(to.x);t.y=Number(to.y);patch.targets=JSON.stringify(arr);}
-            }
-          }
-          if(row?.queue){
-            const arr=JSON.parse(row.queue);
-            if(Array.isArray(arr)){
-              const q=arr.find(q=>Number(q.x)===Number(from.x)&&Number(q.y)===Number(from.y));
-              if(q){q.x=Number(to.x);q.y=Number(to.y);patch.queue=JSON.stringify(arr);}
-            }
-          }
-          if(row?.reconstruct_plan){
-            const arr=JSON.parse(row.reconstruct_plan);
-            if(Array.isArray(arr)){
-              const p=arr.find(p=>Number(p.x)===Number(from.x)&&Number(p.y)===Number(from.y));
-              if(p){p.x=Number(to.x);p.y=Number(to.y);patch.reconstruct_plan=JSON.stringify(arr);}
-            }
-          }
-          if(Object.keys(patch).length){patch.updated_at=new Date();await row.update(patch);}
+          // цель/очередь/план реконструкции привязаны к клетке — переезжают вместе со зданием
+          await require('../../db/cityPlans').moveCell(acc.name,{x:from.x,y:from.y},{x:to.x,y:to.y});
         }catch(e){logger.warn(`[${acc.name}] [city-strategy] перенос цели при перемещении: ${e.message}`);}
         await logAction(acc.name,'move',{x:Number(to.x),y:Number(to.y),from_x:Number(from.x),from_y:Number(from.y)});
       }
@@ -489,17 +504,8 @@ module.exports=function(app,ctx){
       // убираем из плана, чтобы фоновый цикл не попытался повторить её ещё раз
       if(r?.coins!==undefined){
         await logAction(acc.name,'reconstruct',{x:Number(x),y:Number(y),building_id:target.id,level_from:Number(target.level||0)});
-        try{
-          const{CityStrategy}=require('../../db/index');
-          const row=await CityStrategy.findOne({where:{account:acc.name}});
-          if(row?.reconstruct_plan){
-            const arr=JSON.parse(row.reconstruct_plan);
-            if(Array.isArray(arr)){
-              const filtered=arr.filter(p=>!(Number(p.x)===Number(x)&&Number(p.y)===Number(y)));
-              if(filtered.length!==arr.length)await row.update({reconstruct_plan:JSON.stringify(filtered),updated_at:new Date()});
-            }
-          }
-        }catch(_){}
+        // клетка уже реконструирована руками — убираем ЕЁ строку из плана, остальные не трогаем
+        try{await require('../../db/cityPlans').removeReconstruct(acc.name,[{x,y}]);}catch(_){}
       }
       require('../../utils/cityWake').wake(acc.name);
       res.json({ok:r?.coins!==undefined});

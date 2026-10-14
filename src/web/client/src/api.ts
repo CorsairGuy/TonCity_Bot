@@ -49,6 +49,10 @@ export const api = {
 
   // daily
   dailyLog: () => req<{ ok: boolean; accounts: DailyAccount[] }>('/api/daily-log'),
+  dailyRewards: () => req<{ ok: boolean; accounts: DailyRewardAccount[] }>('/api/daily'),
+  // живой статус прямо из игры (снимок в БД мог остаться со вчерашнего дня)
+  dailyAdsLiveStatus: () =>
+    req<{ ok: boolean; rows: DailyAdsRow[]; error?: string }>('/api/daily-ads/live-status'),
   dailyAdsStatus: () => req<{ ok: boolean; rows: DailyAdsRow[] }>('/api/daily-ads/status'),
   dailyAdsWatch: (accountId: number) =>
     req<{ ok: boolean; claimed: number; reward: number; current: number; limit: number; limit_reached: boolean; error?: string }>('/api/daily-ads/watch', post({ account_id: accountId })),
@@ -103,12 +107,20 @@ export const api = {
   techFactoryAccounts: () => req<{ ok: boolean; accounts: BuildingAccount[] }>('/api/tech-factory/accounts'),
   techFactoryOverview: (accountId: number) =>
     req<{ ok: boolean; error?: string } & Partial<TechFactoryOverview>>(`/api/tech-factory/${accountId}/overview`),
-  techFactoryContribute: (accountId: number, category: string, amount: number) =>
-    req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/contribute`, post({ category, amount })),
-  techFactoryStart: (accountId: number, recipeId: number) =>
-    req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/start`, post({ recipe_id: recipeId })),
+  techFactoryContribute: (accountId: number, category: number, amount: number, source: 'personal' | 'guild' = 'personal') =>
+    req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/contribute`, post({ category, amount, source })),
+  techFactoryStart: (accountId: number, machineId: string, level: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/start`, post({ machine_id: machineId, level })),
+  techFactoryUpgrade: (accountId: number, machineId: string, level: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/upgrade`, post({ machine_id: machineId, level })),
   techFactoryClaim: (accountId: number) =>
     req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/claim`, post({})),
+  techFactoryQueueAdd: (accountId: number, machineId: string, level: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/queue`, post({ machine_id: machineId, level })),
+  techFactoryQueueRemove: (accountId: number, queueId: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/queue/${queueId}`, { method: 'DELETE' }),
+  techFactoryQueueReorder: (accountId: number, ids: number[]) =>
+    req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/queue/reorder`, post({ ids })),
   auditoriumAccounts: () => req<{ ok: boolean; accounts: BuildingAccount[] }>('/api/timeless-auditorium/accounts'),
   auditoriumStatus: (accountId: number) =>
     req<{ ok: boolean; error?: string } & Partial<AuditoriumStatus>>(`/api/timeless-auditorium/${accountId}/status`),
@@ -118,13 +130,30 @@ export const api = {
   // guilds — server: {account, guild_id, guild_title, role, benefits, updated_at}
   guilds: () => req<{ ok: boolean; rows: GuildMembership[] }>('/api/guilds'),
   guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[] }>('/api/guild-quests'),
+  // живой перезапрос квестов по ВСЕМ аккаунтам (кнопка "Обновить"), в отличие от guildQuests(),
+  // которая только читает снимок из БД
+  guildQuestsRefresh: () =>
+    req<{ ok: boolean; results: { name: string; ok: boolean; count?: number; error?: string }[]; error?: string }>('/api/guild-quests/refresh', post({})),
+  // quest — состояние квеста ПОСЛЕ ресинка, приходит и при ok, и при ошибке (страница обновляет
+  // по нему строку, иначе на ошибке она залипает со старым is_collected). already:true — награда
+  // уже была забрана (см. комментарий в web/routes/dashboards.js).
   guildQuestCollect: (accountId: number, questId: number) =>
-    req<{ ok: boolean; error?: string }>(`/api/guild-quests/${accountId}/collect`, post({ quest_id: questId })),
+    req<{ ok: boolean; error?: string; already?: boolean; quest?: GuildQuest }>(`/api/guild-quests/${accountId}/collect`, post({ quest_id: questId })),
   // ручная активация ускорителя под квест booster_activate (заменила автоматику, см.
   // modules/questAutomation.js) — соблюдает правило игры "пока активен другой тип — нельзя",
   // при блокировке вернёт ok:false с понятной причиной вместо тихой неудачи
+  // quest — СВЕЖИЙ снимок квеста после действия (прогресс игра учитывает не мгновенно, сервер ждёт
+  // его и только потом отвечает); collected — сработал ли автозаклейм, если оба условия выполнились
   guildQuestActivateBooster: (accountId: number, questId: number) =>
-    req<{ ok: boolean; name?: string; error?: string }>(`/api/guild-quests/${accountId}/activate-booster`, post({ quest_id: questId })),
+    req<{ ok: boolean; name?: string; quest?: GuildQuest | null; collected?: boolean; error?: string }>(`/api/guild-quests/${accountId}/activate-booster`, post({ quest_id: questId })),
+  // ручное комбинирование ускорителей под квест booster_combine — конвертирует ровно один
+  // "рецепт" (минимум, нужный для выполнения квеста), правила конверсии — см. modules/boosterAutomation.js
+  // покупка бустов гильдии под квест guild_boost — тратит АЛМАЗЫ (POST /guilds/boosts/invoice).
+  // Одно нажатие закрывает одно условие целиком: сначала личное, потом общее.
+  guildQuestGuildBoost: (accountId: number, questId: number) =>
+    req<{ ok: boolean; spent?: number; scope?: 'personal' | 'guild'; quest?: GuildQuest | null; collected?: boolean; error?: string }>(`/api/guild-quests/${accountId}/guild-boost`, post({ quest_id: questId })),
+  guildQuestCombineBooster: (accountId: number, questId: number) =>
+    req<{ ok: boolean; toName?: string; quest?: GuildQuest | null; collected?: boolean; error?: string }>(`/api/guild-quests/${accountId}/combine-booster`, post({ quest_id: questId })),
   // Уровни гильдейских квестов — новая система обновления 06.07.2026
   questTiers: () => req<{ ok: boolean; guilds: QuestTierGuild[] }>('/api/quest-tiers'),
   questTiersRefresh: (guildId: string) =>
@@ -213,7 +242,10 @@ export const api = {
     req<{ ok: boolean; criteria: unknown; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/build-criteria`),
   // ускорители — читаются только из БД, единственный живой запрос всего раздела — сама активация
   cityBoosters: (account: string) =>
-    req<{ ok: boolean; boosters: CityBoosterRow[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters`),
+    req<{ ok: boolean; boosters: CityBoosterRow[]; queue?: { name: string; label: string }[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters`),
+  // очередь активации: шлём ВЕСЬ порядок разом (что не в массиве — выбывает из очереди)
+  saveBoosterQueue: (account: string, order: string[]) =>
+    req<{ ok: boolean; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters/queue`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order }) }),
   saveBoosterAuto: (account: string, name: string, enabled: boolean) =>
     req<{ ok: boolean; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters/${encodeURIComponent(name)}/auto`, post({ enabled })),
   activateBooster: (account: string, name: string) =>
@@ -227,7 +259,7 @@ export const api = {
   // прогноз действий бота на ближайшие ~3 суток — единственный живой запрос: реальные end/level/
   // coins/builders, дальше чистая симуляция на бэке (см. modules/progress.js simulateFutureActions)
   cityForecast: (account: string) =>
-    req<{ ok: boolean; events: ForecastEvent[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/forecast`),
+    req<{ ok: boolean; events: ForecastEvent[]; boosterTimeline?: ForecastBoosterWindow[] | null; mods?: ForecastMods; actualVsPredicted?: ForecastDiag; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/forecast`),
   cityActionBuild: (account: string, family_id: string, x: number, y: number) =>
     req<{ ok: boolean; error?: string }>(`/api/city-actions/${encodeURIComponent(account)}/build`, post({ family_id, x, y })),
   cityActionMove: (account: string, from: { x: number; y: number }, to: { x: number; y: number }) =>
@@ -333,6 +365,11 @@ export const api = {
   midInvitationsBuy: (guildId: string, packageIndex: number) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/invitations/buy`, post({ package_index: packageIndex })),
 
+  // каталог предметов игры (id → тип/имя/редкость), см. src/utils/itemCatalog.js
+  items: (ids?: number[]) =>
+    req<{ ok: boolean; items: { item_id: number; type: string | null; name: string | null; rarity: string | null }[] }>(
+      `/api/items${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+
   // generic refresh
   refresh: (module: string) =>
     req<{ ok: boolean; results?: unknown[] }>(`/api/refresh/${module}`, post()),
@@ -342,16 +379,76 @@ export const api = {
     req<{ ok: boolean; running: Record<string, boolean> }>(`/api/op-status?keys=${keys.map(encodeURIComponent).join(',')}`),
 
   // shop live
-  shopBoosters: () =>
-    req<ShopLiveResponse>('/api/shop-live/boosters'),
-  shopPacks: () =>
-    req<ShopLiveResponse>('/api/shop-live/packs'),
-  shopPolicies: () =>
-    req<ShopLiveResponse>('/api/shop-live/policies'),
-  shopBuy: (accountId: number, offerId: number, amount: number, offerType: ShopOfferType) =>
-    req<ShopBuyResponse>('/api/shop-live/buy', post({ account_id: accountId, offer_id: offerId, amount, offer_type: offerType })),
-  shopBuyAll: (accountIds: number[], offerId: number, offerType: ShopOfferType) =>
-    req<ShopBuyAllResponse>('/api/shop-live/buy-all', post({ account_ids: accountIds, offer_id: offerId, offer_type: offerType })),
+  shopBoosters: (ids?: number[]) =>
+    req<ShopLiveResponse>(`/api/shop-live/boosters${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+  shopPacks: (ids?: number[]) =>
+    req<ShopLiveResponse>(`/api/shop-live/packs${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+  shopPolicies: (ids?: number[]) =>
+    req<ShopLiveResponse>(`/api/shop-live/policies${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+  // syncPolicies=true — только магазин политик: покупка может дать карту политики (её нет в обычном
+  // складе). Сервер после покупки сам обновляет инвентарь в БД, чтобы страницы предметов/политик
+  // показали покупку без ручного "Обновить".
+  shopBuy: (accountId: number, offerId: number, amount: number, offerType: ShopOfferType, syncPolicies?: boolean) =>
+    req<ShopBuyResponse>('/api/shop-live/buy', post({ account_id: accountId, offer_id: offerId, amount, offer_type: offerType, sync_policies: syncPolicies })),
+  shopBuyAll: (accountIds: number[], offerId: number, offerType: ShopOfferType, syncPolicies?: boolean) =>
+    req<ShopBuyAllResponse>('/api/shop-live/buy-all', post({ account_ids: accountIds, offer_id: offerId, offer_type: offerType, sync_policies: syncPolicies })),
+  // магазин билетов: те же три витрины, но только офферы с offer_type='tickets'
+  shopTickets: (ids?: number[]) =>
+    req<ShopLiveResponse>(`/api/shop-live/tickets${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+
+  // ── Годовщина: событие «Летний карнавал» (10-23.08.2026) ────────────────────
+  // ids — добрать только перечисленные аккаунты (повтор сбойных без опроса всех остальных)
+  anniversaryEvent: (ids?: number[]) =>
+    req<AnniversaryEventResponse>(`/api/anniversary/event${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+  // board/road/ladder в ответе — свежие данные ИМЕННО ЭТОГО аккаунта, перечитанные сразу после
+  // сбора: страница подставляет их в свою строку (виден прогресс следующей ступени) и не гоняет
+  // полный живой проход по всем аккаунтам
+  anniversaryEventClaim: (accountId: number, tierId: number) =>
+    req<{ ok: boolean; reward?: number | null; board?: Omit<AnniversaryBoard, 'id' | 'name'> | null; error?: string }>('/api/anniversary/event/claim', post({ account_id: accountId, tier_id: tierId })),
+  anniversaryEventClaimAll: () =>
+    req<{ ok: boolean; results: AnniversaryClaimResult[]; error?: string }>('/api/anniversary/event/claim-all', post({})),
+  anniversaryMilestones: (ids?: number[]) =>
+    req<AnniversaryRoadResponse>(`/api/anniversary/milestones${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+  // выполнение заданий события: реклама и мини-игры. Работа фоновая — ручка только ставит в
+  // очередь, прогресс приходит из anniversaryTasksStatus (страница опрашивает его раз в 5с)
+  anniversaryTasksRun: (accountId: number, opts?: { ad?: boolean; minigames?: boolean; guild?: boolean; login?: boolean }) =>
+    req<{ ok: boolean; started?: boolean; error?: string }>('/api/anniversary/tasks/run', post({ account_id: accountId, ...opts })),
+  anniversaryTasksRunAll: (opts?: { ad?: boolean; minigames?: boolean; guild?: boolean; account_ids?: number[] }) =>
+    req<{ ok: boolean; started?: number; error?: string }>('/api/anniversary/tasks/run-all', post({ ...opts })),
+  // Хранилище призов: состояние поля и вращение (тратит билеты — только по кнопке у аккаунта)
+  anniversaryVault: (ids?: number[]) =>
+    req<AnniversaryVaultResponse>(`/api/anniversary/vault${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+  anniversaryVaultSpin: (accountId: number) =>
+    req<AnniversaryVaultSpinResponse>('/api/anniversary/vault/spin', post({ account_id: accountId })),
+  // одно вращение на каждый переданный аккаунт; сервер сам перепроверяет, хватает ли билетов
+  anniversaryVaultSpinAll: (accountIds: number[]) =>
+    req<{ ok: boolean; results: AnniversaryVaultSpinAllRow[]; error?: string }>(
+      '/api/anniversary/vault/spin-all', post({ account_ids: accountIds })),
+  // Карнавальная аллея (19-24.08): балаганы по дням, «Четыре в ряд» на билеты.
+  // Игра идёт в фоне на сервере — прогресс кнопок берётся из midwayStatus, поэтому
+  // спиннеры переживают перезагрузку страницы.
+  midway: (ids?: number[]) =>
+    req<MidwayResponse>(`/api/midway${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+  midwayPlay: (accountId: number) =>
+    req<{ ok: boolean; started?: boolean; error?: string }>('/api/midway/play', post({ account_id: accountId })),
+  midwayPlayAll: (accountIds?: number[]) =>
+    req<{ ok: boolean; started?: number; error?: string }>('/api/midway/play-all', post({ account_ids: accountIds })),
+  midwayStatus: () =>
+    req<{ ok: boolean; rows: MidwayRun[] }>('/api/midway/status'),
+  anniversaryTasksStatus: () =>
+    req<{ ok: boolean; rows: CarnivalTaskRun[] }>('/api/anniversary/tasks/status'),
+  anniversaryMilestoneClaim: (accountId: number, stage: number) =>
+    req<{ ok: boolean; road?: AnniversaryRoad | null; error?: string }>('/api/anniversary/milestones/claim', post({ account_id: accountId, stage })),
+  anniversaryMilestoneClaimAll: () =>
+    req<{ ok: boolean; results: AnniversaryClaimResult[]; error?: string }>('/api/anniversary/milestones/claim-all', post({})),
+  anniversaryOffers: (ids?: number[]) =>
+    req<AnniversaryOffersResponse>(`/api/anniversary/offers${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
+  anniversaryOfferBuy: (accountId: number, paymentMethod: 'coins' | 'crystals') =>
+    req<{ ok: boolean; balance?: ShopBalance | null; error?: string }>('/api/anniversary/offers/buy', post({ account_id: accountId, payment_method: paymentMethod })),
+  anniversaryLadderClaim: (accountId: number, rung: number) =>
+    req<{ ok: boolean; tickets?: number | null; offer?: AnniversaryOffer | null; ladder?: AnniversaryLadder | null; error?: string }>('/api/anniversary/offers/ladder/claim', post({ account_id: accountId, rung })),
+  anniversaryLadderClaimAll: () =>
+    req<{ ok: boolean; results: AnniversaryClaimResult[]; error?: string }>('/api/anniversary/offers/ladder/claim-all', post({})),
 
   // Оплот Мудрости: Сапёр и Судоку (авто-решение + награда)
   minesweeperSolve: (accountId: number) =>
@@ -374,10 +471,14 @@ export const api = {
     req<{ ok: boolean; offers: MarketOffer[]; pagination: { page: number; page_size: number; total: number } }>(`/api/market/offers?${new URLSearchParams(
       Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)])
     ).toString()}`),
+  // ВАЖНО: только через хелпер post() — он ставит Content-Type: application/json. Раньше эти два
+  // вызова собирали RequestInit вручную и заголовок теряли, из-за чего express.json() не парсил
+  // тело, req.body приходил пустым и сервер отвечал «account_id, auction_id, amount обязательны»
+  // при полностью заполненной форме (ставка на аукционе вообще не работала).
   marketAuctionBid: (body: { account_id: number; auction_id: number; amount: number; anonymous?: boolean }) =>
-    req<{ ok: boolean; result?: unknown; error?: string }>('/api/market/auction/bid', { method: 'POST', body: JSON.stringify(body) }),
+    req<{ ok: boolean; result?: unknown; error?: string }>('/api/market/auction/bid', post(body)),
   marketNegotiationOffer: (body: { account_id: number; listing_id: number; amount: number; currency: string; anonymous?: boolean }) =>
-    req<{ ok: boolean; result?: unknown; error?: string }>('/api/market/negotiation/offer', { method: 'POST', body: JSON.stringify(body) }),
+    req<{ ok: boolean; result?: unknown; error?: string }>('/api/market/negotiation/offer', post(body)),
   marketTonBalances: () =>
     req<{ ok: boolean; balances: { id: number; name: string; ton: number | null }[] }>('/api/market/ton-balances'),
   marketBuy: (offerId: number, accountIds: number[]) =>
@@ -394,14 +495,22 @@ export const api = {
     req<{ ok: boolean; id?: number; error?: string }>('/api/market/snipe', post(p)),
   marketSnipeList: () => req<{ ok: boolean; snipes: MarketSnipeRow[] }>('/api/market/snipe'),
   marketSnipeDelete: (id: number) => req<{ ok: boolean }>(`/api/market/snipe/${id}`, { method: 'DELETE' }),
-  marketSellable: (accountId: number) => req<{ ok: boolean; items: MarketSellableItem[] }>(`/api/market/sellable?account_id=${accountId}`),
-  marketSellableAll: (accountIds?: number[]) =>
-    req<{ ok: boolean; items: MarketSellableItem[] }>(`/api/market/sellable-all${accountIds && accountIds.length ? `?account_ids=${accountIds.join(',')}` : ''}`),
-  marketItemAccounts: (itemId: number) =>
-    req<{ ok: boolean; accounts: { id: number; name: string; owned: number }[] }>(`/api/market/item-accounts?item_id=${itemId}`),
+  marketSellable: (accountId: number, mode?: 'items' | 'special') =>
+    req<{ ok: boolean; items: MarketSellableItem[] }>(`/api/market/sellable?account_id=${accountId}${mode ? `&mode=${mode}` : ''}`),
+  // mode='items' (по умолчанию) — обычные предметы, БЕЗ живого /policies/, как на странице "Предметы".
+  // mode='special' — ТОЛЬКО политики+осколки, всегда живой запрос к /policies/ (карты политик не
+  // хранятся в обычном сторедже — см. web/routes/market.js). Разделено 31.07.2026 по просьбе
+  // пользователя — раньше один и тот же путь пытался покрыть и то, и другое разом.
+  marketSellableAll: (accountIds?: number[], mode?: 'items' | 'special') =>
+    req<{ ok: boolean; items: MarketSellableItem[] }>(`/api/market/sellable-all?${[
+      accountIds && accountIds.length ? `account_ids=${accountIds.join(',')}` : '',
+      mode ? `mode=${mode}` : '',
+    ].filter(Boolean).join('&')}`),
+  marketItemAccounts: (itemId: number, rarity?: string, defId?: number | string) =>
+    req<{ ok: boolean; accounts: { id: number; name: string; owned: number }[] }>(`/api/market/item-accounts?item_id=${itemId}${rarity ? `&rarity=${rarity}` : ''}${defId != null ? `&def_id=${defId}` : ''}`),
   marketList: (p: { account_id: number; market_id: number; price: number; currency: string; anonymous?: boolean; listing_days?: number }) =>
     req<{ ok: boolean; result?: unknown; error?: string }>('/api/market/list', post(p)),
-  marketListSpread: (p: { market_id: number; item_id: number; price: number; currency: string; anonymous?: boolean; quantity: number; account_ids?: number[]; listing_days?: number }) =>
+  marketListSpread: (p: { market_id: number; item_id: number; item_rarity?: string; def_id?: number | string; market_type?: 'direct' | 'auction' | 'negotiation'; price?: number; currency: string; anonymous?: boolean; quantity: number; account_ids?: number[]; listing_days?: number }) =>
     req<{ ok: boolean; listed?: number; requested?: number; error?: string; results?: { name: string; listed: number; skip?: string; error?: string }[] }>('/api/market/list-spread', post(p)),
   marketCancelListing: (account: string, offer_id: number) =>
     req<{ ok: boolean; error?: string }>('/api/market/listing/cancel', post({ account, offer_id })),
@@ -474,6 +583,11 @@ export const api = {
     req<{ ok: boolean; history: SatoshiHistoryPosition[]; total: number; error?: string }>(`/api/satoshi/history?page=${page}&pageSize=${pageSize}`),
   satoshiProfitSummary: () =>
     req<{ ok: boolean; daily: number; weekly: number; error?: string }>('/api/satoshi/profit-summary'),
+  // Какие АБСОЛЮТНЫЕ цены уйдут в игру как take_profit_price/stop_loss_price. Игра принимает
+  // только цену, а вводить можно в ROI%/«% движения» — считает сервер тем же кодом, что и само
+  // открытие (utils/satoshiTriggers), чтобы показанное совпадало с отправленным.
+  satoshiTriggerPreview: (p: { side: 'long' | 'short'; leverage: number; margin: number; price?: number } & SatoshiTpSl) =>
+    req<{ ok: boolean; entry: number | null; take_profit_price: number | null; stop_loss_price: number | null; error?: string }>('/api/satoshi/trigger-preview', post(p)),
   satoshiOpen: (accountId: number, side: 'long' | 'short', leverage: number, margin: number, tpSl?: SatoshiTpSl) =>
     req<{ ok: boolean; result?: unknown; error?: string }>(`/api/satoshi/${accountId}/open`, post({ side, leverage, margin, ...tpSl })),
   satoshiClose: (accountId: number, positionId: number) =>
@@ -580,6 +694,26 @@ export interface DailyAccount {
   entries: { logged_at: string; day: number; reward: unknown }[];
 }
 
+// 13.10.2026: карточки на весь 28-дневный цикл (GET /api/daily) — чисто из БД, см.
+// web/routes/dashboards.js. source: 'actual' — наша запись о реальной выдаче (DailyLog),
+// 'estimated' — прошедший день без нашей записи (забрали руками в игре, calculated_reward —
+// лучшая оценка), 'upcoming' — ещё не наступил, calculated_reward и есть то, что реально придёт.
+export interface DailyRewardDay {
+  day: number; // 1-28
+  reward_type: string;
+  amount: number;
+  item_id: number | null;
+  source: 'actual' | 'estimated' | 'upcoming';
+  is_today: boolean;
+}
+export interface DailyRewardAccount {
+  name: string;
+  streak: number | null;
+  last_login: string | null;
+  updated_at: string | null;
+  days: DailyRewardDay[];
+}
+
 export interface DailyAdsRow {
   id: number;
   name: string;
@@ -588,6 +722,9 @@ export interface DailyAdsRow {
   limit: number;
   reward: number;
   limit_reached: boolean;
+  // снимок в БД сделан ДО последней UTC-полуночи, т.е. относится к прошлому дню: показывать его
+  // как «Готово» нельзя — счётчик рекламы за новый день уже другой (см. /api/daily-ads/status)
+  stale?: boolean;
   error?: string;
 }
 
@@ -689,39 +826,73 @@ export interface TechFactoryItemStack {
 // (см. React error #31 "object with keys {en, ru}" — раньше тип был string, что не совпадало
 // с реальным ответом /tech-factory/overview)
 export type LocText = { en?: string; ru?: string } | string;
-export interface TechFactoryRecipe {
-  id: number;
-  name: LocText;
-  description?: LocText;
-  icon_key?: string;
-  inputs: TechFactoryItemStack[];
-  output: TechFactoryItemStack;
+// 13.10.2026: форма подтверждена реверсом живого бандла (chunks/tech_factory-*.js) — раньше была
+// угадана неверно (category.code/pool/recipes[] плоским списком). Настоящая: category.machines[],
+// у каждого станка — tiers[] (I-VI), в тире и рецепт, и лимит, и цена разблокировки следующего.
+export interface TechFactoryTier {
+  level: number; // 1-6, в игре подписано римскими I-VI
+  unlocked: boolean;
   duration_seconds: number;
   fee_crystals: number;
+  inputs: TechFactoryItemStack[];
+  output: TechFactoryItemStack;
   used: number;
   limit_count: number;
   limit_window: 'day' | 'week' | string;
+  upgrade_crystals?: number; // цена разблокировки ЭТОГО тира (присутствует, пока tier не unlocked)
 }
-export interface TechFactoryCategory {
-  code: string;
+export interface TechFactoryMachine {
+  id: string;
   name: LocText;
   description?: LocText;
   icon_key?: string;
+  level: number;
+  max_level: number;
+  tiers: TechFactoryTier[];
+}
+export interface TechFactoryCategory {
+  id: number;
+  code: string;
+  name?: LocText;
+  description?: LocText;
+  icon_key?: string;
   unlocked: boolean;
-  pool: { target: number; progress: number } | null;
-  recipes: TechFactoryRecipe[];
+  // живым ответом подтверждено 13.10.2026 (лог бота, аккаунт ещё ничего не разблокировал): пока
+  // категория закрыта — копим Почёт в pool, machines==[] и появляются только после разблокировки
+  pool: { kind: string; target: number; progress: number; fundable: boolean } | null;
+  machines: TechFactoryMachine[];
+  machine_total?: number;
 }
 export interface TechFactoryJob {
-  recipe_id: number;
+  machine_id: string;
+  level: number;
   started_at: string;
   finishes_at: string;
   ready: boolean;
   output: TechFactoryItemStack;
 }
+export interface TechFactoryQueueItem {
+  id: number;
+  machine_id: string;
+  level: number;
+}
+// 13.10.2026: имена верхнего уровня подтверждены ЖИВЫМ ответом игры (сохранился в логе бота до
+// чистки temp-дампа) — отличаются от того, что подсказывал только статический бандл (is_member/
+// can_upgrade были неверной догадкой; реальные поля — in_guild/can_spend_guild_crystals и т.д.)
 export interface TechFactoryOverview {
   renown_balance: number | null;
   categories: TechFactoryCategory[];
   job: TechFactoryJob | null;
+  in_guild: boolean;
+  has_factory: boolean;
+  membership_eligible: boolean;
+  eligible_members: number;
+  economy_unlocked: boolean;
+  guild_renown_balance: number | null;
+  can_spend_guild_renown: boolean;
+  guild_crystal_balance: number | null;
+  can_spend_guild_crystals: boolean;
+  queue: TechFactoryQueueItem[];
   updated_at: string | null;
 }
 
@@ -966,7 +1137,8 @@ export interface CapitalRow {
 export interface CityRow {
   account: string;
   buildings: MapBuilding[];
-  unlockedSections: string[]; // id секций (см. MapSection) — игра отдаёт прямо в /progress/, см. progress.js
+  // null — снимок ещё не знает про секции (не путать с пустым списком «ничего не открыто»)
+  unlockedSections: string[] | null; // id секций (см. MapSection) — игра отдаёт прямо в /progress/, см. progress.js
   updated_at: string;
 }
 
@@ -1075,7 +1247,14 @@ export interface ForecastEvent {
   start: number;
   end: number;
   duration_ms: number;
+  // под каким окном ускорителя посчитана строка (см. modules/progress.js loadBoosterTimeline) —
+  // нужно, чтобы расхождение с игрой было видно сразу, а не выяснялось по косвенным признакам
+  boost_multiplier?: number | null;
+  boost_name?: string | null;
 }
+export interface ForecastBoosterWindow { fromMs: number; toMs: number; multiplier: number; name?: string | null }
+export interface ForecastMods { reducedUpgradeTimes: number; constructionTimeMultiplier: number }
+export interface ForecastDiag { samples: number; median: number | null; spread: [number, number] | null }
 export interface BuildingDef {
   id: string;
   category: string;
@@ -1165,6 +1344,24 @@ export interface GuildQuest {
   expires_at: string;
   duration_days: number;
   description_variables: Record<string, string | number> | null;
+  // только для booster_activate/booster_combine — считается на сервере из Inventory (БД, не игра),
+  // чтобы заранее показать «есть M / нужно N» и гасить кнопку, не тратя мёртвый запрос к игре.
+  // null = не удалось определить (редкость не распозналась / нет правил комбинирования в кэше).
+  booster_rarity?: string;
+  booster_owned?: number | null;
+  booster_needed?: number | null;
+  // Слоты ускорителей (только booster_activate). У типа их может быть несколько (напр. 4 у
+  // эпических) и освобождаются они ПО ОДНОМУ — booster_blocked_until это время БЛИЖАЙШЕГО
+  // освобождающегося слота, а не последнего. null = слот свободен, можно активировать сейчас.
+  booster_blocked_until?: string | null;
+  booster_slots_used?: number | null;
+  booster_slots_limit?: number | null;
+  // только guild_boost: сколько АЛМАЗОВ нужно на закрытие личного/общего условия (кратно 10 —
+  // игра принимает только такие суммы) и текущий баланс аккаунта из БД. null в стоимости = не
+  // удалось понять единицу измерения из текста квеста, покупку не предлагаем.
+  boost_cost_personal?: number | null;
+  boost_cost_guild?: number | null;
+  account_crystals?: number | null;
 }
 export interface GuildQuestGroup {
   guild_id: string;
@@ -1248,12 +1445,26 @@ export interface BoosterPackReward {
   crystals_amount: number | null;
 }
 
+// Гарантия набора: выбираешь цель, игра считает серию открытий этого набора, и на
+// attempts_required-м паке цель падает гарантированно (счётчик после этого сбрасывается).
+// Поля сверены с живым ответом /storage/allitemdata → booster_packs[] (19.08).
+export interface PackGuaranteedDrop {
+  target_item_id: number;
+  attempts_required: number;      // сколько паков нужно открыть до гарантированного выпадения
+}
+
+export interface PackTargetProgress {
+  target_item_id: number;
+  current_streak: number;         // сколько уже открыто в серии
+  active: boolean;                // цель выбрана прямо сейчас (активна одна)
+}
+
 export interface BoosterPackMeta {
   id: number;
   type: string;
-  guaranteed_drops: unknown[];
+  guaranteed_drops: PackGuaranteedDrop[];
   rewards: BoosterPackReward[];
-  user_progress: { target_item_id?: number; current_count?: number; required_count?: number }[];
+  user_progress: PackTargetProgress[];
 }
 
 export interface CombinationRule {
@@ -1310,6 +1521,25 @@ export interface PolicyInstance {
   enacted_slot: number | null;
   tenure_points?: number;
   next_level_tenure?: number | null;
+  next_level_shards?: number | null;
+  promotion?: { shard_cost: number; target_rarity: string; tenure_carry: number } | null;
+  // считается на сервере (web/routes/policies.js policyProgress) — правила берутся из ответа игры,
+  // наличие осколков из Inventory; на фронте только показываем и гасим кнопки
+  progress?: PolicyProgress;
+}
+
+export interface PolicyProgress {
+  shard_item_id: number | null;
+  have_shards: number;
+  tenure_now: number;
+  tenure_needed: number | null;
+  level_shards_needed: number | null;
+  can_level_up: boolean;
+  level_blockers: string[];
+  promote_shards_needed: number | null;
+  promote_target_rarity: string | null;
+  can_promote: boolean;
+  promote_blockers: string[];
 }
 
 export interface PolicyLibrarySection {
@@ -1362,6 +1592,9 @@ export interface PoliciesAccountData {
   updated_at: string | null;
   population: number | null;
   policies_unlocked: boolean;
+  // считает сервер по кабинету: слот свободен, если разблокирован по населению и пуст
+  free_slots?: number;
+  total_slots?: number;
 }
 
 export type PolicyActionName =
@@ -1459,7 +1692,8 @@ export interface SatoshiPendingOrder extends SatoshiTpSl {
 
 // ── Shop Live ──────────────────────────────────────────────────────────────────
 
-export type ShopOfferType = 'coins' | 'crystals' | 'ads';
+// 'tickets' — валюта события «Летний карнавал» (10-23.08.2026), покупка через /shop/buy/tickets
+export type ShopOfferType = 'coins' | 'crystals' | 'ads' | 'tickets';
 
 export interface ShopOffer {
   offer_id: number;
@@ -1479,6 +1713,12 @@ export interface ShopNormalizedItem {
   duration_ns?: number;
   active_limit?: number;
   pack_type?: string;
+  category?: string; // из какой витрины пришёл предмет (только магазин билетов, где их три сразу)
+  // сырые поля предмета из ответа игры — есть не всегда, но для новых предметов событийной витрины
+  // это единственный способ узнать название/картинку до обновления каталога предметов
+  game_name?: string | null;
+  game_type?: string | null;
+  game_rarity?: string | null;
   offers: ShopOffer[];
 }
 
@@ -1486,7 +1726,11 @@ export interface ShopAccountData {
   id: number;
   name: string;
   items: ShopNormalizedItem[];
+  // какие валюты игра реально предлагает в витринах этого аккаунта (только магазин билетов) —
+  // нужно, чтобы объяснить пустую страницу вместо молчания
+  offer_types?: string[];
   error?: string;
+  permanent?: boolean;
 }
 
 export interface ShopLiveResponse {
@@ -1495,15 +1739,260 @@ export interface ShopLiveResponse {
   error?: string;
 }
 
+// balance — фактический баланс аккаунта ПОСЛЕ покупки (сервер перечитывает его из игры и
+// обновляет запись в БД, см. web/routes/economy.js). Страницы магазина обновляют по нему свою
+// карту балансов: иначе кнопка «Купить» осталась бы включённой по старому числу и следующая
+// покупка упиралась бы в 400 «Недостаточно монет».
+export interface ShopBalance { balance: number | null; crystals: number | null }
+
 export interface ShopBuyResponse {
   ok: boolean;
   result?: unknown;
+  balance?: ShopBalance | null;
   error?: string;
 }
 
 export interface ShopBuyAllResponse {
   ok: boolean;
-  results: { id: number; name: string; ok: boolean; result?: unknown; error?: string }[];
+  results: { id: number; name: string; ok: boolean; result?: unknown; balance?: ShopBalance | null; error?: string }[];
+  error?: string;
+}
+
+// ── Годовщина / «Летний карнавал» ──────────────────────────────────────────────
+// Формы 1:1 с ответами игры (сверено по бандлу, см. шапку web/routes/anniversary.js).
+
+export interface AnniversaryTier {
+  id: number;
+  required: number | null;   // null у заданий без числового порога (сделал — забрал)
+  progress: number;
+  completed: boolean;
+  claimed: boolean;
+  reward: number;            // билеты
+}
+
+export interface AnniversaryTask {
+  identifier: string;
+  name: { en?: string; ru?: string };
+  task_type: string;         // 'regular' | ... — у не-regular ступени без порога
+  paid_only?: boolean;       // задание за реальные деньги — «Финал дня» засчитается и без него
+  tiers: AnniversaryTier[];
+}
+
+export interface AnniversaryBoard {
+  id: number;
+  name: string;
+  event: { is_active: boolean; current_day: number | null; total_days: number | null; day_end: string | null } | null;
+  tasks: { regular: AnniversaryTask[]; exclusive: AnniversaryTask[]; meta: AnniversaryTask[] };
+  tickets_balance: number;
+  tickets_earned: number;
+  // есть ли у аккаунта «Оплот Мудрости» — без него мини-игры недоступны в принципе
+  has_wisdom?: boolean;
+  // состоит ли аккаунт в гильдии — без неё нельзя внести в казну
+  has_guild?: boolean;
+  // что аккаунт уже сделал сегодня по нашим записям (DailyLog / лог действий): по этому признаку
+  // страница показывает «Забрать» вместо «Выполнить» у заданий без числового порога
+  actions_done?: { daily_login?: boolean; guild_contribute?: boolean };
+  error?: string;
+  // игра отказала этому аккаунту насовсем (нет здания, не хватает населения) — повторять запрос
+  // бессмысленно, см. isPermanent в web/lib/accountSweep.js
+  permanent?: boolean;
+}
+
+export interface AnniversaryEventResponse { ok: boolean; accounts: AnniversaryBoard[]; error?: string }
+
+export interface AnniversaryStage {
+  stage: number;
+  global_coins: number;      // порог «мира»
+  personal_goal: number;     // порог «вы»
+  state: 'claimed' | 'claimable' | 'locked' | string;
+  ticket_reward: number;
+  item_rewards: { item_id: number; amount: number }[];
+  policy?: { def_id: number; rarity: string; name: Record<string, string> | string; icon_key?: string } | null;
+}
+
+export interface AnniversaryRoad {
+  active: boolean;
+  event_ends_at: string | null;
+  ticket_item_id: number | null;
+  claimed_stages: number;
+  global_total: number;      // сколько потратил весь мир
+  global_goal: number;
+  coins_spent: number;       // сколько потратил этот аккаунт
+  stages: AnniversaryStage[];
+}
+
+export interface AnniversaryRoadResponse {
+  ok: boolean;
+  accounts: { id: number; name: string; road?: AnniversaryRoad; error?: string; permanent?: boolean }[];
+  error?: string;
+}
+
+export interface AnniversaryOfferPrice {
+  kind: 'coins' | 'crystals' | 'money' | string;
+  coins?: number;
+  crystals?: number;
+  stars?: number;
+  nanotons?: number | string;
+}
+
+export interface AnniversaryOffer {
+  active: boolean;
+  day: number | null;
+  total_days: number | null;
+  ends_at: string | null;
+  purchased: boolean;
+  value_multiplier: number;
+  rewards: { item_id: number; amount: number }[];
+  price: AnniversaryOfferPrice | null;
+}
+
+export interface AnniversaryLadder {
+  offers_accepted: number;
+  rungs: { rung: number; offers_required: number; ticket_reward: number; state: 'claimed' | 'claimable' | 'locked' | string }[];
+}
+
+export interface AnniversaryOffersResponse {
+  ok: boolean;
+  accounts: { id: number; name: string; offer?: AnniversaryOffer | null; ladder?: AnniversaryLadder | null; error?: string; permanent?: boolean }[];
+  error?: string;
+}
+
+// строка фонового выполнения заданий карнавала (реклама + мини-игры), см. web/lib/carnivalRunner.js
+// ── Карнавальная аллея (anniversary-midway, 19-24.08.2026) ──────────────────────────────────
+// Пять балаганов, по одному в день; у дня свой кошелёк билетов (purse), победа даёт win_tickets,
+// оплачиваемых побед в день — paid_wins_cap. День 1 — «Четыре в ряд», балаганы 2-5 игра заранее
+// не раскрывает (identifier пустой до открытия).
+export interface MidwayStall {
+  day: number;
+  identifier: string;             // '' пока день не открыт
+  opens_at: string | null;
+  is_open: boolean;
+  purse: number;                  // сколько билетов можно взять за этот день
+  tickets_earned: number;
+}
+
+export interface MidwayConnectFour {
+  paid_wins: number;
+  paid_wins_cap: number;          // сколько побед в день оплачивается
+  win_tickets: number;            // билетов за победу
+  tickets_earned: number;
+  total_wins: number;
+  move_seconds: number;
+}
+
+// Счётчики СЕГОДНЯШНЕГО балагана, каким бы он ни был: страница не обязана знать конкретную игру
+// (дни 3-5 игра заранее не раскрывает). supported=false — балаган открылся, но бот его не умеет.
+export interface MidwayActive {
+  identifier: string;
+  title: string;                  // «Четыре в ряд», «Морской бой» или '' для незнакомого
+  supported: boolean;
+  paid_wins: number;
+  paid_wins_cap: number;
+  win_tickets: number;
+  tickets_earned: number;
+}
+
+export interface MidwayState {
+  is_open: boolean;
+  opens_at: string | null;
+  ends_at: string | null;
+  tickets_balance: number;
+  stalls: MidwayStall[];
+  today_identifier: string;
+  active: MidwayActive;
+  connect_four: MidwayConnectFour;
+  active_game: { code: string; status: string; vs_bot: boolean; moves: number } | null;
+}
+
+export interface MidwayResponse {
+  ok: boolean;
+  accounts: { id: number; name: string; midway?: MidwayState; error?: string; permanent?: boolean }[];
+  error?: string;
+}
+
+// Состояние фоновой игры — живёт в процессе бота, а не во вкладке
+export interface MidwayRun {
+  account_id: number;
+  name: string;
+  game?: string;                  // какой балаган играется прямо сейчас
+  step: string;                   // «Морской бой: партия 2 из 3», «готово», «кошелёк дня уже выбран»
+  wins: number;
+  needed: number | null;
+  tickets: number;
+  losses: number;
+  running: boolean;
+  error: string | null;
+}
+
+export interface CarnivalTaskRun {
+  account_id: number;
+  name: string;
+  // какие виды заданий выполняются в этом запуске: login | ad | guild | minigames.
+  // Живёт на сервере, поэтому спиннер на кнопке переживает перезагрузку страницы.
+  kinds: string[];
+  step: string;            // «играю: Судоку», «смотрю рекламу», «готово»
+  wins: number;
+  needed: number | null;   // сколько побед требует задание
+  ads: number;
+  adsNeeded: number | null;
+  running: boolean;
+  error: string | null;
+}
+
+// «Хранилище призов» (открылось 15.08): поле из 11 ячеек, каждая выигрывается один раз,
+// цена следующего вращения растёт. Формы сверены с бандлом (chunks/anniversary_vault-*).
+export interface AnniversaryVaultPrize {
+  index: number;
+  grand: boolean;                 // главный приз
+  rewards: { item_id: number; amount: number }[];
+  won: boolean;
+  odds_bp: number;                // шанс в базисных пунктах (10000 = 100%)
+  won_at: string | null;
+}
+
+export interface AnniversaryVault {
+  is_open: boolean;
+  opens_at: string | null;
+  ends_at: string | null;
+  spins_done: number;
+  total_spins: number;
+  next_cost: number | null;       // цена следующего вращения в билетах
+  tickets_balance: number;
+  tickets_spent: number;
+  prizes: AnniversaryVaultPrize[];
+}
+
+export interface AnniversaryVaultResponse {
+  ok: boolean;
+  accounts: { id: number; name: string; vault?: AnniversaryVault; error?: string; permanent?: boolean }[];
+  error?: string;
+}
+
+export interface AnniversaryVaultSpinResponse {
+  ok: boolean;
+  result?: { prize_index: number; grand: boolean; rewards: { item_id: number; amount: number }[]; tickets_paid: number };
+  vault?: AnniversaryVault | null;
+  error?: string;
+}
+
+// результат «крутить всем»: по строке на аккаунт — что выпало либо почему пропустили
+export interface AnniversaryVaultSpinAllRow {
+  id: number;
+  name: string;
+  spun?: boolean;
+  grand?: boolean;
+  tickets_paid?: number | null;
+  rewards?: { item_id: number; amount: number }[];
+  vault?: AnniversaryVault;
+  skipped?: string;
+  error?: string;
+}
+
+export interface AnniversaryClaimResult {
+  id: number;
+  name: string;
+  claimed?: number;
+  tickets?: number;
   error?: string;
 }
 
@@ -1630,6 +2119,9 @@ export interface MarketSellableItem {
   owned: number;
   free_slots?: number;   // суммарно свободных слотов (режим «случайные аккаунты»)
   accounts?: number;     // у скольких аккаунтов есть предмет (режим «случайные аккаунты»)
+  def_id?: number | string;  // только карты политик — конкретная политика внутри бакета редкости
+  policy_name?: string;      // только карты политик — название этой конкретной политики
+  market_type?: 'direct' | 'auction' | 'negotiation';  // один и тот же market_id может встречаться на нескольких типах рынка — строка на каждую комбинацию
 }
 
 export interface MarketSnipeRow {

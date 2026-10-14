@@ -122,15 +122,17 @@ export function Sudoku() {
               renderCell: row => row._res?.reward ? <span className="mono"><CoinValue value={fmt(row._res.reward)} /></span> : <Text sx={{ color: 'fg.muted' }}>—</Text>,
             },
             {
-              header: '', field: 'id', id: 'action',
+              header: '', field: 'id', id: 'action', align: 'end',
               renderCell: row => {
                 const done = !!(row._res && !row._res.error);
                 return (
-                  <Button variant="primary" leadingVisual={ZapIcon}
-                    loading={solvingOne.has(row.id)} disabled={done || solvingOne.has(row.id) || solvingAll}
-                    onClick={() => solveOne(row.id, row.name)}>
-                    {done ? 'Решено' : 'Решить'}
-                  </Button>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button variant="primary" leadingVisual={ZapIcon}
+                      loading={solvingOne.has(row.id)} disabled={done || solvingOne.has(row.id) || solvingAll}
+                      onClick={() => solveOne(row.id, row.name)}>
+                      {done ? 'Решено' : 'Решить'}
+                    </Button>
+                  </Box>
                 );
               },
             },

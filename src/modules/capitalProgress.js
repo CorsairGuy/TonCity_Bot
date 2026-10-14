@@ -29,7 +29,7 @@ function describeError(e){
 
 async function loadCapitalStrategy(guildId){
   try{
-    const row=await CapitalStrategy.findOne({where:{guild_id:guildId}});
+    const row=await CapitalStrategy.findOne({where:{guild_id:guildId},order:[['id','DESC']]});
     let targets=[],queue=[];
     if(row?.targets){const arr=JSON.parse(row.targets);if(Array.isArray(arr))targets=arr;}
     if(row?.queue){const arr=JSON.parse(row.queue);if(Array.isArray(arr))queue=arr;}
@@ -67,10 +67,16 @@ function resolveEffectiveCapitalTargets(current,personalTargets,globalPlan){
 // без параметра "свободных слотов" (см. заголовок файла) — бюджет единственное ограничение.
 // Очередь разбирается первой (порядок массива), затем план (тоже порядок массива — нет проверенной
 // формулы длительности апгрейда столицы, чтобы сортировать "короткие вперёд", как у городов).
+//
+// ОЧЕРЕДЬ идёт первой, но НЕ блокирует план (правило подтверждено пользователем 04.08, то же,
+// что в modules/progress.js): что очередь может запустить сейчас — запускает, остальной бюджет
+// достаётся плану. Промежуточный вариант с исключительным шлюзом откатан — из-за записи, которая
+// уже строится, простаивал бы весь остальной прогресс.
 function pickCapitalStrategyTargets(current,queue,targets,buildingsMap,hallLevel,econStrength,coins,now=Date.now()){
   const result=[],consumedQueueKeys=[];
   const pickedKeys=new Set();
   let left=coins*0.8;
+  let blockedBy=null; // элемент очереди, на который не хватило бюджета (только для лога)
 
   const tryPick=(x,y,keySource)=>{
     const key=`${Number(x)},${Number(y)}`;
@@ -88,9 +94,9 @@ function pickCapitalStrategyTargets(current,queue,targets,buildingsMap,hallLevel
 
   for(const q of queue){
     const cand=tryPick(q.x,q.y);
-    if(!cand)continue;
+    if(!cand)continue; // снесено / уже строится / потолок уровня — идём дальше по очереди
     const price=capUpgradePrice(cand.b.id,cand.info,cand.lvl,econStrength);
-    if(price>left)continue;
+    if(price>left){blockedBy={x:q.x,y:q.y,price};continue;} // не хватает сейчас — остаётся на следующий заход
     result.push({...cand.b,upgrade_price:price});
     consumedQueueKeys.push(cand.key);
     pickedKeys.add(cand.key);
@@ -109,7 +115,7 @@ function pickCapitalStrategyTargets(current,queue,targets,buildingsMap,hallLevel
     pickedKeys.add(cand.key);
     left-=price;
   }
-  return{picked:result,consumedQueueKeys};
+  return{picked:result,consumedQueueKeys,blockedBy};
 }
 
 // прогноз (вкладка "Прогноз") — тот же дискретно-событийный подход, что simulateFutureActions у
@@ -120,7 +126,8 @@ function pickCapitalStrategyTargets(current,queue,targets,buildingsMap,hallLevel
 // ограничено фиксированным горизонтом (раньше было 3 суток) — считает ВСЕ запланированные
 // улучшения (очередь+личный+общий план), пока не исчерпаются либо не упрёмся в MAX_ITERATIONS.
 function simulateFutureCapitalActions(current,queue,personalTargets,globalPlan,buildingsMap,hallLevel,econStrength,coins,capitalProfitPerHour){
-  const sim=current.map(b=>({...b,_busyUntil:b.end?new Date(b.end).getTime():0}));
+  // _preBuilt — стройка шла ещё до начала симуляции: её уровень игра уже учла (см. ниже)
+  const sim=current.map(b=>({...b,_busyUntil:b.end?new Date(b.end).getTime():0,_preBuilt:!!b.end}));
   let simQueue=queue.map(q=>({...q}));
   let simCoins=coins,simTime=Date.now();
   const events=[];
@@ -128,9 +135,16 @@ function simulateFutureCapitalActions(current,queue,personalTargets,globalPlan,b
   let iterations=0;
 
   while(iterations++<MAX_ITERATIONS){
-    for(const b of sim){
-      if(b._busyUntil&&b._busyUntil<=simTime){b.level=(Number(b.level)||0)+1;b._busyUntil=0;}
-    }
+      // ВАЖНО: у здания, которое УЖЕ строилось на момент старта прогноза, игра отдаёт УЖЕ НОВЫЙ
+      // уровень (постройка помечается end в будущем, а level инкрементируется сразу — на этом же
+      // строится обнуление profit «в стройке», см. cityStats). Поэтому такие стройки завершаем
+      // БЕЗ повторного +1, иначе прогноз показывал бы «16→17» там, где идёт 15→16, — каждая строка
+      // уезжала на уровень вперёд (замечено 13.08).
+      for(const b of sim){
+        if(!b._busyUntil||b._busyUntil>simTime)continue;
+        if(!b._preBuilt)b.level=(Number(b.level)||0)+1;
+        b._busyUntil=0;b._preBuilt=false;
+      }
     const currentView=sim.map(b=>({...b,end:b._busyUntil>simTime?new Date(b._busyUntil).toISOString():null}));
     const effectiveTargets=resolveEffectiveCapitalTargets(currentView,personalTargets,globalPlan);
     const{picked,consumedQueueKeys}=pickCapitalStrategyTargets(currentView,simQueue,effectiveTargets,buildingsMap,hallLevel,econStrength,simCoins,simTime);
@@ -203,17 +217,31 @@ async function runCapitalProgress(api,name,guildId){
     const busy=current.filter(b=>b.end&&new Date(b.end).getTime()>Date.now()).length;
     logger.info(`[${name}] [capital-progress] coins: ${fmt(coins)} | строек: ${busy} | зданий: ${current.length} | холл: ${hallLevel} | сила: ${econStrength.toFixed(2)}`);
 
-    const{targets:personalTargets,queue:initialQueue}=await loadCapitalStrategy(guildId);
-    const globalPlan=await loadGlobalCapitalPlan();
+    let{targets:personalTargets,queue:initialQueue}=await loadCapitalStrategy(guildId);
+    let globalPlan=await loadGlobalCapitalPlan();
     if(!personalTargets.length&&!initialQueue.length&&!globalPlan.size){
       logger.info(`[${name}] [capital-progress] нет настроенных целей улучшений — простой`);
       return;
     }
     let queue=initialQueue.slice();
-    const persistQueue=async()=>{
+    // вычёркиваем ровно потреблённые записи из ТЕКУЩЕГО значения в БД (см. тот же приём в
+    // modules/progress.js) — иначе запись целиком затирала бы то, что пользователь добавил
+    // в очередь во время прохода
+    const persistQueue=async(consumed)=>{
       try{
-        const row=await CapitalStrategy.findOne({where:{guild_id:guildId}});
-        if(row)await row.update({queue:JSON.stringify(queue),updated_at:new Date()});
+        const row=await CapitalStrategy.findOne({where:{guild_id:guildId},order:[['id','DESC']]});
+        if(!row)return;
+        let arr=[];try{arr=JSON.parse(row.queue||'[]');}catch(_){}
+        const toRemove=[...consumed];
+        const next=arr.filter(q=>{
+          const key=`${Number(q.x)},${Number(q.y)}`;
+          const idx=toRemove.indexOf(key);
+          if(idx===-1)return true;
+          toRemove.splice(idx,1);
+          return false;
+        });
+        await row.update({queue:JSON.stringify(next),updated_at:new Date()});
+        queue=next;
       }catch(e){logger.warn(`[${name}] [capital-progress] не удалось сохранить очередь: ${e.message}`);}
     };
 
@@ -231,20 +259,21 @@ async function runCapitalProgress(api,name,guildId){
 
     while(true){
       if(isCityPaused()){logger.info(`[${name}] [capital-progress] прокачка на паузе — выхожу из цикла`);break;}
+      // перечитываем стратегию каждый проход — цикл живёт часами, и добавленное в очередь через
+      // панель за это время иначе не увиделось бы до конца цикла (см. modules/progress.js)
+      try{
+        const fresh=await loadCapitalStrategy(guildId);
+        personalTargets=fresh.targets;
+        queue=fresh.queue;
+        globalPlan=await loadGlobalCapitalPlan();
+      }catch(e){logger.warn(`[${name}] [capital-progress] не удалось перечитать стратегию: ${e.message}`);}
       const state=await refreshState();
       const effectiveTargets=resolveEffectiveCapitalTargets(current,personalTargets,globalPlan);
-      const{picked,consumedQueueKeys}=pickCapitalStrategyTargets(current,queue,effectiveTargets,buildingsMap,hallLevel,state.econStrength,state.coins);
-      if(consumedQueueKeys.length){
-        const toRemove=[...consumedQueueKeys];
-        queue=queue.filter(q=>{
-          const key=`${Number(q.x)},${Number(q.y)}`;
-          const idx=toRemove.indexOf(key);
-          if(idx===-1)return true;
-          toRemove.splice(idx,1);
-          return false;
-        });
-        await persistQueue();
-      }
+      const{picked,consumedQueueKeys,blockedBy}=pickCapitalStrategyTargets(current,queue,effectiveTargets,buildingsMap,hallLevel,state.econStrength,state.coins);
+      // видно в логах, что элемент очереди ждёт денег (а не потерялся)
+      if(blockedBy)logger.info(`[${name}] [capital-progress] очередь (${blockedBy.x},${blockedBy.y}) ждёт бюджета: нужно ${fmt(blockedBy.price)}, доступно ${fmt(state.coins*0.8)}`);
+      // по ОДНОЙ записи на каждый потреблённый ключ (здание может стоять в очереди несколько раз)
+      if(consumedQueueKeys.length)await persistQueue(consumedQueueKeys);
       if(!picked.length){
         const stillBusy=current.filter(b=>b.end&&new Date(b.end).getTime()>Date.now());
         if(stillBusy.length){

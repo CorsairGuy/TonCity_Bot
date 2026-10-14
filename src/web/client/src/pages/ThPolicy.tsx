@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text } from '@primer/react';
+import { Box, Button, Flash, Heading, Spinner, Text, Tooltip } from '@primer/react';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type PolicyDefEntry } from '../api';
 import { useFlash } from '../hooks/useFlash';
@@ -20,12 +20,13 @@ function DefBadge({ def, onClick }: { def: PolicyDefEntry; onClick: () => void }
   const color = RARITY_COLOR[def.rarity] ?? '#6e7681';
   const icon = (def.icon_key || 'mdi-script-text').replace(/^mdi-/, '');
   return (
-    <div className="item-card clickable" title={defName(def)} onClick={onClick}>
-      <div className="item-card__box" style={{ background: color }}>
-        <span className={`mdi mdi-${icon}`} style={{ fontSize: 30, color: '#fff', lineHeight: 1 }} />
+    <Tooltip text={defName(def)} direction="n" noDelay>
+      <div className="item-card clickable" aria-label={defName(def)} onClick={onClick}>
+        <div className="item-card__box" style={{ background: color }}>
+          <span className={`mdi mdi-${icon}`} style={{ fontSize: 30, color: '#fff', lineHeight: 1 }} />
+        </div>
       </div>
-      <div className="item-card__name">{defName(def)}</div>
-    </div>
+    </Tooltip>
   );
 }
 
@@ -120,7 +121,8 @@ export function ThPolicy() {
                   )}
                 </Box>
                 {unique.length > 0
-                  ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
+                  // тот же отступ, что у карточек на странице "Политики" (сетка/осколки) — единая сетка
+                  ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                       {unique.map(d => <DefBadge key={d.def_id} def={d} onClick={() => setModal(d)} />)}
                     </div>
                   : <Text sx={{ fontSize: 0, color: 'fg.subtle' }}>

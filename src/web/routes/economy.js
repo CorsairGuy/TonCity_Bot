@@ -3,6 +3,7 @@ const path=require('path');
 const fs=require('fs');
 const logger=require('../../utils/logger');
 const opRegistry=require('../lib/opRegistry');
+const{sweepAccounts,isPermanent}=require('../lib/accountSweep');
 
 module.exports=function(app,ctx){
   const{makeApiForAccount}=ctx;
@@ -118,51 +119,73 @@ module.exports=function(app,ctx){
           league_met:o.league_condition?o.league_condition.met:true,
         })),
       };
-      if(gameType==='booster'&&item.booster){
+      // ВАЖНО: раскрываем booster/booster_pack ВНЕ ЗАВИСИМОСТИ от того, из какой витрины пришёл
+      // предмет. Событийная витрина (anniversary_event) продаёт те же наборы и ускорители, но
+      // раньше эти поля читались только при gameType==='booster'/'booster_pack', и товар события
+      // оставался безымянным («набор» без вида) — 13.08.
+      if(item.booster){
+        base.game_type='booster';base.game_name=item.booster.rarity||null;
         base.rarity=item.booster.rarity;
         base.multiplier=item.booster.multiplier;
         base.duration_ns=item.booster.duration;
         base.active_limit=item.booster.active_limit;
       }
-      if(gameType==='booster_pack'&&item.booster_pack){
+      if(item.booster_pack){
+        base.game_type='booster_pack';base.game_name=item.booster_pack.type||null;
         base.pack_type=item.booster_pack.type;
       }
+      // Универсальный разбор для НЕ-ускорителей: у таких предметов игра кладёт описание в свой
+      // вложенный объект (напр. consumable). Ключ 'item' пропускаем СПЕЦИАЛЬНО — это служебная
+      // обёртка вида {id,type,sell_factor,...} (видно в логе витрины события 13.08), из неё
+      // получается бесполезное имя «consumable» вместо «Камень реформ (мифический)».
+      const SKIP_KEYS=new Set(['offers','limit','item','booster','booster_pack']);
+      if(!base.game_name){
+        for(const [key,val] of Object.entries(item)){
+          if(SKIP_KEYS.has(key)||!val||typeof val!=='object'||Array.isArray(val))continue;
+          const slug=val.name||val.type||val.rarity;
+          if(!slug)continue;
+          base.game_type=base.game_type||key;
+          base.game_name=slug;
+          if(val.rarity)base.game_rarity=val.rarity;
+          break;
+        }
+      }
+      // Событийная витрина (anniversary_event) продаёт предметы с НОВЫМИ id, которых нет в нашем
+      // справочнике. Если игра прислала про них хоть что-то (тип/слаг/редкость) — прокидываем как
+      // есть: страница сделает из этого нормальное название и найдёт картинку по слагу, не дожидаясь
+      // обновления общего каталога предметов (utils/itemCatalog.js).
+      if(item.name)base.game_name=item.name;
+      if(item.type)base.game_type=item.type;
+      if(item.rarity)base.game_rarity=item.rarity;
+      // 'consumable'/'booster' в game_name — это ТИП, а не вид предмета: показывать «consumable»
+      // вместо названия хуже, чем честное «Предмет #38», поэтому такое имя отбрасываем
+      if(base.game_name&&base.game_name===base.game_type)base.game_name=null;
       return base;
     });
   }
 
   app.get('/api/shop-live/boosters',async(req,res)=>{
     try{
-      const accounts=await opRegistry.run('shopBoosters',async()=>{
-        const{Account}=require('../../db/index');
-        const{Op}=require('sequelize');
-        const accs=await Account.findAll({where:{access_token:{[Op.not]:null}},order:[['name','ASC']],attributes:['id','name']});
-        return Promise.all(accs.map(async acc=>{
-          try{
-            const api=await makeApiForAccount(acc.id,{noLock:true});
-            const raw=await api.get('/shop/offers/booster');
-            return{id:acc.id,name:acc.name,items:normalizeShopOffers(raw,'booster')};
-          }catch(e){return{id:acc.id,name:acc.name,items:[],error:e.message};}
-        }));
-      });
+      // ?ids=1,2 — добрать только перечисленные аккаунты (страница так повторяет сбойные)
+      const idsRaw=String(req.query?.ids||'').trim();
+      const ids=idsRaw?idsRaw.split(',').map(x=>Number(x.trim())).filter(Number.isFinite):null;
+      const accounts=await opRegistry.run(ids?`shopBoosters:${ids.join(',')}`:'shopBoosters',()=>sweepAccounts(makeApiForAccount,async api=>{
+        const raw=await api.get('/shop/offers/booster');
+        return{items:normalizeShopOffers(raw,'booster')};
+      },{fallback:{items:[]},label:'shop-boosters',onlyIds:ids}));
       res.json({ok:true,accounts});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
   app.get('/api/shop-live/packs',async(req,res)=>{
     try{
-      const accounts=await opRegistry.run('shopPacks',async()=>{
-        const{Account}=require('../../db/index');
-        const{Op}=require('sequelize');
-        const accs=await Account.findAll({where:{access_token:{[Op.not]:null}},order:[['name','ASC']],attributes:['id','name']});
-        return Promise.all(accs.map(async acc=>{
-          try{
-            const api=await makeApiForAccount(acc.id,{noLock:true});
-            const raw=await api.get('/shop/offers/booster_pack');
-            return{id:acc.id,name:acc.name,items:normalizeShopOffers(raw,'booster_pack')};
-          }catch(e){return{id:acc.id,name:acc.name,items:[],error:e.message};}
-        }));
-      });
+      // ?ids=1,2 — добрать только перечисленные аккаунты (страница так повторяет сбойные)
+      const idsRaw=String(req.query?.ids||'').trim();
+      const ids=idsRaw?idsRaw.split(',').map(x=>Number(x.trim())).filter(Number.isFinite):null;
+      const accounts=await opRegistry.run(ids?`shopPacks:${ids.join(',')}`:'shopPacks',()=>sweepAccounts(makeApiForAccount,async api=>{
+        const raw=await api.get('/shop/offers/booster_pack');
+        return{items:normalizeShopOffers(raw,'booster_pack')};
+      },{fallback:{items:[]},label:'shop-packs',onlyIds:ids}));
       res.json({ok:true,accounts});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
@@ -171,44 +194,145 @@ module.exports=function(app,ctx){
   // тот же generic-паттерн /shop/offers/{gameType}, что и boosters/booster_pack
   app.get('/api/shop-live/policies',async(req,res)=>{
     try{
-      const accounts=await opRegistry.run('shopPolicies',async()=>{
-        const{Account}=require('../../db/index');
-        const{Op}=require('sequelize');
-        const accs=await Account.findAll({where:{access_token:{[Op.not]:null}},order:[['name','ASC']],attributes:['id','name']});
-        return Promise.all(accs.map(async acc=>{
-          try{
-            const api=await makeApiForAccount(acc.id,{noLock:true});
-            const raw=await api.get('/shop/offers/policy_bureau');
-            return{id:acc.id,name:acc.name,items:normalizeShopOffers(raw,'policy_bureau')};
-          }catch(e){return{id:acc.id,name:acc.name,items:[],error:e.message};}
-        }));
-      });
+      // ?ids=1,2 — добрать только перечисленные аккаунты (страница так повторяет сбойные)
+      const idsRaw=String(req.query?.ids||'').trim();
+      const ids=idsRaw?idsRaw.split(',').map(x=>Number(x.trim())).filter(Number.isFinite):null;
+      const accounts=await opRegistry.run(ids?`shopPolicies:${ids.join(',')}`:'shopPolicies',()=>sweepAccounts(makeApiForAccount,async api=>{
+        const raw=await api.get('/shop/offers/policy_bureau');
+        return{items:normalizeShopOffers(raw,'policy_bureau')};
+      },{fallback:{items:[]},label:'shop-policies',onlyIds:ids}));
       res.json({ok:true,accounts});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  // Магазин билетов («Летний карнавал», событие 10-23.08.2026). Отдельной витрины у билетов нет:
+  // игра продаёт за них товары ИЗ ТЕХ ЖЕ категорий (/shop/offers/{type}), просто у части офферов
+  // offer_type='tickets' (путь покупки — /shop/buy/tickets, сверено с бандлом: shop.buyTickets).
+  // Поэтому собираем все три витрины и оставляем только предметы, у которых есть билетный оффер.
+  // Если игра билетные офферы ещё не включила, страница честно покажет пустой список.
+  // 'anniversary_event' — витрина события: она НАШЛАСЬ перебором 13.08 (именно там игра держит
+  // товары за билеты), поэтому это уже не догадка, а рабочая категория наравне с остальными.
+  let loggedEventShopSample=false;
+  const TICKET_SHOP_CATEGORIES=['anniversary_event','booster','booster_pack','policy_bureau'];
+  // Категории-кандидаты для событийной витрины. Названия угаданы: в бандле игры есть путь
+  // shop.buyTickets (/shop/buy/tickets), но НИ ОДНА страница клиента его пока не дёргает, а самой
+  // вкладки «за билеты» в UI игры нет — то есть игра ещё не открыла эту витрину. Поэтому пробуем
+  // «на всякий случай» и МОЛЧА пропускаем любую ошибку: неизвестная категория закономерно отвечает
+  // 4xx, и это не повод ни ретраить аккаунт, ни показывать ошибку на странице.
+  const TICKET_SHOP_PROBE=['ticket','tickets','anniversary','event'];
+  app.get('/api/shop-live/tickets',async(req,res)=>{
+    try{
+      // Сбойный аккаунт не бросаем — дожимаем повторами (web/lib/accountSweep.js). ВАЖНО: здесь
+      // .catch(()=>null) на отдельной витрине убран намеренно — иначе разовый таймаут одной
+      // категории тихо превращался в «товаров нет», и ретраить было уже нечего.
+      const idsRaw=String(req.query?.ids||'').trim();
+      const ids=idsRaw?idsRaw.split(',').map(x=>Number(x.trim())).filter(Number.isFinite):null;
+      const accounts=await opRegistry.run(ids?`shopTickets:${ids.join(',')}`:'shopTickets',()=>sweepAccounts(makeApiForAccount,async api=>{
+        // три витрины запрашиваем ПО ОЧЕРЕДИ, а не Promise.all: параллелизм и так ограничен пулом
+        // на уровне аккаунтов (accountSweep), и утраивать его здесь — прямой путь обратно к
+        // ECONNABORTED, когда игра захлёбывается и ни один аккаунт не отвечает
+        const parts=[];
+        for(const type of TICKET_SHOP_CATEGORIES){
+          try{
+            const raw=await api.get(`/shop/offers/${type}`);
+            // ДИАГНОСТИКА (одна строка на запуск бота): событийная витрина продаёт предметы с
+            // новыми id, и по каким полям игра называет их — заранее не известно. Пишем сырую
+            // запись целиком ровно один раз, чтобы не гадать по скриншотам.
+            if(type==='anniversary_event'&&!loggedEventShopSample&&Array.isArray(raw)&&raw.length){
+              // нужен пример предмета БЕЗ booster/booster_pack — именно у них не хватает названия
+              const odd=raw.find(x=>x&&!x.booster&&!x.booster_pack);
+              if(odd){
+                loggedEventShopSample=true;
+                logger.info(`[shop-tickets] пример нового предмета витрины: ${JSON.stringify(odd).slice(0,800)}`);
+              }
+            }
+            parts.push(normalizeShopOffers(raw,type).map(item=>({...item,category:type})));
+          }catch(e){
+            // витрина закрыта именно ДЛЯ ЭТОГО аккаунта (403 «нет здания», «Экономика политик
+            // откроется при населении 1 000 000») — молча пропускаем категорию, а не роняем и не
+            // ретраим аккаунт целиком: ответ игры от повторов не изменится. Всё остальное
+            // (таймаут, 5xx) бросаем наверх, чтобы сработали ретраи accountSweep.
+            if(!isPermanent(e))throw e;
+          }
+        }
+        for(const type of TICKET_SHOP_PROBE){
+          try{
+            const raw=await api.get(`/shop/offers/${type}`,{},{timeout:8000});
+            const norm=normalizeShopOffers(raw,type).map(item=>({...item,category:type}));
+            if(norm.length)parts.push(norm);
+          }catch(_){/* нет такой категории — так и ожидалось */}
+        }
+        const all=parts.flat();
+        // какие валюты игра вообще предлагает — чтобы страница могла честно сказать «билетных
+        // офферов нет, есть только монеты/алмазы/реклама», а не показывать молчаливую пустоту
+        const offerTypes=[...new Set(all.flatMap(i=>i.offers.map(o=>o.offer_type)).filter(Boolean))];
+        const items=all
+          .map(item=>({...item,offers:item.offers.filter(o=>o.offer_type==='tickets')}))
+          .filter(item=>item.offers.length>0);
+        return{items,offer_types:offerTypes};
+      },{fallback:{items:[]},label:'shop-tickets',onlyIds:ids}));
+      res.json({ok:true,accounts});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
+  // После покупки в магазине сразу переливаем купленное в БД, чтобы страницы "Предметы"/"Политики"
+  // показывали покупку без ручного "Обновить" (просьба пользователя 31.07.2026). sync_policies
+  // ставит только страница "Магазин политик" — там покупка может дать и карту политики (её нет в
+  // обычном складе, живёт в PolicySnapshot), на остальных страницах лишний запрос не нужен.
+  // Баланс аккаунта в БД после покупки устаревал: игра списала монеты/алмазы, а Account.balance
+  // остался прежним. Страницы магазина берут баланс ИМЕННО ОТТУДА (см. api.accounts() в
+  // ShopBoosters/ShopPacks/ShopPolicies), поэтому кнопка «Купить» продолжала предлагать покупку,
+  // на которую денег уже нет, и игра отвечала 400 «Недостаточно монет».
+  // Читаем фактический баланс из /progress/, а не вычитаем цену локально: монеты параллельно
+  // капают с города, так что арифметика на стороне бота всё равно разошлась бы с игрой.
+  async function refreshBalance(api,accountId){
+    try{
+      const prog=await api.get('/progress/');
+      const d=prog?.progress?.data;
+      if(!d)return null;
+      const upd={};
+      if(d.coins!=null)upd.balance=d.coins;
+      if(d.crystals!=null)upd.crystals=d.crystals;
+      if(!Object.keys(upd).length)return null;
+      const{Account}=require('../../db/index');
+      await Account.update(upd,{where:{id:accountId}});
+      return{balance:d.coins??null,crystals:d.crystals??null};
+    }catch(_){return null;}
+  }
+  async function syncAfterPurchase(api,acc,{policies=false}={}){
+    await require('../../modules/inventory').runInventory(api,acc.name).catch(()=>{});
+    if(policies)await require('../../modules/policies').runPolicies(api,acc.name).catch(()=>{});
+    return refreshBalance(api,acc.id);
+  }
+  // 'tickets' — валюта «Летнего карнавала» (см. /api/shop-live/tickets выше)
+  const BUY_PATHS={coins:'/shop/buy/coins',crystals:'/shop/buy/crystals',ads:'/shop/buy/ads',tickets:'/shop/buy/tickets'};
+  const buyPathFor=t=>BUY_PATHS[t]||BUY_PATHS.coins;
   app.post('/api/shop-live/buy',async(req,res)=>{
     try{
-      const{account_id,offer_id,amount=1,offer_type}=req.body||{};
+      const{account_id,offer_id,amount=1,offer_type,sync_policies}=req.body||{};
+      const{Account}=require('../../db/index');
+      const acc=await Account.findByPk(Number(account_id),{attributes:['id','name']});
       const api=await makeApiForAccount(Number(account_id),{noLock:true});
-      const path=offer_type==='crystals'?'/shop/buy/crystals':offer_type==='ads'?'/shop/buy/ads':'/shop/buy/coins';
+      const path=buyPathFor(offer_type);
       const r=await api.post(path,{offer_id:Number(offer_id),amount:Number(amount)});
-      res.json({ok:true,result:r});
+      const balance=acc?await syncAfterPurchase(api,acc,{policies:!!sync_policies}):null;
+      res.json({ok:true,result:r,balance});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
   app.post('/api/shop-live/buy-all',async(req,res)=>{
     try{
-      const{offer_id,amount=1,offer_type,account_ids}=req.body||{};
+      const{offer_id,amount=1,offer_type,account_ids,sync_policies}=req.body||{};
       if(!Array.isArray(account_ids)||account_ids.length===0)return res.status(400).json({ok:false,error:'account_ids required'});
       const{Account}=require('../../db/index');
       const accs=await Account.findAll({where:{id:account_ids},attributes:['id','name']});
-      const path=offer_type==='crystals'?'/shop/buy/crystals':offer_type==='ads'?'/shop/buy/ads':'/shop/buy/coins';
+      const path=buyPathFor(offer_type);
       const results=await Promise.all(accs.map(async acc=>{
         try{
           const api=await makeApiForAccount(acc.id,{noLock:true});
           const r=await api.post(path,{offer_id:Number(offer_id),amount:Number(amount)});
-          return{id:acc.id,name:acc.name,ok:true,result:r};
+          const balance=await syncAfterPurchase(api,acc,{policies:!!sync_policies});
+          return{id:acc.id,name:acc.name,ok:true,result:r,balance};
         }catch(e){return{id:acc.id,name:acc.name,ok:false,error:e.message};}
       }));
       res.json({ok:true,results});
@@ -289,11 +413,37 @@ module.exports=function(app,ctx){
       // просмотра. Снимок и так обновляется на каждом реальном просмотре/автообновлении (см.
       // web/lib/adsProgress.js, POST .../watch-all, /api/refresh/dailyads) — доверяем ему как есть,
       // без дополнительного клиентского "угадывания" свежести.
+      // ЗАТО помечаем снимок устаревшим, если он сделан ДО последней UTC-полуночи. Не обнуляем и не
+      // гадаем — просто говорим странице «этому числу верить нельзя»: иначе вчерашние 10/10
+      // показывались сегодня как «Готово», хотя реклама за новый день ещё не смотрена (жалоба
+      // 13.08). Страница по этому флагу сама сходит за живым статусом (/api/daily-ads/live-status).
+      const lastUtcMidnight=Date.UTC(new Date().getUTCFullYear(),new Date().getUTCMonth(),new Date().getUTCDate());
       const rows=accs.map(a=>{
         const s=snapMap[a.name];
         if(!s)return{id:a.id,name:a.name,ok:false,error:'нет данных — нажмите ↻'};
-        return{id:a.id,name:a.name,ok:true,current:s.current,limit:s.limit,reward:s.reward,limit_reached:s.limit_reached,updated_at:s.updated_at};
+        const stale=!s.updated_at||new Date(s.updated_at).getTime()<lastUtcMidnight;
+        return{id:a.id,name:a.name,ok:true,current:s.current,limit:s.limit,reward:s.reward,limit_reached:s.limit_reached,updated_at:s.updated_at,stale};
       });
+      res.json({ok:true,rows});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
+  // Живой статус рекламы по всем аккаунтам: спрашиваем игру, обновляем снимки в БД и отдаём
+  // результат. Нужен странице при открытии — снимок из БД мог остаться со вчера (см. stale выше).
+  // Проход идёт пулом с ретраями (web/lib/accountSweep.js), а не 60 запросами разом.
+  app.get('/api/daily-ads/live-status',async(req,res)=>{
+    try{
+      const{DailyAdsSnapshot}=require('../../db/index');
+      const{getDailyAdsStatus}=require('../../modules/dailyads');
+      const rows=await opRegistry.run('dailyAdsLiveStatus',()=>sweepAccounts(makeApiForAccount,async(api,acc)=>{
+        const s=await getDailyAdsStatus(api,acc.name);
+        // Ошибка ЗАПИСИ в БД не должна выглядеть как «игра не ответила» и уж тем более уходить в
+        // ретраи к игре: статус мы уже получили, показать его можно и без сохранения снимка.
+        try{
+          await DailyAdsSnapshot.upsert({account:acc.name,...s,updated_at:new Date()},{conflictFields:['account']});
+        }catch(dbErr){logger.warn(`[${acc.name}] [daily-ads] снимок не сохранён: ${dbErr.message}`);}
+        return{ok:true,...s,stale:false};
+      },{fallback:{ok:false},label:'daily-ads'}));
       res.json({ok:true,rows});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });

@@ -155,5 +155,8 @@ export function SatoshiChart({ candles, liveCandle, gamePrice, positions, height
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions]);
 
-  return <div ref={containerRef} style={{ width: '100%', height }} />;
+  // isolation:isolate — lightweight-charts вешает на свои канвасы/панели z-index 49–50, и без
+  // собственного контекста наложения они всплывают в общий стек страницы ВЫШЕ портала Primer
+  // (тот жёстко z-index:1). Из-за этого график рисовался поверх модалок и перехватывал мышь.
+  return <div ref={containerRef} style={{ width: '100%', height, isolation: 'isolate' }} />;
 }

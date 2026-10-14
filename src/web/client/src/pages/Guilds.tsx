@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Checkbox, Flash, Heading, Label, Text, Spinner, Dialog } from '@primer/react';
+import { Box, Button, Checkbox, Flash, Heading, Label, Text, Spinner } from '@primer/react';
+import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { api, type GuildMembership, type GuildApplication, type GuildMember, type GuildSettings } from '../api';
 import { fmt } from '../utils';
-import { Scrollable } from '../components/Scrollable';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 
@@ -66,9 +66,8 @@ function ApplicationsModal({ guildId, title, onClose, showFlash }: {
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="apps-title" sx={{ maxWidth: 580, width: '95vw' }}>
-      <Dialog.Header id="apps-title">Заявки · {title}</Dialog.Header>
-      <Scrollable style={{ maxHeight: '70vh', padding: 8 }}>
+    <Dialog title={`Заявки · ${title}`} onClose={onClose} width="xlarge" position={{ narrow: 'bottom', regular: 'center' }}>
+      <Box>
         <Box sx={{ mb: 2 }}>
           <Button onClick={load} disabled={loading}>↻ Обновить</Button>
         </Box>
@@ -85,7 +84,7 @@ function ApplicationsModal({ guildId, title, onClose, showFlash }: {
             </Box>
           ))
         }
-      </Scrollable>
+      </Box>
     </Dialog>
   );
 }
@@ -126,9 +125,8 @@ function MembersModal({ guildId, title, myRole, onClose, showFlash }: {
   });
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="mem-title" sx={{ maxWidth: 620, width: '95vw' }}>
-      <Dialog.Header id="mem-title">Участники · {title}</Dialog.Header>
-      <Scrollable style={{ maxHeight: '72vh', padding: 8 }}>
+    <Dialog title={`Участники · ${title}`} onClose={onClose} width="xlarge" position={{ narrow: 'bottom', regular: 'center' }}>
+      <Box>
         <Box sx={{ mb: 2 }}><Button onClick={load} disabled={loading}>↻ Обновить</Button></Box>
         {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
           : sorted.length === 0 ? <Text sx={{ color: 'fg.muted' }}>Нет участников</Text>
@@ -150,7 +148,7 @@ function MembersModal({ guildId, title, myRole, onClose, showFlash }: {
             </Box>
           ))
         }
-      </Scrollable>
+      </Box>
     </Dialog>
   );
 }
@@ -230,9 +228,14 @@ function SettingsModal({ guildId, title, onClose, showFlash }: {
   const fieldRow = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 } as const;
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="set-title" sx={{ maxWidth: 540, width: '95vw' }}>
-      <Dialog.Header id="set-title">Настройки · {title}</Dialog.Header>
-      <Scrollable style={{ maxHeight: '72vh', padding: 8 }}>
+    <Dialog
+      title={`Настройки · ${title}`}
+      onClose={onClose}
+      width="xlarge"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[{ content: 'Сохранить', buttonType: 'primary', loading: saving, disabled: saving || loading, onClick: save }]}
+    >
+      <Box>
         {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
           : <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {/* Тип набора */}
@@ -307,9 +310,6 @@ function SettingsModal({ guildId, title, onClose, showFlash }: {
               </Text>}
             </Box>
         }
-      </Scrollable>
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', justifyContent: 'flex-end' }}>
-        <Button variant="primary" loading={saving} disabled={saving || loading} onClick={save}>Сохранить</Button>
       </Box>
     </Dialog>
   );
@@ -452,7 +452,7 @@ export function Guilds() {
                   { header: 'Время улучш.', field: 'reduced_upgrade_times', sortBy: 'basic', renderCell: r => benCell('pct-', r.reduced_upgrade_times) },
                   { header: 'Хранилище', field: 'storage_cap_increase', sortBy: 'basic', renderCell: r => benCell('time', r.storage_cap_increase) },
                   {
-                    header: '', id: 'actions',
+                    header: '', id: 'actions', align: 'end',
                     renderCell: r => (
                       <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                         <Button onClick={() => setSetGuild({ id: r.id, title: r.title })}>Настройки</Button>

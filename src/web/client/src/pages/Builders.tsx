@@ -192,6 +192,7 @@ export function Builders() {
               header: '',
               field: 'name',
               id: 'action',
+              align: 'end',
               renderCell: row => {
                 const coinsFull = row.max_coins != null && (row.cnt_coins ?? 0) >= row.max_coins;
                 const starsFull = row.max_stars != null && (row.cnt_stars ?? 0) >= row.max_stars;
@@ -200,7 +201,7 @@ export function Builders() {
                 const disableCoins = buying.has(row.id) || coinsFull || !coinsAffordable;
                 const disableStars = buying.has(row.id) || starsFull || !starsAffordable;
                 return (
-                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'flex-end' }}>
                     <Button
                       variant="primary"
                       loading={buying.has(row.id) && buyType[row.id] === 'coins'}

@@ -7,7 +7,33 @@ const{apiForAcc,makeApiForAccount,midErr}=require('./lib/api');
 
 function startWebServer(port){
   const app=express();
+
+  // ВРЕМЕННАЯ ДИАГНОСТИКА (13.10.2026, снять после локализации причины зависания панели после
+  // рекламы+сапёра): два независимых индикатора —
+  //  1) лаг event loop (если Node САМ занят синхронной работой — тут будет видно НЕЗАВИСИМО от
+  //     того, какой запрос это вызвал);
+  //  2) долгие HTTP-запросы (если дело не в event loop, а в очереди/ожидании — тут будет видно,
+  //     КАКОЙ именно запрос висит и сколько).
+  let lastTick=Date.now();
+  setInterval(()=>{
+    const now=Date.now();
+    const lag=now-lastTick-1000;
+    if(lag>200)logger.warn(`[diag] event-loop лаг ${lag}мс — Node занят синхронной работой`);
+    lastTick=now;
+  },1000).unref();
+  app.use((req,res,next)=>{
+    const t0=Date.now();
+    res.on('finish',()=>{
+      const ms=Date.now()-t0;
+      if(ms>2000)logger.warn(`[diag] долгий запрос ${req.method} ${req.originalUrl} — ${ms}мс`);
+    });
+    next();
+  });
+
   app.use(express.json());
+  // /items/live — отдельный, более специфичный маршрут ПЕРЕД общим /items: иконки предметов теперь
+  // качаются в items-live/ в корне проекта (вне src/, см. utils/itemCatalog.js), а не в src/items/live/.
+  app.use('/items/live',express.static(path.join(process.cwd(),'items-live')));
   app.use('/items',express.static(path.join(__dirname,'..','items')));
   app.use('/sprites',express.static(path.join(__dirname,'sprites')));
 
@@ -66,6 +92,8 @@ function startWebServer(port){
   require('./routes/guildBuildings')(app,ctx); // Технофабрика/Вечный аудиториум (спецздания гильдии, персональные действия)
   require('./routes/cityStrategy')(app,ctx); // Действия по городу: цели улучшений + разовые build/move/demolish
   require('./routes/capitalStrategy')(app,ctx); // Действия по столице: та же система, что и у города
+  require('./routes/anniversary')(app,ctx); // Годовщина: Летний карнавал/Дорога наград/Предложение дня (событие 10-23.08)
+  require('./routes/midway')(app,ctx);      // Карнавальная аллея: балаганы по дням, «Четыре в ряд» на билеты (19-24.08)
   require('./routes/refresh')(app,ctx);     // ручной прогон модулей /api/refresh/:module
 
   app.post('/api/restart',(req,res)=>{

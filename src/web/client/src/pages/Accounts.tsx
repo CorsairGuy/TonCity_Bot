@@ -144,15 +144,18 @@ export function Accounts() {
               header: '',
               field: 'name',
               id: 'action',
+              align: 'end',
               renderCell: row => (
-                <Button
-                  variant="danger"
-                  leadingVisual={TrashIcon}
-                  loading={removing.has(row.id)}
-                  onClick={() => removeAccount(row.id, row.name)}
-                >
-                  Удалить
-                </Button>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="danger"
+                    leadingVisual={TrashIcon}
+                    loading={removing.has(row.id)}
+                    onClick={() => removeAccount(row.id, row.name)}
+                  >
+                    Удалить
+                  </Button>
+                </Box>
               ),
             },
           ]}

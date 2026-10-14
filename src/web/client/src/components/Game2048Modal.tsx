@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Button, Dialog, Text, Spinner, Flash } from '@primer/react';
+import { Box, Text, Spinner, Flash } from '@primer/react';
+import { Dialog } from '@primer/react/experimental';
 import { api, type Game2048Direction, type Game2048Status } from '../api';
 
 // Механика 2048 подтверждена реверсом бандла игры (chunks/game2048-*.js):
@@ -254,9 +255,19 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
   const posOf = (i: number) => PAD + i * (CELL + GAP);
 
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ width: BOARD + PAD_MODAL * 2, maxWidth: '95vw' }}>
-      <Dialog.Header>2048 — {accountName}</Dialog.Header>
-      <Box sx={{ p: `${PAD_MODAL}px`, display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center' }}>
+    // ширина задана через sx, а не пресетом width: поле 320px + по 8px с боков = 336px,
+    // такого пресета у Primer нет (296/320/480/640), а поле ужимать нельзя
+    <Dialog
+      title={`2048 — ${accountName}`}
+      onClose={onClose}
+      width="medium"
+      sx={{ '@media (min-width: 768px)': { width: BOARD + PAD_MODAL * 2 } }}
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={loading ? undefined : [solving
+        ? { content: 'Стоп', buttonType: 'danger', block: true, onClick: stopSolve }
+        : { content: 'Решить', buttonType: 'primary', block: true, disabled: status !== 'ongoing', onClick: runSolve }]}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center' }}>
         {error && <Flash variant="danger" sx={{ width: '100%' }}>{error}</Flash>}
         {loading ? <Spinner /> : (
           <>
@@ -309,9 +320,6 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
               </Text>
             )}
             <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Стрелки на клавиатуре или свайп</Text>
-            {solving
-              ? <Button variant="danger" block onClick={stopSolve}>Стоп</Button>
-              : <Button variant="primary" block disabled={status !== 'ongoing'} onClick={runSolve}>Решить</Button>}
           </>
         )}
       </Box>

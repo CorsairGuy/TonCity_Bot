@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text } from '@primer/react';
+import { Box, Button, Flash, Heading, Spinner, Text, Tooltip } from '@primer/react';
 import { api, type AchievementEntry } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { fmt } from '../utils';
 
 // Иконки и названия — как в игре (mdi-классы из клиента игры)
 const ACHIEV_META: Record<string, { name: string; mdi: string; secret?: boolean; fixedTier?: number }> = {
@@ -68,16 +69,19 @@ function getCurrentTier(d: AccountAch, meta: (typeof ACHIEV_META)[string]): numb
   return Math.min(cur, TIER_COLOR.length - 1);
 }
 
-function Badge({ bg, shadow, icon, iconColor, label, labelColor }: {
-  bg: string; shadow: string; icon: string; iconColor: string; label: string; labelColor: string;
+// 13.10.2026: подпись под иконкой убрана (разной длины названия ломали ровную сетку) — вместо неё
+// мгновенный Tooltip (noDelay) с названием и прогрессом конкретного достижения, см. AchievBadge.
+function Badge({ bg, shadow, icon, iconColor, tooltip }: {
+  bg: string; shadow: string; icon: string; iconColor: string; tooltip: string;
 }) {
   return (
-    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', width: 68 }}>
-      <div style={{ width: 56, height: 56, borderRadius: 14, background: bg, boxShadow: shadow, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <span className={`mdi mdi-${icon}`} style={{ fontSize: 28, color: iconColor, lineHeight: 1 }} />
+    <Tooltip text={tooltip} direction="n" noDelay>
+      <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', width: 68 }} aria-label={tooltip}>
+        <div style={{ width: 56, height: 56, borderRadius: 14, background: bg, boxShadow: shadow, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <span className={`mdi mdi-${icon}`} style={{ fontSize: 28, color: iconColor, lineHeight: 1 }} />
+        </div>
       </div>
-      <span style={{ fontSize: 10, color: labelColor, textAlign: 'center', lineHeight: 1.2, marginTop: 5, wordBreak: 'break-word', maxWidth: 68 }}>{label}</span>
-    </div>
+    </Tooltip>
   );
 }
 
@@ -88,14 +92,20 @@ function AchievBadge({ id, data }: { id: string; data: AccountAch | undefined })
 
   // закрытое секретное — тёмное (как есть)
   if (meta.secret && !earned) {
-    return <Badge bg={SECRET_BG} shadow="none" icon="lock" iconColor="rgba(255,255,255,.4)" label="Секрет" labelColor="var(--fg-subtle)" />;
+    return <Badge bg={SECRET_BG} shadow="none" icon="lock" iconColor="rgba(255,255,255,.4)" tooltip="Секрет" />;
   }
+  // текст тултипа: название + прогресс до следующего уровня (или "максимум", если дальше некуда)
+  const tiersSorted = [...(data?.tiers ?? [])].sort((a, b) => a.tier - b.tier);
+  const next = tiersSorted.find(t => t.tier > tier);
+  const tooltip = next
+    ? `${meta.name} — ${fmt(data?.progress ?? 0)}/${fmt(next.requirement)}${tier > 0 ? ` (ур. ${tier})` : ''}`
+    : `${meta.name}${tier > 0 ? ' — максимальный уровень' : ''}`;
   // закрытое обычное — светлое, чтобы открытые выделялись
   if (!earned) {
-    return <Badge bg={CLOSED_BG} shadow="none" icon={meta.mdi} iconColor={CLOSED_ICON} label={meta.name} labelColor="var(--fg-subtle)" />;
+    return <Badge bg={CLOSED_BG} shadow="none" icon={meta.mdi} iconColor={CLOSED_ICON} tooltip={tooltip} />;
   }
   // открытое — сплошной цвет уровня
-  return <Badge bg={TIER_COLOR[tier]} shadow={TIER_SHADOW[tier]} icon={meta.mdi} iconColor="#fff" label={meta.name} labelColor="var(--fg-muted)" />;
+  return <Badge bg={TIER_COLOR[tier]} shadow={TIER_SHADOW[tier]} icon={meta.mdi} iconColor="#fff" tooltip={tooltip} />;
 }
 
 export function Achievements() {

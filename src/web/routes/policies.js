@@ -30,6 +30,69 @@ const ACTION_ENDPOINTS={
 // но помечены типом — здесь их достаём для страницы "Политики" вместо страницы "Предметы"
 const SHARD_ITEM_TYPES=new Set(['policy_shard','mystery_policy']);
 
+// Осколки политик — обычные складские предметы, id идут подряд по редкости (config/items.json:
+// 16 shard_common … 22 shard_eternal). Нужны, чтобы сверить наличие с ценой повышения.
+const SHARD_RARITY_ORDER=['common','uncommon','rare','epic','legendary','mythic','eternal'];
+const SHARD_ITEM_ID_BASE=16;
+const shardItemIdFor=rarity=>{
+  const i=SHARD_RARITY_ORDER.indexOf(String(rarity||''));
+  return i===-1?null:SHARD_ITEM_ID_BASE+i;
+};
+
+// ПРАВИЛА ПОВЫШЕНИЯ — целиком из ответа игры, ничего не выводим сами (сверено на живых данных
+// 07.08.2026, поля инстанса /policies/):
+//   next_level_shards  — сколько осколков СВОЕЙ редкости нужно на следующий уровень
+//   next_level_tenure  — сколько дней стажа нужно (null = уровень максимальный)
+//   tenure_points      — накопленный стаж НА МОМЕНТ СНИМКА
+//   promotion:{shard_cost,target_rarity,tenure_carry} — повышение редкости
+//   max_level          — потолок уровня
+// Стаж идёт, пока политика НАДЕТА (enacted_slot!=null), и ПЕРЕНОСИТСЯ при переодевании: на живых
+// данных встретилась политика со стажем 15 при 4.9 днях с последнего enacted_at — поэтому считать
+// от enacted_at нельзя, только «tenure_points из снимка + прошедшие с него полные дни».
+function policyProgress(inst,snapshotAt,shardQtyByItemId){
+  const rarity=String(inst?.rarity||'');
+  const shardId=shardItemIdFor(rarity);
+  const haveShards=shardId==null?0:(shardQtyByItemId.get(shardId)||0);
+  const enacted=inst?.enacted_slot!=null;
+  const sinceDays=snapshotAt?Math.max(0,Math.floor((Date.now()-new Date(snapshotAt).getTime())/86400000)):0;
+  const tenureNow=Number(inst?.tenure_points||0)+(enacted?sinceDays:0);
+
+  const needShards=inst?.next_level_shards==null?null:Number(inst.next_level_shards);
+  const needTenure=inst?.next_level_tenure==null?null:Number(inst.next_level_tenure);
+  const atMaxLevel=inst?.max_level!=null&&Number(inst.level||0)>=Number(inst.max_level);
+  const levelBlockers=[];
+  if(atMaxLevel||needTenure==null)levelBlockers.push('максимальный уровень');
+  else{
+    if(tenureNow<needTenure)levelBlockers.push(`стаж ${tenureNow}/${needTenure} дн.`);
+    if(needShards!=null&&haveShards<needShards)levelBlockers.push(`осколков ${haveShards}/${needShards}`);
+  }
+
+  const promoCost=inst?.promotion?.shard_cost==null?null:Number(inst.promotion.shard_cost);
+  const promoBlockers=[];
+  if(promoCost==null)promoBlockers.push('повышение редкости недоступно'); // игра не прислала promotion — либо потолок редкости, либо условие не выполнено
+  else{
+    // Редкость повышается только с МАКСИМАЛЬНОГО уровня текущей редкости. Игра присылает
+    // promotion.shard_cost и на первом уровне, поэтому кнопка была активна на «Ур. 1/5» и
+    // упиралась бы в отказ игры (замечено 13.08).
+    if(!atMaxLevel)promoBlockers.push(`нужен максимальный уровень (${Number(inst?.level||0)}/${inst?.max_level??'?'})`);
+    if(haveShards<promoCost)promoBlockers.push(`осколков ${haveShards}/${promoCost}`);
+  }
+
+  return{
+    shard_item_id:shardId,
+    have_shards:haveShards,
+    tenure_now:tenureNow,
+    tenure_needed:needTenure,
+    level_shards_needed:needShards,
+    can_level_up:levelBlockers.length===0,
+    level_blockers:levelBlockers,
+    promote_shards_needed:promoCost,
+    promote_target_rarity:inst?.promotion?.target_rarity??null,
+    can_promote:promoBlockers.length===0,
+    promote_blockers:promoBlockers,
+  };
+}
+
 module.exports=function(app,ctx){
   const{makeApiForAccount}=ctx;
   // Политики (и открытие тайных политик) открываются игрой при населении 1M —
@@ -61,7 +124,10 @@ module.exports=function(app,ctx){
 
       for(const s of snaps){
         if(!byAccount[s.account])continue;
-        try{byAccount[s.account].list=JSON.parse(s.list||'[]');}catch(_){}
+        // _listed_at — карта выставлена на рынок и физически лежит не в хранилище, а в лоте
+        // (пометку ставит web/routes/market.js при создании лота и снимает при отмене, без
+        // обращения к игре). В хранилище такие карты не показываем — как их там и нет.
+        try{byAccount[s.account].list=JSON.parse(s.list||'[]').filter(p=>!p._listed_at);}catch(_){}
         try{byAccount[s.account].library=JSON.parse(s.library||'{}');}catch(_){}
         try{byAccount[s.account].cabinet=JSON.parse(s.cabinet||'{}');}catch(_){}
         try{byAccount[s.account].economy=JSON.parse(s.economy||'null');}catch(_){}
@@ -74,6 +140,19 @@ module.exports=function(app,ctx){
           marketable:Number(r.marketable||0),locked:Number(r.locked||0),
           qty:Number(r.marketable||0)+Number(r.locked||0),
         });
+      }
+      // Готовность к повышению считаем ЗДЕСЬ, а не на фронте: правила приходят от игры в самом
+      // инстансе, а наличие осколков лежит в Inventory — оба источника серверные, тащить их в
+      // браузер и сводить там значило бы дублировать логику в двух местах.
+      for(const [name,acc] of Object.entries(byAccount)){
+        const shardQty=new Map();
+        for(const sh of acc.shards)shardQty.set(Number(sh.id),Number(sh.qty||0));
+        // свободный слот кабинета: разблокирован по населению и пуст
+        const slots=Array.isArray(acc.cabinet?.slots)?acc.cabinet.slots:[];
+        acc.free_slots=slots.filter(sl=>sl?.unlocked&&!sl?.instance).length;
+        acc.total_slots=slots.length;
+        acc.list=acc.list.map(inst=>({...inst,progress:policyProgress(inst,acc.updated_at,shardQty)}));
+        void name;
       }
       res.json({ok:true,byAccount,accIdByName});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
@@ -175,6 +254,26 @@ module.exports=function(app,ctx){
         if(action!=='enact'&&action!=='unequip')await require('../../modules/inventory').runInventory(api,acc.name).catch(()=>{});
       }
       res.json({ok:true,result});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    }catch(e){
+      // РЕСИНК И ПРИ ОТКАЗЕ. Игра отклоняет действие в т.ч. когда наши цифры устарели: уровень
+      // политики и запас осколков меняются и при действиях ПРЯМО В ИГРЕ, мимо панели, а Inventory/
+      // PolicySnapshot пишутся только нашими проходами. Живой случай 07.08: в БД политика 1/5 и
+      // 64 обычных осколка, в игре она уже 5/5 и осколков меньше — кнопка «Улучшить редкость»
+      // выглядела доступной, а игра ответила 400 «Недостаточно осколков». Без ресинка страница
+      // осталась бы с теми же неверными числами и кнопка звала бы жать снова.
+      try{
+        const{Account}=require('../../db/index');
+        const acc=await Account.findByPk(Number(req.params.accountId),{attributes:['id','name']});
+        if(acc){
+          const api=await makeApiForAccount(acc.id,{noLock:true});
+          await require('../../modules/policies').runPolicies(api,acc.name).catch(()=>{});
+          await require('../../modules/inventory').runInventory(api,acc.name).catch(()=>{});
+        }
+      }catch(_){}
+      res.status(500).json({ok:false,error:e.message,resynced:true});
+    }
   });
 };
+
+// экспорт для проверок/тестов — на регистрацию роутов не влияет
+module.exports.policyProgress=policyProgress;

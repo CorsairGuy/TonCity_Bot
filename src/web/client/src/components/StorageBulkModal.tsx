@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Box, Button, Dialog, Flash, Spinner, TabNav, Text, Label } from '@primer/react';
+import { Box, Button, Flash, Spinner, TabNav, Text, Label } from '@primer/react';
 import { ZapIcon, ArrowUpIcon, ArrowDownIcon, PackageIcon, StarFillIcon, SyncIcon } from '@primer/octicons-react';
 import { api, type StorageItemFull, type BoosterPackMeta, type CombinationRule } from '../api';
 import { ITEMS_BY_ID, fmt, itemImgSrc } from '../utils';
 import { CoinValue, CrystalValue } from './Icons';
-import { OpenedRewards, RewardRow, RARITY_NAME, type OpenReward } from './StorageModal';
-import { Scrollable } from './Scrollable';
+import { OpenedRewards, RewardRow, RARITY_NAME, type OpenReward, PacksToGuarantee } from './StorageModal';
+import { Dialog } from '@primer/react/experimental';
 
 export interface BulkHolder { id: number; name: string; qty: number }
 
@@ -145,6 +145,14 @@ export function StorageBulkModal({ itemId, holders, onClose }: { itemId: number;
   const sellEstimate = (rep?.sell_price ?? 0) * totalQty;
   const packRewards = packMeta?.rewards ?? [];
   const itemRewards = packRewards.filter(r => r.reward_type === 'item');
+  // сколько паков открыть до гарантированного выпадения цели (из guaranteed_drops набора);
+  // null — у набора нет гарантии по этому предмету
+  const attemptsFor = (itemId: number): number | null =>
+    (packMeta?.guaranteed_drops ?? []).find(g => g.target_item_id === itemId)?.attempts_required ?? null;
+  // на вкладке «Цель» — только предметы с гарантией, от короткой серии к длинной
+  const targetRewards = itemRewards
+    .filter(r => attemptsFor(r.reward_id) != null)
+    .sort((a, b) => (attemptsFor(a.reward_id) ?? 0) - (attemptsFor(b.reward_id) ?? 0));
 
   const footerBtn = () => {
     if (!rep) return null;
@@ -159,13 +167,21 @@ export function StorageBulkModal({ itemId, holders, onClose }: { itemId: number;
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ maxWidth: 520, width: '95vw' }}>
-      <Dialog.Header>
-        <Text sx={{ fontWeight: 'bold' }}>{title}</Text>
-        <Text sx={{ color: 'fg.muted', ml: 1 }}>— {active.length} акк. · {counting ? '…' : `${totalQty}шт`}</Text>
-      </Dialog.Header>
-
-      <Scrollable style={{ maxHeight: '65vh', padding: 8 }}>
+    <Dialog
+      title={`${title} — ${active.length} акк. · ${counting ? '…' : `${totalQty}шт`}`}
+      onClose={onClose}
+      width="xlarge"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      /* футер собирается функцией footerBtn() + кнопка "Обновить" — это не набор
+         footerButtons, поэтому renderFooter */
+      renderFooter={() => (
+        <Dialog.Footer sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <Button leadingVisual={SyncIcon} onClick={() => loadRep().then(countLive)} disabled={loading || busy || counting}>Обновить</Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>{footerBtn()}</Box>
+        </Dialog.Footer>
+      )}
+    >
+      <Box>
         <OpenedRewards rewards={openedRewards} />
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><Spinner /></Box>
@@ -177,7 +193,7 @@ export function StorageBulkModal({ itemId, holders, onClose }: { itemId: number;
               {rep.type === 'booster' && <TabNav.Link as="button" selected={tab === 'activate'} onClick={() => switchTab('activate')}>Активировать</TabNav.Link>}
               {rep.type === 'booster' && rules.some(r => r.from_rarity === rep.booster?.rarity) && <TabNav.Link as="button" selected={tab === 'combine'} onClick={() => switchTab('combine')}>Объединить</TabNav.Link>}
               {rep.type === 'booster_pack' && <TabNav.Link as="button" selected={tab === 'open'} onClick={() => switchTab('open')}>Открыть</TabNav.Link>}
-              {rep.type === 'booster_pack' && itemRewards.length > 0 && <TabNav.Link as="button" selected={tab === 'target'} onClick={() => switchTab('target')}>Цель</TabNav.Link>}
+              {rep.type === 'booster_pack' && targetRewards.length > 0 && <TabNav.Link as="button" selected={tab === 'target'} onClick={() => switchTab('target')}>Цель</TabNav.Link>}
               <TabNav.Link as="button" selected={tab === 'sell'} onClick={() => switchTab('sell')}>Продать</TabNav.Link>
             </TabNav>
 
@@ -226,14 +242,22 @@ export function StorageBulkModal({ itemId, holders, onClose }: { itemId: number;
 
             {tab === 'target' && (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Цель установится на всех аккаунтах — следующий пак гарантирует выбранный предмет.</Text>
+                <Text sx={{ fontSize: 1, color: 'fg.muted' }}>
+                  Цель установится на всех аккаунтах. Справа — сколько паков нужно открыть подряд,
+                  чтобы цель выпала гарантированно; серия считается отдельно по каждой цели.
+                  Показаны только предметы с гарантией: на остальные награды набора серия не идёт.
+                </Text>
+                {targetRewards.length === 0 && (
+                  <Text sx={{ fontSize: 1, color: 'fg.muted' }}>У этого набора нет предметов с гарантией.</Text>
+                )}
                 <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, overflow: 'hidden' }}>
-                  {itemRewards.map((rw, i) => {
+                  {targetRewards.map((rw, i) => {
                     const isSel = selectedTarget === rw.reward_id;
                     return (
                       <Box key={i} onClick={() => setSelectedTarget(rw.reward_id)}
-                        sx={{ cursor: 'pointer', bg: isSel ? 'accent.subtle' : 'canvas.default', borderBottom: i < itemRewards.length - 1 ? '1px solid' : 'none', borderColor: 'border.muted', '&:hover': { bg: isSel ? 'accent.subtle' : 'canvas.subtle' } }}>
-                        <RewardRow rw={rw} i={i} total={itemRewards.length}>
+                        sx={{ cursor: 'pointer', bg: isSel ? 'accent.subtle' : 'canvas.default', borderBottom: i < targetRewards.length - 1 ? '1px solid' : 'none', borderColor: 'border.muted', '&:hover': { bg: isSel ? 'accent.subtle' : 'canvas.subtle' } }}>
+                        <RewardRow rw={rw} i={i} total={targetRewards.length}
+                          right={<PacksToGuarantee n={attemptsFor(rw.reward_id)} />}>
                           {isSel && <Label sx={{ bg: 'accent.emphasis', color: 'white', borderColor: 'transparent', fontSize: 0 }}>Выбрано</Label>}
                         </RewardRow>
                       </Box>
@@ -244,11 +268,6 @@ export function StorageBulkModal({ itemId, holders, onClose }: { itemId: number;
             )}
           </>
         ) : null}
-      </Scrollable>
-
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-        <Button leadingVisual={SyncIcon} onClick={() => loadRep().then(countLive)} disabled={loading || busy || counting}>Обновить</Button>
-        <Box sx={{ display: 'flex', gap: 2 }}>{footerBtn()}</Box>
       </Box>
     </Dialog>
   );

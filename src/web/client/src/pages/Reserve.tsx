@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Button, Flash, Heading, Spinner, Text, ToggleSwitch, Label,
-  Dialog, TabNav, ButtonGroup, CounterLabel,
+  TabNav, ButtonGroup, CounterLabel,
 } from '@primer/react';
-import { DataTable, Table } from '@primer/react/experimental';
+import { DataTable, Table, Dialog } from '@primer/react/experimental';
 import {
   SyncIcon, CheckIcon, ClockIcon, AlertIcon, PlusCircleIcon, ZapIcon, StackAddIcon,
 } from '@primer/octicons-react';
@@ -13,7 +13,6 @@ import { StatCard } from '../components/StatCard';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CrystalValue } from '../components/Icons';
-import { Scrollable } from '../components/Scrollable';
 
 // ── Конфиг ставок ────────────────────────────────────────────────────────────
 
@@ -136,9 +135,26 @@ function StakeModal({
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ maxWidth: 720, width: '95vw' }}>
-      <Dialog.Header sx={{ display: 'flex', alignItems: 'center', py: 2, pr: '52px', minHeight: 48 }}>Новый вклад</Dialog.Header>
-      <Scrollable style={{ display: 'flex', flexDirection: 'column', gap: 24, maxHeight: '60vh', padding: 8 }}>
+    // 720px шире самого широкого пресета (xlarge = 640), поэтому ширина дожата через sx
+    <Dialog
+      title="Новый вклад"
+      onClose={onClose}
+      width="xlarge"
+      /* только на десктопе: на узких экранах Primer делает bottom-sheet во всю ширину,
+         а sx перебил бы его собственную media-раскладку */
+      sx={{ '@media (min-width: 768px)': { width: 720 } }}
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[{
+        content: 'Вложить всем',
+        buttonType: 'primary',
+        leadingVisual: StackAddIcon,
+        trailingVisual: () => eligible.length > 0 ? <CounterLabel sx={{ bg: 'rgba(255,255,255,0.9)', color: 'success.fg', borderColor: 'transparent' }}>{eligible.length}</CounterLabel> : null,
+        disabled: eligible.length === 0 || !amount || !duration || stakingAll,
+        loading: stakingAll,
+        onClick: stakeAll,
+      }]}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         {flash && <Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash>}
 
         {/* Вкладки валюта */}
@@ -280,18 +296,6 @@ function StakeModal({
             </table>
           </Box>
         </Box>
-      </Scrollable>
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', justifyContent: 'flex-end', gap: 2, flexShrink: 0 }}>
-        <Button
-          variant="primary"
-          leadingVisual={StackAddIcon}
-          trailingVisual={() => eligible.length > 0 ? <CounterLabel sx={{ bg: 'rgba(255,255,255,0.9)', color: 'success.fg', borderColor: 'transparent' }}>{eligible.length}</CounterLabel> : null}
-          disabled={eligible.length === 0 || !amount || !duration || stakingAll}
-          loading={stakingAll}
-          onClick={stakeAll}
-        >
-          Вложить всем
-        </Button>
       </Box>
     </Dialog>
   );

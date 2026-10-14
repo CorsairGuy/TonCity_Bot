@@ -29,6 +29,8 @@ async function runSatoshi(api,name){
       const payload={
         account:name,side:p.side,leverage:p.leverage??null,margin:p.margin??null,notional:p.notional??null,
         entry_price:p.entry_price??null,liquidation_price:p.liquidation_price??null,
+        // игровой TP/SL (обновление 31.07.2026) — задаётся при открытии, потом только читается
+        game_tp_price:p.take_profit_price??null,game_sl_price:p.stop_loss_price??null,
         opened_at:p.opened_at?new Date(p.opened_at):null,updated_at:new Date(),
       };
       const[row,created]=await SatoshiPosition.findOrCreate({where:{id:p.id},defaults:{id:p.id,...payload}});

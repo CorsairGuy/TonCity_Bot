@@ -149,11 +149,11 @@ export function Game2048() {
               renderCell: row => row._res?.score != null ? <span className="mono">{fmt(row._res.score)}</span> : <Text sx={{ color: 'fg.muted' }}>—</Text>,
             },
             {
-              header: '', field: 'id', id: 'action',
+              header: '', field: 'id', id: 'action', align: 'end',
               renderCell: row => {
                 const done = !!row._res;
                 return (
-                  <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
                     <Button variant="primary" leadingVisual={PlayIcon}
                       disabled={done} onClick={() => setPlaying({ id: row.id, name: row.name })}>
                       {done ? 'Сыграно' : row._solving ? 'Смотреть' : 'Играть'}

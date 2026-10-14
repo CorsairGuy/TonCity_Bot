@@ -1,7 +1,7 @@
-import { Box, Dialog, Label, Text } from '@primer/react';
+import { Box, Label, Text } from '@primer/react';
+import { Dialog } from '@primer/react/experimental';
 import { type PolicyDefEntry } from '../api';
 import { effectLabel, effectValue } from '../policyEffects';
-import { Scrollable } from './Scrollable';
 
 // Общая карточка/модалка политики — используется и в «Библиотеке политик», и на странице лотов рынка
 // (клик по политике-лоту). Показывает ВСЕ известные варианты с одинаковым названием (в игре бывают
@@ -59,11 +59,8 @@ export function PolicyCardModal({ variants, onClose }: { variants: PolicyDefEntr
   const icon = (primary.icon_key || 'mdi-script-text').replace(/^mdi-/, '');
   const sorted = [...variants].sort((a, b) => RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity));
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ maxWidth: 480, width: '95vw' }}>
-      <Dialog.Header>
-        <Text sx={{ fontWeight: 'bold' }}>{defName(primary)}</Text>
-      </Dialog.Header>
-      <Scrollable style={{ maxHeight: '70vh', padding: 8 }}>
+    <Dialog title={defName(primary)} onClose={onClose} width="large" position={{ narrow: 'bottom', regular: 'center' }}>
+      <Box>
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
           <div style={{ width: 72, height: 72, borderRadius: 16, background: color, boxShadow: `0 0 14px ${color}66`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <span className={`mdi mdi-${icon}`} style={{ fontSize: 36, color: '#fff' }} />
@@ -75,7 +72,7 @@ export function PolicyCardModal({ variants, onClose }: { variants: PolicyDefEntr
           </Text>
         )}
         {sorted.map(def => <VariantCard key={def.def_id} def={def} multi={sorted.length > 1} />)}
-      </Scrollable>
+      </Box>
     </Dialog>
   );
 }

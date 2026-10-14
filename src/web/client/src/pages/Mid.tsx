@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Box, Button, Dialog, Flash, Heading, Label, Spinner, Text, TextInput, Avatar,
+  Box, Button, Flash, Heading, Label, Spinner, Text, TextInput, Avatar,
   ActionList, ActionMenu, TabNav, CounterLabel,
 } from '@primer/react';
 import {
@@ -15,6 +15,7 @@ import {
 import { useFlash } from '../hooks/useFlash';
 import { fmt } from '../utils';
 import { Scrollable } from '../components/Scrollable';
+import { Dialog } from '@primer/react/experimental';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 const commissionReduction = (level: number) => (level * 0.5).toFixed(1).replace(/\.0$/, '');
@@ -30,9 +31,17 @@ function AllianceUpgradeModal({ open, alliance, onClose, onConfirm, loading }: {
   const atMax = our >= 10;
   const canUpgrade = our <= their && our < 10;
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ width: 460 }}>
-      <Dialog.Header>Уровень альянса</Dialog.Header>
-      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Dialog
+      title="Уровень альянса"
+      onClose={onClose}
+      width="large"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[
+        { content: 'Закрыть', onClick: onClose },
+        { content: 'Улучшить', buttonType: 'primary', disabled: !canUpgrade || loading, loading, onClick: onConfirm },
+      ]}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <GuildAvatar photo={alliance.ally_guild_photo} title={alliance.ally_guild_title} size={40} />
           <Box>
@@ -71,10 +80,6 @@ function AllianceUpgradeModal({ open, alliance, onClose, onConfirm, loading }: {
             </Text>
           </Box>
         )}
-      </Box>
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-        <Button onClick={onClose}>Закрыть</Button>
-        <Button variant="primary" disabled={!canUpgrade || loading} loading={loading} onClick={onConfirm}>Улучшить</Button>
       </Box>
     </Dialog>
   );
@@ -190,9 +195,8 @@ function GuildPicker({ open, onClose, guildId, type, title, onSelect }: GuildPic
   const hasMore = total !== null && results.length < total;
 
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ width: 480 }}>
-      <Dialog.Header sx={{ display: 'flex', alignItems: 'center', minHeight: 48, pr: '52px' }}>{title}</Dialog.Header>
-      <Box sx={{ p: 2 }}>
+    <Dialog title={title} onClose={onClose} width="large" position={{ narrow: 'bottom', regular: 'center' }}>
+      <Box>
         <TextInput
           leadingVisual={SearchIcon}
           placeholder="Поиск гильдии..."
@@ -272,9 +276,14 @@ function EnemyAddModal({ open, guild, onClose, onConfirm, loading }: EnemyAddMod
   const [tariff, setTariff] = useState('10');
   if (!open || !guild) return null;
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ width: 400 }}>
-      <Dialog.Header>Объявить врагом</Dialog.Header>
-      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Dialog
+      title="Объявить врагом"
+      onClose={onClose}
+      width="medium"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[{ content: 'Объявить врагом', buttonType: 'danger', loading, onClick: () => onConfirm(tariff) }]}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <GuildAvatar photo={guild.photo} title={guild.title} size={40} />
           <Box>
@@ -297,11 +306,6 @@ function EnemyAddModal({ open, guild, onClose, onConfirm, loading }: EnemyAddMod
             Тариф применяется к торговле участников вражеской гильдии на Центральном рынке
           </Text>
         </Box>
-        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-          <Button variant="danger" loading={loading} onClick={() => onConfirm(tariff)}>
-            Объявить врагом
-          </Button>
-        </Box>
       </Box>
     </Dialog>
   );
@@ -316,9 +320,14 @@ function TariffEditModal({ open, enemy, onClose, onConfirm, loading }: {
   useEffect(() => { if (enemy) setTariff(String(enemy.tariff_level)); }, [enemy]);
   if (!open || !enemy) return null;
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ width: 400 }}>
-      <Dialog.Header>Изменить тариф</Dialog.Header>
-      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Dialog
+      title="Изменить тариф"
+      onClose={onClose}
+      width="medium"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[{ content: 'Сохранить', buttonType: 'primary', loading, onClick: () => onConfirm(tariff) }]}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <GuildAvatar photo={enemy.enemy_guild_photo} title={enemy.enemy_guild_title} size={40} />
           <Box>
@@ -336,9 +345,6 @@ function TariffEditModal({ open, enemy, onClose, onConfirm, loading }: {
           <Text sx={{ fontSize: 0, color: 'fg.muted', mt: 1, display: 'block' }}>
             Тариф применяется к торговле участников вражеской гильдии на Центральном рынке
           </Text>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-          <Button variant="primary" loading={loading} onClick={() => onConfirm(tariff)}>Сохранить</Button>
         </Box>
       </Box>
     </Dialog>
@@ -367,9 +373,14 @@ function CampaignStartModal({ open, guild, config, onClose, onConfirm, loading }
   if (!open || !guild) return null;
   const stealFrac = duration >= 72 ? config?.steal_base_long : config?.steal_base_short;
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ width: 400 }}>
-      <Dialog.Header>Начать кампанию</Dialog.Header>
-      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Dialog
+      title="Начать кампанию"
+      onClose={onClose}
+      width="medium"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[{ content: 'Начать кампанию', buttonType: 'danger', leadingVisual: FlameIcon, loading, onClick: () => onConfirm(duration) }]}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <GuildAvatar photo={guild.photo} title={guild.title} size={40} />
           <Box>
@@ -393,11 +404,6 @@ function CampaignStartModal({ open, guild, config, onClose, onConfirm, loading }
               Базовый грабёж казны при победе: ≈{Math.round(stealFrac * 100)}%
             </Text>
           )}
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-          <Button variant="danger" leadingVisual={FlameIcon} loading={loading} onClick={() => onConfirm(duration)}>
-            Начать кампанию
-          </Button>
         </Box>
       </Box>
     </Dialog>
@@ -498,9 +504,13 @@ function AllianceSection({ guildId, alliances, requests, onRefresh, onFlash }: A
 
       {/* модалка заявок */}
       {reqModal && (
-        <Dialog isOpen onDismiss={() => setReqModal(null)} sx={{ width: 460 }}>
-          <Dialog.Header>{reqModal === 'incoming' ? 'Входящие заявки' : 'Исходящие заявки'}</Dialog.Header>
-          <Scrollable style={{ maxHeight: '60vh', padding: 8 }}>
+        <Dialog
+          title={reqModal === 'incoming' ? 'Входящие заявки' : 'Исходящие заявки'}
+          onClose={() => setReqModal(null)}
+          width="large"
+          position={{ narrow: 'bottom', regular: 'center' }}
+        >
+          <Box>
             {reqModal === 'incoming' ? (
               requests.incoming.length === 0
                 ? <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Нет входящих заявок</Text>
@@ -524,7 +534,7 @@ function AllianceSection({ guildId, alliances, requests, onRefresh, onFlash }: A
                   </Box>
                 ))
             )}
-          </Scrollable>
+          </Box>
         </Dialog>
       )}
     </Box>

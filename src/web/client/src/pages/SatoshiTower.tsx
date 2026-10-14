@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import {
-  Box, Button, Flash, Heading, Spinner, Text, Select, ButtonGroup, TextInput, Checkbox, Label, Dialog,
+  Box, Button, Flash, Heading, Spinner, Text, Select, ButtonGroup, TextInput, Checkbox, Label,
 } from '@primer/react';
-import { DataTable, Table, type Column } from '@primer/react/experimental';
-import { ArrowUpIcon, ArrowDownIcon, SyncIcon, XCircleIcon, GearIcon, PlusIcon, ClockIcon } from '@primer/octicons-react';
+import { DataTable, Table, type Column, Dialog } from '@primer/react/experimental';
+import { ArrowUpIcon, ArrowDownIcon, SyncIcon, XCircleIcon, GearIcon, PlusIcon } from '@primer/octicons-react';
 import {
   api, type SatoshiCandle, type SatoshiConfig, type SatoshiTimeframe, type Account,
   type SatoshiTpSl, type SatoshiOpenPosition, type SatoshiHistoryPosition, type SatoshiPendingOrder,
@@ -77,6 +77,39 @@ function priceForPnlPct(entry: number, notional: number, margin: number, side: '
   const closeFee = config ? Math.max(config.min_fee, notional * config.fee_rate) : 0;
   const rawPnl = margin * (pnlPct / 100) + closeFee; // валовый PnL до вычета комиссии закрытия
   return entry * (1 + dir * rawPnl / notional);
+}
+
+// Что РЕАЛЬНО уйдёт в игру. С обновления 31.07.2026 у игры свой серверный TP/SL, но он принимает
+// только АБСОЛЮТНУЮ ЦЕНУ — а вводить у нас можно и в ROI%, и в «% движения курса». Пересчёт делает
+// сервер (utils/satoshiTriggers, тот же код, что и само открытие), чтобы показанное здесь совпадало
+// с отправленным. Уровни ещё и подрезаются под границы игры, поэтому увидеть итог до клика важно.
+function GameTriggerPreview({ side, leverage, margin, price, tpSl }: {
+  side: 'long' | 'short'; leverage: number; margin: number; price: number; tpSl: SatoshiTpSl;
+}) {
+  const [preview, setPreview] = useState<{ tp: number | null; sl: number | null } | null>(null);
+  const key = JSON.stringify({ side, leverage, margin, price, tpSl });
+  useEffect(() => {
+    const has = tpSl.tp_price != null || tpSl.sl_price != null || tpSl.tp_pnl_pct != null || tpSl.sl_pnl_pct != null;
+    if (!has || !(price > 0) || !(margin > 0)) { setPreview(null); return; }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api.satoshiTriggerPreview({ side, leverage, margin, price, ...tpSl })
+        .then(d => { if (!cancelled && d.ok) setPreview({ tp: d.take_profit_price, sl: d.stop_loss_price }); })
+        .catch(() => {});
+    }, 350);   // дебаунс: значения меняются ползунками/вводом
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  if (!preview || (preview.tp == null && preview.sl == null)) return null;
+  return (
+    <Box sx={{ mb: 2, bg: 'canvas.subtle', borderRadius: 2, p: 2 }}>
+      <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 1 }}>Уйдёт в игру (игровой TP/SL, цена):</Text>
+      <Box sx={{ display: 'flex', gap: 3, fontSize: 0 }}>
+        {preview.tp != null && <Text className="mono" style={{ color: 'var(--green)' }}>TP ${preview.tp.toFixed(3)}</Text>}
+        {preview.sl != null && <Text className="mono" style={{ color: 'var(--red)' }}>SL ${preview.sl.toFixed(3)}</Text>}
+      </Box>
+    </Box>
+  );
 }
 
 function TpSlBadge({ p }: { p: SatoshiTpSl }) {
@@ -215,9 +248,14 @@ function TpSlModal({ position, onClose, onSaved }: { position: SatoshiOpenPositi
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ maxWidth: 380, width: '95vw' }}>
-      <Dialog.Header>TP/SL — позиция #{position.id}</Dialog.Header>
-      <Box sx={{ p: 2 }}>
+    <Dialog
+      title={`TP/SL — позиция #${position.id}`}
+      onClose={onClose}
+      width="large"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[{ content: 'Сохранить', buttonType: 'primary', loading: busy, disabled: busy, onClick: save }]}
+    >
+      <Box>
         {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{flash.msg}</Flash>}
         <TpSlFields {...t} side={position.side} referencePrice={position.entry_price} leverage={position.leverage} />
         {(tpCrystals != null || slCrystals != null) && (
@@ -236,9 +274,6 @@ function TpSlModal({ position, onClose, onSaved }: { position: SatoshiOpenPositi
             )}
           </Box>
         )}
-      </Box>
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', justifyContent: 'flex-end' }}>
-        <Button variant="primary" loading={busy} disabled={busy} onClick={save}>Сохранить</Button>
       </Box>
     </Dialog>
   );
@@ -266,6 +301,13 @@ function NewPositionModal({ config, accounts, price, openCountByAccount, maxOpen
   const t = useTpSlState();
   const [busy, setBusy] = useState(false);
   const { flash, showFlash } = useFlash();
+  // «Ждать курс» — вместо немедленного открытия позиции создаётся условный ордер, который игра
+  // исполнит при достижении цены. Отдельной модалки «Ордер по цене» больше нет: это тот же набор
+  // параметров (аккаунты/сторона/плечо/маржа/TP-SL) плюс цена срабатывания.
+  const [wait, setWait] = useState(false);
+  const [triggerPrice, setTriggerPrice] = useState(price || 0);
+  // цена, от которой считаются сводка и проценты TP/SL: в режиме ожидания — цена срабатывания
+  const refPrice = wait ? triggerPrice : price;
 
   const bothMode = side === 'both';
   const slotsNeeded = bothMode ? 2 : 1;            // «Оба» = 2 позиции (лонг+шорт) → 2 слота
@@ -281,12 +323,12 @@ function NewPositionModal({ config, accounts, price, openCountByAccount, maxOpen
   const closeFee = config ? Math.max(config.min_fee, notional * config.fee_rate) : 0; // 1% на всю сделку, одна ставка
   const maint = refMargin * 0.005;
   const v = notional > 0 ? Math.max(0, refMargin - maint) / notional : 0;
-  const estLiqPrice = price > 0 ? (dirSide === 'short' ? price * (1 + v) : price * (1 - v)) : 0;
-  const estBreakeven = price > 0 && notional > 0
-    ? (dirSide === 'short' ? price * (1 - closeFee / notional) : price * (1 + closeFee / notional))
+  const estLiqPrice = refPrice > 0 ? (dirSide === 'short' ? refPrice * (1 + v) : refPrice * (1 - v)) : 0;
+  const estBreakeven = refPrice > 0 && notional > 0
+    ? (dirSide === 'short' ? refPrice * (1 - closeFee / notional) : refPrice * (1 + closeFee / notional))
     : 0;
-  const tpCrystals = t.useTp ? estimateCrystalsForTarget(t.tpMode, t.tpValue, dirSide, refMargin, notional, price) : null;
-  const slCrystals = t.useSl ? estimateCrystalsForTarget(t.slMode, t.slMode !== 'price' ? -Math.abs(t.slValue) : t.slValue, dirSide, refMargin, notional, price) : null;
+  const tpCrystals = t.useTp ? estimateCrystalsForTarget(t.tpMode, t.tpValue, dirSide, refMargin, notional, refPrice) : null;
+  const slCrystals = t.useSl ? estimateCrystalsForTarget(t.slMode, t.slMode !== 'price' ? -Math.abs(t.slValue) : t.slValue, dirSide, refMargin, notional, refPrice) : null;
 
   const selectedAccounts = sortedAccounts.filter(a => selected.has(a.id));
   // выбранный бюджет для КОНКРЕТНОГО аккаунта: % от его баланса (процентный режим) либо фикс. число
@@ -318,9 +360,18 @@ function NewPositionModal({ config, accounts, price, openCountByAccount, maxOpen
   // per-account макс. плечо (политика на плечо): у кого есть — до 20×, у остальных базовые 10×.
   const defaultMax = config?.max_leverage ?? 10;
   const accMaxLev = (id: number) => maxLevByAccount[id] ?? defaultMax;
-  const effMaxLev = Math.max(defaultMax, ...accounts.map(a => accMaxLev(a.id)));
+  // Максимум плеча — по ВЫБРАННЫМ аккаунтам, а не по всему флоту. Раньше брался общий максимум:
+  // если хоть у кого-то есть политика на 50×, ползунок предлагал 50× даже когда выбран аккаунт с
+  // лимитом 10× — а при открытии плечо всё равно капится его реальным (min с accMaxLev), т.е. UI
+  // обещал не то, что произойдёт. Пока никто не выбран — базовый лимит.
+  const effMaxLev = selectedAccounts.length
+    ? Math.max(...selectedAccounts.map(a => accMaxLev(a.id)))
+    : defaultMax;
+  // если выбор сменился на аккаунт с меньшим лимитом — подрезаем текущее значение, иначе в поле
+  // остались бы прежние 50× при максимуме 10×
+  useEffect(() => { setLeverage(l => Math.min(l, effMaxLev)); }, [effMaxLev]);
 
-  const canOpen = !!config && leverage >= 1 && leverage <= effMaxLev && price > 0 && affordableSelected.length > 0;
+  const canOpen = !!config && leverage >= 1 && leverage <= effMaxLev && refPrice > 0 && affordableSelected.length > 0;
 
   const submit = async () => {
     setBusy(true);
@@ -337,29 +388,53 @@ function NewPositionModal({ config, accounts, price, openCountByAccount, maxOpen
         for (const s of sides) {
           if (!first) await new Promise(r => setTimeout(r, 1000));
           first = false;
-          try { const r = await api.satoshiOpen(a.id, s, lev, m, t.build(lev)); outcomes.push({ ok: !!r.ok, error: r.error }); }
+          try {
+            const r = wait
+              ? await api.satoshiCreatePending(a.id, s, lev, m, triggerPrice, t.build(lev))
+              : await api.satoshiOpen(a.id, s, lev, m, t.build(lev));
+            outcomes.push({ ok: !!r.ok, error: r.error });
+          }
           catch (e) { outcomes.push({ ok: false, error: String(e) }); }
         }
       }
       const ok = outcomes.filter(o => o.ok).length;
       if (outcomes.length === 1) {
-        showFlash(outcomes[0].ok ? 'Позиция открыта' : (outcomes[0].error ?? 'Ошибка'), outcomes[0].ok);
+        showFlash(outcomes[0].ok ? (wait ? 'Ордер создан' : 'Позиция открыта') : (outcomes[0].error ?? 'Ошибка'), outcomes[0].ok);
       } else {
         const firstErr = outcomes.find(o => !o.ok)?.error;
-        showFlash(ok === outcomes.length ? `Открыто позиций: ${ok}` : `Открыто ${ok} из ${outcomes.length}${firstErr ? ` · ${firstErr}` : ''}`, ok === outcomes.length);
+        const noun = wait ? 'ордеров' : 'позиций';
+        showFlash(ok === outcomes.length ? `Создано ${noun}: ${ok}` : `Создано ${ok} из ${outcomes.length}${firstErr ? ` · ${firstErr}` : ''}`, ok === outcomes.length);
       }
       onOpened();
     } catch (e) { showFlash(String(e), false); } finally { setBusy(false); }
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ maxWidth: 460, width: '95vw' }}>
-      <Dialog.Header>Новая позиция</Dialog.Header>
-      {/* высота ЗАФИКСИРОВАНА (не maxHeight) — иначе любое появление/исчезновение строки внутри
-          (предупреждение о балансе, оценка TP/SL) меняет высоту диалога, и он перецентровывается
-          на экране, из-за чего кнопка снизу визуально "прыгает". Теперь снаружи всегда одна и та
-          же высота, меняется только то, что происходит внутри скролла. */}
-      <Scrollable style={{ height: '60vh', padding: 8 }}>
+    // height="large" (640px) — высота ЗАФИКСИРОВАНА (не max-height): иначе любое появление или
+    // исчезновение строки внутри (предупреждение о балансе, оценка TP/SL) меняет высоту диалога,
+    // он перецентровывается на экране, и кнопка снизу визуально "прыгает". Скроллит тело само.
+    <Dialog
+      title={wait ? 'Новый ордер по цене' : 'Новая позиция'}
+      onClose={onClose}
+      width="large"
+      height="large"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[{
+        content: (() => {
+          const verb = wait ? 'Заказать' : 'Открыть';
+          if (bothMode) return `${verb} Лонг+Шорт${affordableSelected.length > 1 ? ` ×${affordableSelected.length}` : ''}`;
+          if (affordableSelected.length > 1) return `${verb} на ${affordableSelected.length} аккаунтах`;
+          return `${verb} ${side === 'long' ? 'Лонг' : 'Шорт'}`;
+        })(),
+        buttonType: side === 'short' ? 'danger' : 'primary',
+        block: true,
+        loading: busy,
+        disabled: busy || !canOpen,
+        onClick: submit,
+        sx: side === 'both' ? { bg: '#8250df', borderColor: '#8250df', '&:hover:not([disabled])': { bg: '#6f42c1' } } : undefined,
+      }]}
+    >
+      <Box>
         {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{flash.msg}</Flash>}
 
         <Box sx={{ bg: 'canvas.subtle', borderRadius: 2, p: 2, mb: 2 }}>
@@ -404,6 +479,25 @@ function NewPositionModal({ config, accounts, price, openCountByAccount, maxOpen
           <Button block variant={side === 'short' ? 'danger' : 'default'} leadingVisual={ArrowDownIcon} onClick={() => setSide('short')}>Шорт</Button>
         </Box>
 
+        {/* «Ждать курс» — переключает создание позиции на условный ордер по цене */}
+        <Box sx={{ bg: 'canvas.subtle', borderRadius: 2, p: 2, mb: 2 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+            <Checkbox checked={wait} onChange={() => setWait(v => !v)} />
+            Ждать курс — открыть не сейчас, а по цене
+          </label>
+          {wait && (
+            <Box sx={{ mt: 2 }}>
+              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 1 }}>
+                Цена срабатывания $ {price > 0 && `(сейчас ${price.toFixed(3)})`}
+              </Text>
+              <TextInput type="number" step="0.001" value={triggerPrice} onChange={e => setTriggerPrice(Number(e.target.value))} block />
+              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>
+                Позиция откроется автоматически, когда биржевой курс GRAM/USDT достигнет этой цены.
+              </Text>
+            </Box>
+          )}
+        </Box>
+
         <Box sx={{ mb: 2 }}>
           <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 1 }}>Плечо: {leverage}× (макс {effMaxLev}×){effMaxLev > defaultMax ? ' — где нет политики, применится не выше 10×' : ''}</Text>
           <input type="range" min={1} max={effMaxLev} value={leverage} onChange={e => setLeverage(Number(e.target.value))} style={{ width: '100%' }} />
@@ -436,7 +530,8 @@ function NewPositionModal({ config, accounts, price, openCountByAccount, maxOpen
           )}
         </Box>
 
-        <Box sx={{ mb: 2 }}><TpSlFields {...t} side={dirSide} referencePrice={price} leverage={leverage} /></Box>
+        <Box sx={{ mb: 2 }}><TpSlFields {...t} side={dirSide} referencePrice={refPrice} leverage={leverage} /></Box>
+        <GameTriggerPreview side={dirSide} leverage={leverage} margin={perSideMargin(affordableSelected[0]) || 0} price={refPrice} tpSl={t.build(leverage)} />
 
         <Box sx={{ bg: 'canvas.subtle', borderRadius: 2, p: 2, display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 0 }}><Text sx={{ color: 'fg.muted' }}>Размер позиции</Text><Text className="mono"><Cr n={notional} /></Text></Box>
@@ -456,179 +551,6 @@ function NewPositionModal({ config, accounts, price, openCountByAccount, maxOpen
             </Box>
           )}
         </Box>
-      </Scrollable>
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default' }}>
-        <Button block variant={side === 'short' ? 'danger' : 'primary'} loading={busy} disabled={busy || !canOpen} onClick={submit}
-          sx={side === 'both' ? { bg: '#8250df', borderColor: '#8250df', '&:hover:not([disabled])': { bg: '#6f42c1' } } : undefined}>
-          {bothMode
-            ? `Открыть Лонг+Шорт${affordableSelected.length > 1 ? ` ×${affordableSelected.length}` : ''}`
-            : affordableSelected.length > 1
-              ? `Открыть на ${affordableSelected.length} аккаунтах`
-              : (side === 'long' ? 'Открыть Лонг' : 'Открыть Шорт')}
-        </Button>
-      </Box>
-    </Dialog>
-  );
-}
-
-// ── Модалка "Ордер по цене" (условный ордер) ──────────────────────────────────
-
-function PendingOrderModal({ config, accounts, price, openCountByAccount, maxOpen, maxLevByAccount, onRefreshBalances, balanceRefreshing, onClose, onCreated }: {
-  config: SatoshiConfig | null; accounts: Account[]; price: number; openCountByAccount: Record<number, number>; maxOpen: number; maxLevByAccount: Record<number, number>; onRefreshBalances: () => void; balanceRefreshing: boolean; onClose: () => void; onCreated: () => void;
-}) {
-  // Тот же выбор аккаунтов, что и в "Новой позиции" — список с чекбоксами и видимым балансом,
-  // а не одиночный select. Условный ордер создаётся сразу на всех отмеченных счетах.
-  // useMemo — та же причина, что в NewPositionModal: модалка перерендеривается на каждый тик цены.
-  const sortedAccounts = useMemo(() => [...accounts].sort((a, b) => (b.crystals ?? 0) - (a.crystals ?? 0)), [accounts]);
-  const firstAffordable = sortedAccounts.find(a => (a.crystals ?? 0) >= (config?.min_margin ?? 1));
-  const [selected, setSelected] = useState<Set<number>>(new Set(firstAffordable ? [firstAffordable.id] : []));
-  const [side, setSide] = useState<'long' | 'short'>('long');
-  const [leverage, setLeverage] = useState(10);
-  const [margin, setMargin] = useState(config?.min_margin ?? 10);
-  const [triggerPrice, setTriggerPrice] = useState(price || 0);
-  const t = useTpSlState();
-  const [busy, setBusy] = useState(false);
-  const { flash, showFlash } = useFlash();
-
-  const selectedAccounts = sortedAccounts.filter(a => selected.has(a.id));
-  const affordableSelected = selectedAccounts.filter(a => (a.crystals ?? 0) >= margin);
-  const allChecked = selected.size > 0 && selected.size === sortedAccounts.length;
-  const toggleOne = (id: number) => setSelected(prev => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
-  const toggleAll = () => setSelected(allChecked ? new Set() : new Set(sortedAccounts.map(a => a.id)));
-  const maxAffordableMargin = selectedAccounts.length
-    ? Math.max(0, Math.min(...selectedAccounts.map(a => Math.floor(a.crystals ?? 0))))
-    : 0;
-  const setMaxMargin = () => setMargin(Math.max(config?.min_margin ?? 1, maxAffordableMargin));
-
-  // per-account макс. плечо (политика на плечо): у кого есть — до 20×, у остальных базовые 10×.
-  const defaultMax = config?.max_leverage ?? 10;
-  const accMaxLev = (id: number) => maxLevByAccount[id] ?? defaultMax;
-  const effMaxLev = Math.max(defaultMax, ...accounts.map(a => accMaxLev(a.id)));
-
-  const canCreate = !!config && margin >= config.min_margin && leverage >= 1 && leverage <= effMaxLev
-    && triggerPrice > 0 && affordableSelected.length > 0;
-  const pendingNotional = margin * leverage;
-  const tpCrystals = t.useTp ? estimateCrystalsForTarget(t.tpMode, t.tpValue, side, margin, pendingNotional, triggerPrice) : null;
-  const slCrystals = t.useSl ? estimateCrystalsForTarget(t.slMode, t.slMode !== 'price' ? -Math.abs(t.slValue) : t.slValue, side, margin, pendingNotional, triggerPrice) : null;
-
-  const submit = async () => {
-    setBusy(true);
-    try {
-      // плечо капим по каждому аккаунту (у кого нет политики — max 10×); TP/SL под фактическое плечо
-      const results = await Promise.allSettled(affordableSelected.map(a => {
-        const lev = Math.min(leverage, accMaxLev(a.id));
-        return api.satoshiCreatePending(a.id, side, lev, margin, triggerPrice, t.build(lev));
-      }));
-      const ok = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
-      if (affordableSelected.length === 1) {
-        const r = results[0];
-        if (r.status === 'fulfilled' && r.value.ok) showFlash('Ордер создан', true);
-        else showFlash((r.status === 'fulfilled' ? r.value.error : String(r.reason)) ?? 'Ошибка', false);
-      } else {
-        showFlash(ok === results.length ? `Создано ${ok} ордеров` : `Создано ${ok} из ${results.length}`, ok === results.length);
-      }
-      onCreated();
-    } catch (e) { showFlash(String(e), false); } finally { setBusy(false); }
-  };
-
-  return (
-    <Dialog isOpen onDismiss={onClose} sx={{ maxWidth: 420, width: '95vw' }}>
-      <Dialog.Header>Ордер по цене</Dialog.Header>
-      {/* фиксированная высота — см. комментарий в NewPositionModal: без этого диалог "прыгает"
-          при появлении/исчезновении оценки TP/SL в кристаллах */}
-      <Scrollable style={{ height: '60vh', padding: 8 }}>
-        {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{flash.msg}</Flash>}
-        <Text sx={{ fontSize: 1, color: 'fg.muted', display: 'block', mb: 2 }}>
-          Позиция откроется автоматически, когда биржевой курс GRAM/USDT достигнет указанной цены.
-        </Text>
-
-        <Box sx={{ bg: 'canvas.subtle', borderRadius: 2, p: 2, mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, gap: 2, flexWrap: 'wrap' }}>
-            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Аккаунты ({selected.size}/{sortedAccounts.length})</Text>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Button variant="invisible" leadingVisual={SyncIcon} loading={balanceRefreshing} disabled={balanceRefreshing} onClick={onRefreshBalances}>Баланс</Button>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12 }}>
-                <Checkbox checked={allChecked} onChange={toggleAll} />
-                Выбрать все
-              </label>
-            </Box>
-          </Box>
-          <Scrollable style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 180 }}>
-            {sortedAccounts.map(a => {
-              const enough = (a.crystals ?? 0) >= margin;
-              const slotsFree = maxOpen - (openCountByAccount[a.id] ?? 0);
-              const accLev = accMaxLev(a.id);
-              return (
-                <label key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, cursor: 'pointer', fontSize: 13, padding: '3px 0' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Checkbox checked={selected.has(a.id)} onChange={() => toggleOne(a.id)} />
-                    {a.name}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    {accLev > defaultMax && <span style={{ fontSize: 11, color: 'var(--green)', fontWeight: 600 }} title="макс. плечо (политика)">до {accLev}×</span>}
-                    <span style={{ fontSize: 11, color: slotsFree <= 0 ? 'var(--red)' : 'var(--fg-muted)' }} title="свободные / всего слотов позиций">слоты {slotsFree}/{maxOpen}</span>
-                    <span className="mono" style={{ color: enough ? undefined : 'var(--red)' }}><Cr n={a.crystals} /></span>
-                  </span>
-                </label>
-              );
-            })}
-          </Scrollable>
-        </Box>
-
-        <Box sx={{ mb: 2 }}>
-          <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 1 }}>Цена срабатывания $ {price > 0 && `(сейчас ${price.toFixed(3)})`}</Text>
-          <TextInput type="number" step="0.001" value={triggerPrice} onChange={e => setTriggerPrice(Number(e.target.value))} block />
-        </Box>
-
-        <ButtonGroup sx={{ display: 'flex', mb: 2 }}>
-          <Button block variant={side === 'long' ? 'primary' : 'default'} leadingVisual={ArrowUpIcon} onClick={() => setSide('long')}>Лонг</Button>
-          <Button block variant={side === 'short' ? 'danger' : 'default'} leadingVisual={ArrowDownIcon} onClick={() => setSide('short')}>Шорт</Button>
-        </ButtonGroup>
-
-        <Box sx={{ mb: 2 }}>
-          <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 1 }}>Плечо: {leverage}× (макс {effMaxLev}×){effMaxLev > defaultMax ? ' — где нет политики, применится не выше 10×' : ''}</Text>
-          <input type="range" min={1} max={effMaxLev} value={leverage} onChange={e => setLeverage(Number(e.target.value))} style={{ width: '100%' }} />
-        </Box>
-
-        <Box sx={{ mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Маржа (кристаллы) {config && `— мин ${fmt(config.min_margin)}`}</Text>
-            <Button disabled={!selectedAccounts.length} onClick={setMaxMargin}>Максимум</Button>
-          </Box>
-          <TextInput type="number" value={margin} min={config?.min_margin ?? 1} onChange={e => setMargin(Number(e.target.value))} block />
-          {selectedAccounts.length > 0 && affordableSelected.length < selectedAccounts.length && (
-            <Text sx={{ fontSize: 0, color: 'danger.fg', display: 'block', mt: 1 }}>
-              Не хватает у {selectedAccounts.length - affordableSelected.length} из {selectedAccounts.length} выбранных — ордер создастся только у тех, кому хватает
-            </Text>
-          )}
-        </Box>
-
-        <TpSlFields {...t} side={side} referencePrice={triggerPrice} leverage={leverage} />
-        {(tpCrystals != null || slCrystals != null) && (
-          <Box sx={{ bg: 'canvas.subtle', borderRadius: 2, p: 2, mt: 2, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {tpCrystals != null && (
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 0 }}>
-                <Text sx={{ color: 'fg.muted' }}>≈ Тейк-профит даст</Text>
-                <Text className="mono" style={{ color: 'var(--green)' }}>+<Cr n={tpCrystals} /></Text>
-              </Box>
-            )}
-            {slCrystals != null && (
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 0 }}>
-                <Text sx={{ color: 'fg.muted' }}>≈ Стоп-лосс заберёт</Text>
-                <Text className="mono" style={{ color: 'var(--red)' }}>−<Cr n={Math.abs(slCrystals)} /></Text>
-              </Box>
-            )}
-          </Box>
-        )}
-      </Scrollable>
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default' }}>
-        <Button block variant="primary" loading={busy} disabled={busy || !canCreate} onClick={submit}>
-          {affordableSelected.length > 1 ? `Создать ордер на ${affordableSelected.length} аккаунтах` : 'Создать ордер'}
-        </Button>
       </Box>
     </Dialog>
   );
@@ -750,7 +672,6 @@ export function SatoshiTower() {
   const [cancelling, setCancelling] = useState<Set<number>>(new Set());
   const [tpSlModal, setTpSlModal] = useState<SatoshiOpenPosition | null>(null);
   const [newPosModal, setNewPosModal] = useState(false);
-  const [pendingModal, setPendingModal] = useState(false);
   const [tablesRefreshing, setTablesRefreshing] = useResumableRefresh('refresh:satoshi', () => { loadOpen(true); loadProfitSummary(); refreshHistory(); });
   const [showPosLines, setShowPosLines] = useState(true); // накладывать уровни позиций на график
 
@@ -927,13 +848,27 @@ export function SatoshiTower() {
     finally { setBalanceRefreshing(false); }
   }, [loadAccounts, showFlash]);
 
+  // Цена ДЛЯ ТАБЛИЦЫ — троттлится до 2с, тогда как заголовок и график продолжают жить на каждом
+  // тике (~1/с). Пересчёт PnL сам по себе дешёвый, дорог его побочный эффект: новая ссылка на
+  // openData заставляет DataTable перерисовать все открытые позиции — это сотни ячеек с
+  // компонентами Primer. Раз в 2с для индикатора нереализованного PnL достаточно, а нагрузка
+  // на главный поток падает вдвое (и ещё сильнее — вместе с переводом иконок валют на <img>,
+  // см. components/Icons.tsx).
+  const priceRef = useRef(exPrice.price);
+  priceRef.current = exPrice.price;
+  const [tablePrice, setTablePrice] = useState(exPrice.price);
+  useEffect(() => {
+    const id = setInterval(() => setTablePrice(prev => (prev === priceRef.current ? prev : priceRef.current)), 2000);
+    return () => clearInterval(id);
+  }, []);
+
   // useMemo не убирает работу на тик (цена меняется каждый тик — PnL и должен обновляться), но
   // даёт стабильную ссылку на массив в остальные разы (например, когда меняется что-то другое,
   // не связанное с ценой) и не пересоздаёт объекты без необходимости
   const openData = useMemo(() => openRows.map(p => {
-    const { pnl, pnlPct, breakeven } = calcPnl(p.entry_price, p.notional, p.margin, p.side, exPrice.price, config);
+    const { pnl, pnlPct, breakeven } = calcPnl(p.entry_price, p.notional, p.margin, p.side, tablePrice, config);
     return { ...p, _pnl: pnl, _pnlPct: pnlPct, _breakeven: breakeven };
-  }), [openRows, exPrice.price, config]);
+  }), [openRows, tablePrice, config]);
   type OpenRow = (typeof openData)[number];
 
   // колонки открытых позиций — мемоизированы отдельно от строк: сами cell-рендеры читают live PnL
@@ -955,9 +890,9 @@ export function SatoshiTower() {
     { header: 'TP/SL', field: 'tp_price', sortBy: 'basic', renderCell: row => <TpSlBadge p={row} /> },
     { header: 'Открыта', field: 'opened_at', sortBy: 'alphanumeric', renderCell: row => <span className="mono" style={{ fontSize: 12, color: 'var(--fg-muted)' }}>{fmtDate(row.opened_at)}</span> },
     {
-      header: 'Действия', field: 'id', sortBy: 'basic',
+      header: 'Действия', field: 'id', sortBy: 'basic', align: 'end',
       renderCell: row => (
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
           <Button leadingVisual={GearIcon} onClick={() => setTpSlModal(row)}>TP/SL</Button>
           <Button variant="danger" leadingVisual={XCircleIcon} loading={closing.has(row.id)} disabled={closing.has(row.id) || !row.account_id} onClick={() => closePosition(row)}>Закрыть</Button>
         </Box>
@@ -1053,7 +988,6 @@ export function SatoshiTower() {
           ))}
         </ButtonGroup>
         <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button leadingVisual={ClockIcon} onClick={() => setPendingModal(true)}>Ордер по цене</Button>
           <Button variant="primary" leadingVisual={PlusIcon} onClick={() => setNewPosModal(true)}>Новая позиция</Button>
         </Box>
       </Box>
@@ -1148,7 +1082,6 @@ export function SatoshiTower() {
 
       {tpSlModal && <TpSlModal position={tpSlModal} onClose={() => setTpSlModal(null)} onSaved={() => { setTpSlModal(null); loadOpen(true); }} />}
       {newPosModal && <NewPositionModal config={config} accounts={accounts} price={exPrice.price} openCountByAccount={openCountByAccount} maxOpen={maxOpen} maxLevByAccount={maxLevByAccount} onRefreshBalances={refreshBalances} balanceRefreshing={balanceRefreshing} onClose={() => setNewPosModal(false)} onOpened={() => { setNewPosModal(false); loadOpen(true); }} />}
-      {pendingModal && <PendingOrderModal config={config} accounts={accounts} price={exPrice.price} openCountByAccount={openCountByAccount} maxOpen={maxOpen} maxLevByAccount={maxLevByAccount} onRefreshBalances={refreshBalances} balanceRefreshing={balanceRefreshing} onClose={() => setPendingModal(false)} onCreated={() => { setPendingModal(false); loadOpen(true); }} />}
     </Box>
   );
 }

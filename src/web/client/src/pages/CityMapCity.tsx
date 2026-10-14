@@ -274,6 +274,13 @@ function logLabel(r: CityActionLogRow, labelFor: (id: string) => string, booster
     case 'reconstruct': return `Реконструкция: ${name} (${r.x},${r.y}), был ур. ${r.level_from}`;
     case 'renovate': return `Реновация: ${name} (${r.x},${r.y}), был ур. ${r.level_from}`;
     case 'booster_activate': return `${r.building_id ? boosterLabelFor(r.building_id) : 'Ускоритель'} активирован`;
+    case 'booster_combine': {
+      let detail: { toItemId?: string; requiredAmount?: number } = {};
+      try { detail = r.detail ? JSON.parse(r.detail) : {}; } catch { /* старый/битый снимок */ }
+      const fromName = r.building_id ? boosterLabelFor(r.building_id) : 'Ускоритель';
+      const toName = detail.toItemId ? boosterLabelFor(detail.toItemId) : '?';
+      return `Комбинирование: ${detail.requiredAmount ?? '?'}× ${fromName} → 1× ${toName}`;
+    }
     case 'unlock_section': {
       let detail: { section_id?: string } = {};
       try { detail = r.detail ? JSON.parse(r.detail) : {}; } catch { /* старый/битый снимок — покажем без id */ }
@@ -335,6 +342,8 @@ export function CityMapCity() {
   // ── Ускорители/Лог/Прогноз — каждая вкладка подгружает своё при активации, не на общей загрузке
   // страницы (ускорители/лог — из БД, прогноз — единственный живой запрос всего раздела) ──────────
   const [boosters, setBoosters] = useState<CityBoosterRow[]>([]);
+  // очередь активации: порядок = приоритет, цикл идёт по ней сверху вниз
+  const [boosterQueue, setBoosterQueue] = useState<{ name: string; label: string }[]>([]);
   const [boostersLoading, setBoostersLoading] = useState(false);
   const [boosterActivating, setBoosterActivating] = useState<Set<string>>(new Set());
   const [boostersChecking, setBoostersChecking] = useResumableRefresh(`boostersCheck:${account}`, () => loadBoosters());
@@ -442,29 +451,44 @@ export function CityMapCity() {
     } catch (e) { showFlash(String(e), false); } finally { setLiveRefreshing(false); }
   };
 
+  // Строго СВОЙ снимок. Раньше здесь был запасной `?? rows[0]`: если снимка этого аккаунта ещё нет
+  // (новая установка — строку создаёт первый проход бота или кнопка «Обновить»), карта молча
+  // показывала чужой город — и чужие разблокированные секции, то есть замки не на своих местах.
+  // Лучше пустая карта и явная подсказка, чем правдоподобно неверные данные.
   const row = (rows as Array<CityRow | CapitalRow>).find(r =>
     ('account' in r ? r.account : r.guild_title) === account
-  ) ?? rows[0] ?? null;
-  const rowName = row ? ('guild_title' in row ? row.guild_title : row.account) : '—';
+  ) ?? null;
+  // имя берём из адреса, а не из строки снимка: пока снимка нет, заголовок всё равно должен
+  // называть аккаунт, карту которого открыли
+  const rowName = row ? ('guild_title' in row ? row.guild_title : row.account) : account;
+  const noSnapshot = !row;
   const owned: MapBuilding[] = row?.buildings ?? [];
   // секции, уже открытые ЭТИМ аккаунтом — приходит прямо в CityRow (см. /api/city-snapshots), игра
   // отдаёт это готовым в /progress/ (см. modules/progress.js), отдельного живого запроса не нужно
-  const unlockedSections: string[] = (row && 'unlockedSections' in row ? row.unlockedSections : []) ?? [];
+  // null = снимок ещё не знает про секции. В этом случае замки НЕ рисуем: лучше показать карту
+  // целиком, чем запереть весь город (у чужой установки именно так и выглядело — весь город под
+  // замком, потому что первым снимок записал код, не заполнявший это поле).
+  const unlockedSections: string[] | null = (row && 'unlockedSections' in row ? row.unlockedSections : null) ?? null;
   const lockedCellKeys = useMemo(() => {
-    const unlocked = new Set(unlockedSections);
     const s = new Set<string>();
+    if (!unlockedSections) return s;
+    const unlocked = new Set(unlockedSections);
     for (const sec of sections) { if (!unlocked.has(sec.id)) for (const c of sec.coordinates) s.add(`${c.x}_${c.y}`); }
     return s;
   }, [sections, unlockedSections]);
 
   // оптимистичное превью — то, что реально нарисуется и что используется для расчёта валидных клеток
+  // индекс каталога по id: раньше по нему искали линейным buildingsCatalog.find() в десяти местах,
+  // в том числе внутри filter/map по всем зданиям города — это O(зданий × каталога) на каждый
+  // рендер страницы карты. С Map те же выборки стали линейными.
+  const buildingParamMap = useMemo(() => new Map(buildingsCatalog.map(b => [b.id, b])), [buildingsCatalog]);
   const displayBuildings = useMemo(() => applyQueue(owned, queue, buildingsCatalog), [owned, queue, buildingsCatalog]);
 
-  const labelFor = (id: string) => { const b = buildingsCatalog.find(x => x.id === id); return b ? buildingName(b) : id; };
+  const labelFor = (id: string) => { const b = buildingParamMap.get(id); return b ? buildingName(b) : id; };
   // здание на клетке → его каталожная запись (для стоимости реконструкции/реновации в очереди действий)
   const findInfoAt = (x: number, y: number) => {
     const b = owned.find(o => o.x === x && o.y === y);
-    return b ? buildingsCatalog.find(c => c.id === b.id) : undefined;
+    return b ? buildingParamMap.get(b.id) : undefined;
   };
 
   // ── Показатели города (вкладка "Просмотр") — строго формулами игры (см. cityStats.ts, зеркало
@@ -474,7 +498,6 @@ export function CityMapCity() {
   // по семействам (для клеток без личной цели) — та же приоритетность, что resolveEffectiveTargets в
   // modules/progress.js, но без учёта денег/строителей/времени (просто "если все цели будут
   // достигнуты", а не "когда именно").
-  const buildingParamMap = useMemo(() => new Map(buildingsCatalog.map(b => [b.id, b])), [buildingsCatalog]);
   const cityStatsMods = useMemo(
     () => buildCityStatsMods(policyCabinet, guildIncomeBoost, diversityIncomeBoost, buildCostMultiplier, upgradeCostMultiplier),
     [policyCabinet, guildIncomeBoost, diversityIncomeBoost, buildCostMultiplier, upgradeCostMultiplier],
@@ -517,19 +540,27 @@ export function CityMapCity() {
   const occupiedSet = useMemo(() => new Set(displayBuildings.map(b => `${b.x}_${b.y}`)), [displayBuildings]);
 
   const upgradeableSet = useMemo(() => new Set(
-    displayBuildings.filter(b => buildingsCatalog.find(x => x.id === b.id)?.category !== 'special').map(b => `${b.x}_${b.y}`)
+    displayBuildings.filter(b => buildingParamMap.get(b.id)?.category !== 'special').map(b => `${b.x}_${b.y}`)
   ), [displayBuildings, buildingsCatalog]);
 
   // eligibility подтверждена реверсом бандла (BuildingMenu.js): is_reconstructible/is_renovatable +
-  // required_lvl достигнут — наличие component/masterplan не проверяем, вернёт сама игра
+  // required_lvl достигнут + здание НЕ в стройке (в бандле условие ровно такое:
+  // is_reconstructible && !isUnderConstruction && level >= required_lvl). Про стройку мы забыли, и
+  // клетка светилась доступной, пока шло улучшение — игра такое действие не принимает: уровень она
+  // повышает сразу, а само здание до конца стройки занято.
+  // Наличие component/masterplan по-прежнему не проверяем — это скажет сама игра.
+  const underConstruction = (b: { end?: string | null }) => !!b.end && new Date(b.end).getTime() > Date.now();
+
   const reconstructableSet = useMemo(() => new Set(displayBuildings.filter(b => {
-    const info = buildingsCatalog.find(x => x.id === b.id);
-    return !!info?.is_reconstructible && info.required_lvl != null && (Number(b.level) || 0) >= info.required_lvl;
+    const info = buildingParamMap.get(b.id);
+    return !!info?.is_reconstructible && info.required_lvl != null
+      && (Number(b.level) || 0) >= info.required_lvl && !underConstruction(b);
   }).map(b => `${b.x}_${b.y}`)), [displayBuildings, buildingsCatalog]);
 
   const renovatableSet = useMemo(() => new Set(displayBuildings.filter(b => {
-    const info = buildingsCatalog.find(x => x.id === b.id);
-    return !!info?.is_renovatable && info.next_id != null && info.required_lvl != null && (Number(b.level) || 0) >= info.required_lvl;
+    const info = buildingParamMap.get(b.id);
+    return !!info?.is_renovatable && info.next_id != null && info.required_lvl != null
+      && (Number(b.level) || 0) >= info.required_lvl && !underConstruction(b);
   }).map(b => `${b.x}_${b.y}`)), [displayBuildings, buildingsCatalog]);
 
   // для "Запланировать" в режиме реконструкции — здание ЕЩЁ не обязано быть на required_lvl прямо
@@ -537,7 +568,7 @@ export function CityMapCity() {
   // только уровень будет достигнут и стройка завершится, см. modules/progress.js
   // runPendingReconstructions) — единственное условие: здание вообще умеет реконструироваться
   const reconstructPlannableSet = useMemo(() => new Set(displayBuildings.filter(b => {
-    const info = buildingsCatalog.find(x => x.id === b.id);
+    const info = buildingParamMap.get(b.id);
     return !!info?.is_reconstructible && info.required_lvl != null;
   }).map(b => `${b.x}_${b.y}`)), [displayBuildings, buildingsCatalog]);
 
@@ -573,13 +604,13 @@ export function CityMapCity() {
       // защита от спец-зданий на уровне самой мутации — не только через validSet (кисть их и так не
       // подсвечивает, но если по какой-то причине validSet их пропустил, сюда они всё равно не попадут)
       const b = displayBuildings.find(o => o.x === gx && o.y === gy);
-      if (b && buildingsCatalog.find(x => x.id === b.id)?.category === 'special') return;
+      if (b && buildingParamMap.get(b.id)?.category === 'special') return;
       // цель привязана к КОНКРЕТНОЙ клетке, не к семье — иначе клик по одному зданию задавал бы
       // цель сразу всем экземплярам той же семьи на карте
       setTargets(prev => [...prev.filter(t => !(t.x === gx && t.y === gy)), { x: gx, y: gy, target_level: lvl }]);
     } else if (mode === 'queue') {
       const b = displayBuildings.find(o => o.x === gx && o.y === gy);
-      if (b && buildingsCatalog.find(x => x.id === b.id)?.category === 'special') return;
+      if (b && buildingParamMap.get(b.id)?.category === 'special') return;
       // одно и то же здание можно поставить в очередь несколько раз подряд — несколько
       // последовательных апгрейдов (21→22, потом снова оно же 22→23 и т.д.); бот сам не выдаст
       // второй апгрейд той же клетке, пока она не освободится от предыдущего (см. progress.js
@@ -643,7 +674,7 @@ export function CityMapCity() {
   const loadBoosters = useCallback(() => {
     if (!account) return;
     setBoostersLoading(true);
-    api.cityBoosters(account).then(d => { if (d.ok) setBoosters(d.boosters); else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setBoostersLoading(false));
+    api.cityBoosters(account).then(d => { if (d.ok) { setBoosters(d.boosters); setBoosterQueue(d.queue ?? []); } else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setBoostersLoading(false));
   }, [account]);
   const loadActionLog = useCallback(() => {
     if (!account) return;
@@ -668,6 +699,30 @@ export function CityMapCity() {
     setBoosters(prev => prev.map(b => (b.name === name ? { ...b, auto: enabled } : b)));
     const r = await api.saveBoosterAuto(account, name, enabled);
     if (!r.ok) { showFlash(r.error ?? 'Ошибка', false); loadBoosters(); }
+  };
+
+  // ── Очередь активации ускорителей ───────────────────────────────────────────
+  // Порядок = приоритет: цикл активирует первый доступный сверху, а когда слот освободится —
+  // следующий. Так делается «сначала легендарный, потом мифический». Сохраняем весь порядок разом.
+  // сколько экземпляров этого типа уже стоит в очереди (повторы разрешены)
+  const queuedCount = (name: string) => boosterQueue.filter(q => q.name === name).length;
+  const saveQueue = async (order: string[]) => {
+    const prev = boosterQueue;
+    setBoosterQueue(order.map(n => ({ name: n, label: boosterLabelFor(n) })));   // оптимистично
+    const r = await api.saveBoosterQueue(account, order);
+    if (!r.ok) { showFlash(r.error ?? 'Ошибка', false); setBoosterQueue(prev); }
+    else loadBoosters();   // подтянуть настоящие id позиций с сервера
+  };
+  // одно нажатие = +1 экземпляр в конец очереди
+  const queueAdd = (name: string) => saveQueue([...boosterQueue.map(q => q.name), name]);
+  // удаляем КОНКРЕТНУЮ позицию по индексу, а не все экземпляры типа
+  const queueRemoveAt = (idx: number) => saveQueue(boosterQueue.filter((_, i) => i !== idx).map(q => q.name));
+  const queueMove = (idx: number, dir: -1 | 1) => {
+    const next = boosterQueue.map(q => q.name);
+    const to = idx + dir;
+    if (to < 0 || to >= next.length) return;
+    [next[idx], next[to]] = [next[to], next[idx]];
+    saveQueue(next);
   };
   const activateBooster = async (name: string) => {
     setBoosterActivating(prev => new Set(prev).add(name));
@@ -737,7 +792,7 @@ export function CityMapCity() {
   // fromLvl (текущий уровень здания + число более ранних повторов той же клетки в очереди)
   const manualQueuePrices = useMemo(() => manualQueue.map((q, i) => {
     const b = owned.find(o => o.x === q.x && o.y === q.y);
-    const info = b ? buildingsCatalog.find(x => x.id === b.id) : undefined;
+    const info = b ? buildingParamMap.get(b.id) : undefined;
     if (!b || !info) return null;
     const priorSame = manualQueue.slice(0, i).filter(qq => qq.x === q.x && qq.y === q.y).length;
     const fromLvl = (Number(b.level) || 0) + priorSame;
@@ -815,9 +870,10 @@ export function CityMapCity() {
           </Button>
           <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
             <Heading as="h3" sx={{ fontSize: 2, m: 0 }}>{rowName}</Heading>
-            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-              Зданий: {owned.length}
-              {row?.updated_at && ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}`}
+            <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
+              {noSnapshot
+                ? 'Снимка города ещё нет — нажмите «Обновить»'
+                : <>Зданий: {owned.length}{row?.updated_at && ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}`}</>}
             </Text>
           </Box>
           <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>
@@ -848,7 +904,7 @@ export function CityMapCity() {
                 catalog={buildingsCatalog}
                 onPick={handlePick}
                 sections={sections}
-                unlockedSections={unlockedSections}
+                unlockedSections={unlockedSections ?? undefined}
                 onUnlockCell={onUnlockCell}
               />
           }
@@ -1035,7 +1091,7 @@ export function CityMapCity() {
                                 ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Ничего не запланировано</Text>
                                 : reconstructPlan.map(p => {
                                   const b = owned.find(o => o.x === p.x && o.y === p.y);
-                                  const info = b ? buildingsCatalog.find(x => x.id === b.id) : undefined;
+                                  const info = b ? buildingParamMap.get(b.id) : undefined;
                                   const endMs = b?.end ? new Date(b.end).getTime() : 0;
                                   const underConstruction = endMs > Date.now();
                                   // во время стройки игра уже отдаёт b.level КАК ЦЕЛЕВОЙ (после завершения), а не
@@ -1086,6 +1142,28 @@ export function CityMapCity() {
                           <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                             <Button disabled={boostersChecking} loading={boostersChecking} onClick={checkBoosters}>Обновить с игры</Button>
                           </Box>
+
+                          {/* Очередь активации: порядок = приоритет. Цикл активирует первый доступный
+                              сверху, а как освободится слот — следующий (напр. лега → мифик). */}
+                          <Box sx={{ p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
+                            <Text sx={{ fontSize: 1, fontWeight: 'bold', display: 'block', mb: 1 }}>Очередь активации</Text>
+                            {boosterQueue.length === 0
+                              ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Пусто — добавьте ускорители кнопкой «В очередь» ниже</Text>
+                              : boosterQueue.map((q, i) => (
+                                  <Box key={`${q.name}:${i}`} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: '4px' }}>
+                                    <Text sx={{ fontSize: 0, color: 'fg.muted', width: 18 }}>{i + 1}.</Text>
+                                    <Text sx={{ fontSize: 1, flex: 1, minWidth: 0 }}>{q.label}</Text>
+                                    <Button size="small" variant="invisible" disabled={i === 0} onClick={() => queueMove(i, -1)}>↑</Button>
+                                    <Button size="small" variant="invisible" disabled={i === boosterQueue.length - 1} onClick={() => queueMove(i, 1)}>↓</Button>
+                                    <Button size="small" variant="danger" onClick={() => queueRemoveAt(i)}>✕</Button>
+                                  </Box>
+                                ))}
+                            <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>
+                              Бот активирует по порядку: пока занят слот одного типа, другой тип ждёт; как только
+                              освободится — встанет следующий из очереди.
+                            </Text>
+                          </Box>
+
                           {boostersLoading ? <Spinner />
                             : boosters.length === 0 ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Ускорителей в инвентаре нет</Text>
                             : boosters.map(b => {
@@ -1100,11 +1178,16 @@ export function CityMapCity() {
                                   </Text>
                                   {b.blocked_by_other && <Text sx={{ fontSize: 0, color: 'attention.fg' }}>Заблокировано другим активным ускорителем</Text>}
                                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <Button variant="primary" disabled={!canActivate || activating} loading={activating} onClick={() => activateBooster(b.name)}>Активировать</Button>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-                                      <input type="checkbox" checked={b.auto} onChange={e => toggleBoosterAuto(b.name, e.target.checked)} />
-                                      Автоактивация
-                                    </label>
+                                    {/* вместо «Активировать» — постановка в очередь: цикл сам активирует
+                                        по порядку, как только освободится слот (см. modules/boosterAutomation.js) */}
+                                    {/* одно нажатие = +1 экземпляр; ограничение — сколько реально
+                                        есть в наличии, больше в очередь ставить бессмысленно */}
+                                    <Button variant="primary" disabled={queuedCount(b.name) >= b.available}
+                                      onClick={() => queueAdd(b.name)}>
+                                      В очередь{queuedCount(b.name) > 0 ? ` (${queuedCount(b.name)}/${b.available})` : ''}
+                                    </Button>
+                                    <Button variant="invisible" disabled={!canActivate || activating} loading={activating}
+                                      onClick={() => activateBooster(b.name)} sx={{ fontSize: 0 }}>Активировать сейчас</Button>
                                   </Box>
                                 </Box>
                               );

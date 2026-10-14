@@ -10,7 +10,7 @@
 // ВАЖНО: запускать при ОСТАНОВЛЕННОМ боте (иначе бот и скрипт могут одновременно рефрешить
 // один токен → гонка → сжигание). Останови контейнер бота: `docker compose stop bot`.
 //
-// Запуск (с хоста, БД снаружи):   DBHOST=10.10.30.33 DBPORT=3377 node scripts/check-accounts.js
+// Запуск (с хоста, БД снаружи):   DBHOST=<ip-сервера-БД> DBPORT=3377 node scripts/check-accounts.js
 // Запуск внутри контейнера/сети:  node scripts/check-accounts.js   (возьмёт DB_HOST/DB_PORT из env)
 const cfg = require('../src/config');
 const axios = require('axios');

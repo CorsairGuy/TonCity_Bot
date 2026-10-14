@@ -115,6 +115,7 @@ module.exports=function(app,ctx){
       const open=rows.map(r=>({
         ...mapPositionRow(r,accIdByName),
         tp_price:r.tp_price,sl_price:r.sl_price,tp_pnl_pct:r.tp_pnl_pct,sl_pnl_pct:r.sl_pnl_pct,
+        game_tp_price:r.game_tp_price,game_sl_price:r.game_sl_price,
       }));
       res.json({ok:true,open});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
@@ -209,6 +210,30 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  // Игровой (серверный) TP/SL — обновление игры 31.07.2026. Вся математика уровней (перевод
+  // процентов ROI в цену, границы игры, правило «только ужесточение») вынесена в общий модуль,
+  // потому что нужна и здесь, и в modules/satoshiPendingOrders.js — см. utils/satoshiTriggers.js.
+  const{buildOpenTriggers,pnlPctToPrice,isTightening}=require('../../utils/satoshiTriggers');
+
+  // Предпросмотр уровней, которые РЕАЛЬНО уйдут в игру при открытии. Игра принимает только
+  // абсолютную цену, а у нас ввод может быть в ROI%/«% движения курса» — считаем ТЕМ ЖЕ кодом,
+  // что и само открытие (utils/satoshiTriggers), чтобы показанное и отправленное не разъехались.
+  app.post('/api/satoshi/trigger-preview',async(req,res)=>{
+    try{
+      const{side,leverage,margin,price,tp_price,sl_price,tp_pnl_pct,sl_pnl_pct}=req.body||{};
+      if(side!=='long'&&side!=='short')return res.status(400).json({ok:false,error:'side должен быть long или short'});
+      let entry=Number(price)||null;
+      if(!(entry>0)){ // цену не передали — берём текущую из кэша конфига/живого запроса
+        const{Account}=require('../../db/index');const{Op}=require('sequelize');
+        const acc=await Account.findOne({where:{access_token:{[Op.not]:null},special_buildings:{[Op.like]:'%satoshi%'}},attributes:['id']});
+        if(acc){try{const a=await makeApiForAccount(acc.id,{noLock:true});const p=await a.get('/satoshi-tower/price');entry=Number(p?.price)||null;}catch(_){}}
+      }
+      const cfg=configCache.data;
+      const t=buildOpenTriggers(cfg,{side,entry,margin,leverage,tp_price,sl_price,tp_pnl_pct,sl_pnl_pct});
+      res.json({ok:true,entry,take_profit_price:t.take_profit_price??null,stop_loss_price:t.stop_loss_price??null});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   app.post('/api/satoshi/:accountId/open',async(req,res)=>{
     try{
       const{side,leverage,margin,tp_price,sl_price,tp_pnl_pct,sl_pnl_pct}=req.body||{};
@@ -220,13 +245,24 @@ module.exports=function(app,ctx){
       if(!String(acc.special_buildings||'').split(',').includes('satoshi'))
         return res.status(400).json({ok:false,error:'У этого аккаунта нет Башни Сатоши на карте'});
       const before=new Set((await SatoshiPosition.findAll({where:{account:acc.name},attributes:['id']})).map(r=>r.id));
-      const{api,result}=await tradePost(acc,'/satoshi-tower/positions',{side,leverage:Number(leverage),margin:Number(margin)});
+
+      // Игровой TP/SL: считаем цены ДО открытия (игра принимает их только в этом запросе).
+      // Точку отсчёта берём как текущую цену — фактическая entry_price может чуть отличаться
+      // (позиция открывается по цене сервера в момент обработки), поэтому потом ещё подрезаем.
+      const cfg=configCache.data||await (async()=>{try{const a=await makeApiForAccount(acc.id,{noLock:true});return await a.get('/satoshi-tower/config');}catch(_){return null;}})();
+      let refPrice=null;
+      try{const a=await makeApiForAccount(acc.id,{noLock:true});const p=await a.get('/satoshi-tower/price');refPrice=Number(p?.price)||null;}catch(_){}
+      const openBody={
+        side,leverage:Number(leverage),margin:Number(margin),
+        ...buildOpenTriggers(cfg,{side,entry:refPrice,margin,leverage,tp_price,sl_price,tp_pnl_pct,sl_pnl_pct}),
+      };
+      const{api,result}=await tradePost(acc,'/satoshi-tower/positions',openBody);
       const satoshiMod=require('../../modules/satoshi');
       await satoshiMod.applyBalance(acc.id,result?.new_balance);
       await satoshiMod.runSatoshi(api,acc.name).catch(()=>{});
 
-      // игра не поддерживает TP/SL параметрами открытия — находим новую позицию по разнице id и
-      // дописываем поля бот-side (проверяет их utils/satoshiAutoClose.js по живому курсу игры)
+      // бот-side поля пишем ВСЕГДА, даже когда игровой TP/SL встал: они работают «на ужесточение»
+      // (закрыть раньше игрового) и покрывают правку уровней после открытия, чего игра не умеет
       const hasTpSl=tp_price!=null||sl_price!=null||tp_pnl_pct!=null||sl_pnl_pct!=null;
       if(hasTpSl){
         const after=await SatoshiPosition.findAll({where:{account:acc.name}});
@@ -267,19 +303,39 @@ module.exports=function(app,ctx){
     }
   });
 
-  // редактирование TP/SL уже открытой позиции — только в нашей БД, живого запроса к игре нет
-  // (передайте null явным полем, чтобы снять соответствующий уровень)
+  // Редактирование TP/SL уже открытой позиции — по-прежнему только в нашей БД: у игры эндпоинта на
+  // правку нет, её TP/SL зафиксирован в момент открытия.
+  //
+  // ОТСЮДА ГЛАВНОЕ ОГРАНИЧЕНИЕ ГИБРИДА: бот способен только УЖЕСТОЧИТЬ уровень — закрыть позицию
+  // РАНЬШЕ игрового триггера. Ослабить (отодвинуть TP дальше / SL ниже) невозможно: игра закроет
+  // позицию на своём уровне раньше, чем бот успеет что-либо сделать. Поэтому такие правки не
+  // принимаем молча, а честно отклоняем с объяснением — иначе пользователь думал бы, что уровень
+  // сдвинут, а игра всё равно закроет по своему.
+  //   LONG : «строже» = TP НИЖЕ игрового, SL ВЫШЕ игрового
+  //   SHORT: «строже» = TP ВЫШЕ игрового, SL НИЖЕ игрового
+  // (сама проверка — isTightening в utils/satoshiTriggers.js)
   app.patch('/api/satoshi/positions/:id',async(req,res)=>{
     try{
       const{SatoshiPosition}=require('../../db/index');
       const row=await SatoshiPosition.findByPk(Number(req.params.id));
       if(!row)return res.status(404).json({ok:false,error:'Позиция не найдена (возможно уже закрыта)'});
       const{tp_price,sl_price,tp_pnl_pct,sl_pnl_pct}=req.body||{};
+      const body=req.body||{};
       const payload={};
-      if('tp_price'in(req.body||{}))payload.tp_price=tp_price!=null?Number(tp_price):null;
-      if('sl_price'in(req.body||{}))payload.sl_price=sl_price!=null?Number(sl_price):null;
-      if('tp_pnl_pct'in(req.body||{}))payload.tp_pnl_pct=tp_pnl_pct!=null?Number(tp_pnl_pct):null;
-      if('sl_pnl_pct'in(req.body||{}))payload.sl_pnl_pct=sl_pnl_pct!=null?Number(sl_pnl_pct):null;
+      if('tp_price'in body)payload.tp_price=tp_price!=null?Number(tp_price):null;
+      if('sl_price'in body)payload.sl_price=sl_price!=null?Number(sl_price):null;
+      if('tp_pnl_pct'in body)payload.tp_pnl_pct=tp_pnl_pct!=null?Number(tp_pnl_pct):null;
+      if('sl_pnl_pct'in body)payload.sl_pnl_pct=sl_pnl_pct!=null?Number(sl_pnl_pct):null;
+      // проценты ROI тоже приводим к цене — сравнивать с игровым уровнем можно только в ценах
+      const cfg=configCache.data;
+      // знак: тейк — прибыль (+), стоп — убыток (−); sl_pnl_pct хранится положительным
+      const toPrice=(pct)=>pnlPctToPrice(cfg,{side:row.side,entry:row.entry_price,margin:row.margin,leverage:row.leverage,pct});
+      const effTp=payload.tp_price??(payload.tp_pnl_pct!=null?toPrice(Math.abs(payload.tp_pnl_pct)):null);
+      const effSl=payload.sl_price??(payload.sl_pnl_pct!=null?toPrice(-Math.abs(payload.sl_pnl_pct)):null);
+      if(!isTightening(row.side,'tp',row.game_tp_price,effTp))
+        return res.status(400).json({ok:false,error:`Игровой тейк-профит уже стоит на ${row.game_tp_price} и его нельзя изменить — бот может закрыть только РАНЬШЕ. Чтобы отодвинуть уровень, закройте позицию и откройте заново.`});
+      if(!isTightening(row.side,'sl',row.game_sl_price,effSl))
+        return res.status(400).json({ok:false,error:`Игровой стоп-лосс уже стоит на ${row.game_sl_price} и его нельзя изменить — бот может закрыть только РАНЬШЕ. Чтобы отодвинуть уровень, закройте позицию и откройте заново.`});
       await row.update(payload);
       res.json({ok:true});
     }catch(e){res.status(500).json({ok:false,error:e.message});}

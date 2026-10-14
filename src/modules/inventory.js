@@ -36,6 +36,10 @@ async function runInventory(api,name){
         const hasMarket=String(acc.special_buildings||'').split(',').includes('market');
         // бусты не привязаны к зданию — тянем всегда; правила листинга — только с Рынком
         const activeResp=await api.get('/boosters/active').catch(()=>null);
+        // правила комбинирования ({from_rarity,to_rarity,required_amount}) — статическая константа
+        // игры, кэшируем в фоновой синхронизации, чтобы страница "Квесты" могла показать "нужно N,
+        // есть M" и гасить кнопку "Комбинировать" БЕЗ живого запроса к игре при каждом открытии
+        const combResp=await api.get('/boosters/combination-rules').catch(()=>null);
         let listingRules=[];
         if(hasMarket){
           const rulesResp=await api.get('/market/user/listing-rules').catch(()=>null); // {rules:[...]}
@@ -44,6 +48,7 @@ async function runInventory(api,name){
         itemCache.set(acc.id,{
           listing_limits:listingRules,
           active_boosters:Array.isArray(activeResp)?activeResp:[],
+          combination_rules:Array.isArray(combResp)?combResp:(combResp?.rules||combResp?.combination_rules||[]),
         });
       }
     }catch(e){logger.warn(`[${name}] [inventory] itemCache: ${e.message}`);}

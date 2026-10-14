@@ -85,14 +85,29 @@ async function _syncTokensFromDb(api,account){
       api.setToken(fresh.access_token);
       account.access_token=fresh.access_token;
       account.refresh_token=fresh.refresh_token;
+      return true;
     }
   }catch(_){}
+  return false;
 }
 
 async function doRefresh(api,account){
   const name=account.name;
   const deadUntil=_refreshDeadUntil.get(account.id);
-  if(deadUntil&&Date.now()<deadUntil)return false; // недавно подтверждённо мёртв — не долбим сеть зря
+  if(deadUntil&&Date.now()<deadUntil){
+    // 13.10.2026: БАГ — аккаунт попадал в 10-минутный "подтверждённо мёртв" кулдаун (refresh 401),
+    // пользователь тут же переавторизовывал его через веб-панель (/api/accounts/add — свежий
+    // access_token/refresh_token УЖЕ лежат в БД), но все циклы аккаунта продолжали получать
+    // noSeedError ещё до 10 минут — doRefresh выходил здесь, даже не заглянув в БД. Жалоба: "отправил
+    // новую ссылку авторизации, а должно заработать мгновенно". Дешёвая проверка БД (без похода в
+    // игру) — если токен там СВЕЖЕЕ закрытого в памяти, кулдаун больше не актуален: снимаем его и
+    // ПРОВАЛИВАЕМСЯ дальше в обычный _doRefreshOnce (не просто копируем токен) — нужен настоящий
+    // сетевой refresh свежим refresh_token, чтобы получить НОВЫЙ session_seed (reqSign) и поднять WS
+    // заново (wsSession.notifyRefreshed), иначе подписанные запросы всё равно будут падать без seed.
+    const synced=await _syncTokensFromDb(api,account);
+    if(!synced)return false; // в БД действительно всё ещё старый токен — кулдаун настоящий
+    _refreshDeadUntil.delete(account.id);
+  }
   if(_refreshInFlight.has(account.id)){
     logger.info(`[${name}] [session] refresh already in progress, waiting…`);
     const ok=await _refreshInFlight.get(account.id);
@@ -263,4 +278,10 @@ function isRefreshDead(accountId){
   return !!(until&&Date.now()<until);
 }
 
-module.exports={ensureSession,doRefresh,saveStakedStats,saveStats:_saveStats,isRefreshDead};
+// Явный сброс кулдауна (13.10.2026) — зовётся сразу после переавторизации аккаунта через веб-панель
+// (/api/accounts/add), когда в БД только что сохранился заведомо свежий access_token/refresh_token.
+// doRefresh и сам снимает кулдаун при обнаружении более свежего токена в БД (см. выше), но явный
+// вызов отсюда снимает его МГНОВЕННО, не дожидаясь следующей попытки запроса от фонового цикла.
+function clearDeadCooldown(accountId){_refreshDeadUntil.delete(Number(accountId));}
+
+module.exports={ensureSession,doRefresh,saveStakedStats,saveStats:_saveStats,isRefreshDead,clearDeadCooldown};

@@ -84,15 +84,36 @@ function _startHeartbeat(s) {
 const HARD_FAIL_THRESHOLD = 3;
 const HARD_FAIL_BACKOFF_MAX = 10 * 60 * 1000; // 10 минут — вместо реконнекта раз в 30с навечно
 
-function _scheduleReconnect(s) {
-  if (s.closedByUs) return;
-  if (s.reconnectTimer) return;
-  const cap = s.authFailCount >= HARD_FAIL_THRESHOLD ? HARD_FAIL_BACKOFF_MAX : BACKOFF_MAX;
-  const delay = Math.min(s.backoff, cap);
-  s.backoff = Math.min(s.backoff * 2, cap);
-  s.reconnectTimer = setTimeout(() => { s.reconnectTimer = null; _connect(s); }, delay);
+function _scheduleReconnect(s) {
+  if (s.closedByUs) return;
+  if (s.reconnectTimer) return;
+  const cap = s.authFailCount >= HARD_FAIL_THRESHOLD ? HARD_FAIL_BACKOFF_MAX : BACKOFF_MAX;
+  const base = Math.min(s.backoff, cap);
+  s.backoff = Math.min(s.backoff * 2, cap);
+  // РАЗБРОС по времени обязателен. Шлюз игры роняет ВСЕ соединения разом (в логе десятки строк
+  // «закрыт (1006)» в одну секунду), и без джиттера все аккаунты переподключаются синхронно —
+  // экспоненциальный backoff тут не спасает, потому что растёт у всех одинаково. Итог: пачка
+  // одновременных рукопожатий, которые шлюз не тянет, и лог заполняется «Opening handshake has
+  // timed out» (19.08 — 612 таких строк за час). Размазываем ±50%.
+  const delay = Math.round(base * (0.5 + Math.random()));
+  s.reconnectTimer = setTimeout(() => { s.reconnectTimer = null; _connect(s); }, delay);
 }
 
+// Не больше CONNECT_SLOTS рукопожатий одновременно на весь процесс. Само рукопожатие занимает
+// доли секунды, поэтому очередь рассасывается быстро, но шлюз перестаёт получать шестьдесят
+// одновременных подключений после массового обрыва или рестарта бота.
+const CONNECT_SLOTS = 4;
+let _connecting = 0;
+const _connectQueue = [];
+function _acquireSlot() {
+  if (_connecting < CONNECT_SLOTS) { _connecting++; return Promise.resolve(); }
+  return new Promise(resolve => _connectQueue.push(resolve));
+}
+function _releaseSlot() {
+  const next = _connectQueue.shift();
+  if (next) next(); else _connecting = Math.max(0, _connecting - 1);
+}
+
 async function _connect(s) {
   if (s.connecting || (s.ws && (s.ws.readyState === WebSocket.OPEN || s.ws.readyState === WebSocket.CONNECTING))) return;
   s.connecting = true;
@@ -119,25 +140,47 @@ async function _connect(s) {
   if (!hs) { s.connecting = false; if (!s.dormantLogged) { logger.warn(`[ws:${s.name}] нет seed (рефреш не удался?) — WS отложен до рефреша`); s.dormantLogged = true; } _resolveWaiters(s, false); return; }
   s.dormantLogged = false;
 
-  let ws;
-  try {
+  await _acquireSlot();
+  // слот держим до конца рукопожатия (auth_result / close / ошибка создания)
+  let slotReleased = false;
+  // Страховка: если сокет не откроется и не закроется (шлюз молчит совсем), слот всё равно
+  // вернётся в пул — иначе одна зависшая попытка навсегда съела бы одно из четырёх мест.
+  let slotGuard = null;
+  const releaseSlot = () => {
+    if (slotReleased) return;
+    slotReleased = true;
+    if (slotGuard) { clearTimeout(slotGuard); slotGuard = null; }
+    _releaseSlot();
+  };
+  slotGuard = setTimeout(releaseSlot, 25000);
+  if (slotGuard.unref) slotGuard.unref();
+
+  let ws;
+  try {
     ws = new WebSocket(WS_URL, {
       headers: { origin: 'https://game.toncity.io', 'user-agent': UA, cookie: 'i18n_redirected=ru' },
       handshakeTimeout: 15000,
     });
   } catch (e) {
     s.connecting = false;
+    releaseSlot();
     logger.warn(`[ws:${s.name}] не удалось создать WS: ${e.message}`);
     _scheduleReconnect(s);
     return;
   }
   s.ws = ws;
 
-  const authTimer = setTimeout(() => {
-    if (!s.authed) { logger.warn(`[ws:${s.name}] auth timeout`); try { ws.terminate(); } catch (_) {} }
-  }, AUTH_TIMEOUT);
+  // Таймер ждёт auth_result и отсчитывается ОТ ОТКРЫТИЯ СОКЕТА, а не от его создания. Раньше он
+  // стартовал сразу, и если шлюз тормозил с рукопожатием (а он тормозит: handshakeTimeout 15с),
+  // таймер срабатывал по ещё НЕ открытому сокету и звал terminate() — отсюда в логе
+  // «WebSocket was closed before the connection was established», а следом «WS не готов».
+  // Незавершённое рукопожатие и так закроет сам ws по handshakeTimeout.
+  let authTimer = null;
 
   ws.on('open', () => {
+    authTimer = setTimeout(() => {
+      if (!s.authed) { logger.warn(`[ws:${s.name}] auth timeout`); try { ws.terminate(); } catch (_) {} }
+    }, AUTH_TIMEOUT);
     try { ws.send(JSON.stringify({ type: 'jwt_auth', data: token, req_token: hs.token, req_ts: hs.ts, req_nonce: hs.nonce })); }
     catch (e) { logger.warn(`[ws:${s.name}] send handshake: ${e.message}`); }
   });
@@ -148,9 +191,10 @@ async function _connect(s) {
     let msg = null;
     try { msg = JSON.parse(data.toString()); } catch (_) { return; }
     if (msg && msg.type === 'auth_result') {
-      clearTimeout(authTimer);
+      if (authTimer) clearTimeout(authTimer);
       if (msg.success) {
         s.connecting = false;
+        releaseSlot();
         s.authed = true;
         s.backoff = BACKOFF_MIN;
         s.authFailCount = 0;
@@ -176,10 +220,21 @@ async function _connect(s) {
     }
   });
 
-  ws.on('error', (e) => { logger.warn(`[ws:${s.name}] error: ${e.message}`); });
+  ws.on('error', (e) => {
+    // «closed before the connection was established» — это НЕ сбой игры, а наш собственный
+    // terminate() по недооткрытому сокету (реконнект/остановка). Держим на debug, чтобы не путать
+    // с настоящими ошибками; всё остальное по-прежнему в warn.
+    const msg = String(e && e.message || '');
+    if (/closed before the connection was established/i.test(msg)) {
+      if (logger.debug) logger.debug(`[ws:${s.name}] ${msg}`);
+      return;
+    }
+    logger.warn(`[ws:${s.name}] error: ${msg}`);
+  });
 
   ws.on('close', (code) => {
-    clearTimeout(authTimer);
+    if (authTimer) clearTimeout(authTimer);
+    releaseSlot();
     _clearTimers(s);
     const wasAuthed = s.authed;
     s.authed = false;

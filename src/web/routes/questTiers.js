@@ -8,11 +8,15 @@ const opRegistry=require('../lib/opRegistry');
 //   POST /guild-quests/tiers/{guildId}/contribute    — внести вклад Почёта в пул тира
 // Ответ GET подтверждён живым запросом (DevTools, 09.07.2026):
 //   { renown_balance, eligible_members, tiers:[{ id, rarity, unlocked, pool:{ target, progress, fundable } }] }
-// Тело POST contribute НЕ подтверждено (мини-игра лениво подгружается, статикой не достать) —
-// пробуем наиболее очевидный вариант {tier_id, amount}; если сервер ответит 400 с указанием
-// не того поля, текст ошибки прилетит на фронт как есть — сразу будет видно, что поправить.
-// Почёт, судя по всему, привязан к КАЖДОМУ участнику отдельно (eligible_members в ответе), поэтому
-// взнос делаем от лица КАЖДОГО нашего аккаунта в гильдии, а не только лидера.
+// 13.10.2026: тело POST contribute НАКОНЕЦ подтверждено реверсом живого бандла (chunks/
+// useGuildAchievements-*.js, вызов F=(e,t)=>u(m.guildQuests.contributeTier(e)).post(t).json(),
+// сам вызов — chunks/quest_dome-*.js: ct(guildId,{tier:g.id,amount:r,source:l})) — раньше стояло
+// {tier_id,amount} (угадано, без поля source), игра такое тело молча не принимала, взнос не работал
+// НИ РАЗУ. Настоящая форма: {tier:<id тира>, amount:<число>, source:'personal'|'guild'} — source
+// переключает, откуда списывается Почёт (chunks/RenownSourceToggle-*.js: 'personal' — свой баланс
+// участника, 'guild' — казна гильдии). Бот всегда шлёт 'personal' — свой Почёт КАЖДОГО аккаунта
+// (привязан к участнику, см. eligible_members в ответе GET), взнос делаем от лица каждого выбранного
+// аккаунта гильдии, а не только лидера.
 module.exports=function(app,ctx){
   const{apiForAcc}=ctx;
 
@@ -114,7 +118,8 @@ module.exports=function(app,ctx){
       if(!accs.length)return res.status(404).json({ok:false,error:'Ни один из выбранных аккаунтов не найден в этой гильдии (или нет токена)'});
       const results=await Promise.allSettled(accs.map(async acc=>{
         const api=apiForAcc(acc);
-        const r=await api.post(`/guild-quests/tiers/${guildId}/contribute`,{tier_id:Number(tier_id),amount:Number(amount)});
+        // настоящая форма тела — см. комментарий в шапке файла (tier_id/amount был угадан неверно)
+        const r=await api.post(`/guild-quests/tiers/${guildId}/contribute`,{tier:Number(tier_id),amount:Number(amount),source:'personal'});
         return{account:acc.name,ok:true,result:r};
       }));
       const mapped=results.map((r,i)=>r.status==='fulfilled'?r.value:{account:accs[i].name,ok:false,error:r.reason?.message||String(r.reason)});

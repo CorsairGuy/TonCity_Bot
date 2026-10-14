@@ -3,10 +3,13 @@ const axios=require('axios');
 const {GuildSnapshot,GuildQuestSnapshot,CapitalSnapshot,GuildMembersSnapshot,MidSnapshot}=require('../db/index');
 const logger=require('../utils/logger');
 const {globalLock}=require('../utils/lock');
-const {sleep,fmt}=require('../utils/helpers');
+const {sleep,fmt,withRetry}=require('../utils/helpers');
+const accountLoops=require('../utils/accountLoops');
 
 const QUESTS_URL='https://toncityquests.ru/ajax/quests.php';
-const BOT_HASH='6f1d76a2f4d6b40103a32b55f8e9b7bb';
+// Ключ доступа к toncityquests.ru — секрет, берётся из .env (TONCITYQUESTS_BOT_HASH).
+// Не задан — квесты на внешний сайт просто не отправляются.
+const BOT_HASH=process.env.TONCITYQUESTS_BOT_HASH||'';
 
 // quest-loop опрашивает гильдию непрерывно и раньше слал КАЖДЫЙ ещё активный квест на внешний
 // сайт заново на каждой итерации — тот отвечал QUEST_ALREADY_EXISTS, что заваливало логи
@@ -14,6 +17,7 @@ const BOT_HASH='6f1d76a2f4d6b40103a32b55f8e9b7bb';
 const _reportedQuestIds=new Set();
 
 async function reportQuest(q,guildName,accountName){
+  if(!BOT_HASH)return; // ключ не задан в .env — внешний сайт не используем
   if(_reportedQuestIds.has(q.id))return; // уже отправляли в этом запуске — не долбим внешний сайт
   try{
     const toUnix=v=>{if(!v)return 0;const n=Number(v);if(!isNaN(n)&&n>1e9)return n;return Math.floor(new Date(v).getTime()/1000)||0;};
@@ -54,7 +58,19 @@ async function collectReadyQuests(api,name,qList){
     if((q.personal_progress||0)<(q.personal_threshold||0)||(q.guild_progress||0)<(q.guild_threshold||0))continue;
     const ok=await (async()=>{
       try{
-        await globalLock.run(async()=>{await sleep(500);await api.post(`/guild-quests/collect/${q.id}`,{});});
+        // живьём подтверждено (30.07.2026): игра иногда отвечает 400 "неверные входные данные" на
+        // ПЕРВУЮ попытку заклейма, хотя оба условия реально выполнены — а буквально следующая
+        // попытка (тот же quest_id, тот же payload) проходит успешно. Похоже на race condition на
+        // стороне игры (guild_progress у гильдии ещё досчитывается/синхронизируется в моменте
+        // достижения порога), не связано с ботом — поэтому несколько быстрых ретраев вместо того,
+        // чтобы сразу сдаваться и ждать следующего ежедневного прохода.
+        // фоновый заклейм тоже светим в реестр идущих автозаклеймов (web/lib/questClaimProgress) —
+        // страница «Квесты» по SSE покажет на кнопке «забираем…», чтобы пользователь не жал её
+        // параллельно с циклом
+        const claimProgress=require('../web/lib/questClaimProgress');
+        await claimProgress.track(name,q.id,'loop',()=>withRetry(async()=>{
+          await globalLock.run(async()=>{await sleep(500);await api.post(`/guild-quests/collect/${q.id}`,{});});
+        },3,2000,`${name} collect ${q.id}`,{skipOnNoAnswer:true}));
         return true;
       }catch(e){logger.warn(`[${name}] [quest] collect ${q.id} failed: ${e.message}`);return false;}
     })();
@@ -98,7 +114,7 @@ async function runCapital(api,name){
         account:name,guild_id:guildId,guild_title:guildName,role:role||'',
         benefits:ben?JSON.stringify(ben):null,updated_at:new Date(),
       },{conflictFields:['account','guild_id']});
-    }catch(_){}
+    }catch(e){logger.warn(`[${name}] [capital] guild snapshot save: ${e.message}`);}
 
     // save capital snapshot (buildings) for all who can see it
     if(capProg){
@@ -122,7 +138,7 @@ async function runCapital(api,name){
           economic_strength:capProg?.economic_strength??null,
           updated_at:new Date(),
         },{conflictFields:['guild_id']});
-      }catch(_){}
+      }catch(e){logger.warn(`[${name}] [capital] capital snapshot save (баланс/кристаллы столицы не обновятся): ${e.message}`);}
     }
 
     const qData=await api.get(`/guild-quests/guild/${guildId}`);
@@ -158,7 +174,7 @@ async function runCapital(api,name){
 
 const toUnixTs=v=>{if(!v)return 0;const n=Number(v);if(!isNaN(n)&&n>1e9)return n;return Math.floor(new Date(v).getTime()/1000)||0;};
 
-async function runQuestLoop(api,name){
+async function runQuestLoop(api,name,accountId){
   let guildId,role,guildName;
   try{
     const g=await api.get('/users/me/guild');
@@ -182,6 +198,7 @@ async function runQuestLoop(api,name){
   logger.info(`[${name}] [quest-loop] started`);
   while(true){
     try{
+      if(accountLoops.isStopped(accountId)){logger.info(`[${name}] [quest-loop] аккаунт удалён, останавливаюсь`);return;}
       const qData=await api.get(`/guild-quests/guild/${guildId}`);
       let qList=qData?.quests||[];
       for(const q of qList)await reportQuest(q,guildName,name);
@@ -260,7 +277,7 @@ async function collectCapitalResources(api,name,guildId,prog){
 // (та же трёхуровневая система целей, что у городов, см. заголовок того файла), здесь только
 // внешняя обёртка: определить гильдию, вызвать проход, поспать до следующего (будится раньше,
 // если пользователь сохранил новые цели — см. web/routes/capitalStrategy.js cityWake.wake).
-async function runCapUpgradeLoop(api,name){
+async function runCapUpgradeLoop(api,name,accountId){
   let guildId;
   try{
     const g=await api.get('/users/me/guild');
@@ -273,6 +290,7 @@ async function runCapUpgradeLoop(api,name){
   const{waitOrWake}=require('../utils/cityWake');
   while(true){
     try{
+      if(accountLoops.isStopped(accountId)){logger.info(`[${name}] [cap-loop] аккаунт удалён, останавливаюсь`);return;}
       await runCapitalProgress(api,name,guildId);
       logger.info(`[${name}] [cap-loop] nothing to upgrade, sleeping up to 6h (or until targets change)`);
       await waitOrWake(`capital:${guildId}`,6*60*60*1000);
