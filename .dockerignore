@@ -35,4 +35,5 @@ items-live
 config/items-live.json
 config/items-locale.json
 config/buildings-live.json
+config/github-cache.json
 .claude

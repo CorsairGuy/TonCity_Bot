@@ -48,10 +48,42 @@ function readLocalCommit(){
   }catch(_){return null;}
 }
 
-const gh=(url)=>axios.get(GH+url,{timeout:10000,headers:{Accept:'application/vnd.github+json','User-Agent':'toncity-bot-version-check'},validateStatus:s=>s<500});
+// Лимит без ключа — 60 запросов в час на IP сервера. Экономим его так:
+//  • условные запросы: ответ запоминается с ETag (и на диске, переживает перезапуски бота), повторный
+//    запрос с If-None-Match получает 304 «не изменилось», а 304 в лимит GitHub не засчитывается;
+//  • упёрлись в лимит — до его сброса (x-ratelimit-reset) к GitHub не ходим вовсе, показываем
+//    последние известные данные;
+//  • GITHUB_TOKEN в .env (необязательно, любой токен без прав) поднимает лимит до 5000 в час.
+const ETAG_FILE=path.join(ROOT,'config','github-cache.json');
+let etags=null,etagsDirty=null,limitedUntil=0;
+const loadEtags=()=>{if(!etags){try{etags=JSON.parse(fs.readFileSync(ETAG_FILE,'utf8'))||{};}catch(_){etags={};}}return etags;};
+const saveEtags=()=>{ // пишем не на каждый запрос, а пачкой
+  if(etagsDirty)return;
+  etagsDirty=setTimeout(()=>{etagsDirty=null;try{fs.writeFileSync(ETAG_FILE+'.tmp',JSON.stringify(etags));fs.renameSync(ETAG_FILE+'.tmp',ETAG_FILE);}catch(_){}},2000);
+};
+const hhmm=(ms)=>new Date(ms).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',timeZone:process.env.TZ||'Asia/Yekaterinburg'});
+class RateLimitError extends Error{}
+async function gh(url){
+  if(Date.now()<limitedUntil)throw new RateLimitError(`лимит GitHub API исчерпан, следующая проверка после ${hhmm(limitedUntil)}`);
+  const store=loadEtags(),prev=store[url];
+  const headers={Accept:'application/vnd.github+json','User-Agent':'toncity-bot-version-check'};
+  const token=(process.env.GITHUB_TOKEN||'').trim();
+  if(token)headers.Authorization='Bearer '+token;
+  if(prev&&prev.etag)headers['If-None-Match']=prev.etag;
+  const r=await axios.get(GH+url,{timeout:10000,headers,validateStatus:s=>s<500});
+  if(r.status===304&&prev)return{status:200,data:prev.data};
+  if((r.status===403||r.status===429)&&(r.headers['x-ratelimit-remaining']==='0'||r.headers['retry-after'])){
+    const reset=+r.headers['x-ratelimit-reset']*1000||Date.now()+(+r.headers['retry-after']||600)*1000;
+    limitedUntil=Math.max(reset,Date.now()+60*1000);
+    logger.warn(`[version] лимит GitHub API исчерпан до ${hhmm(limitedUntil)}${token?'':' (без GITHUB_TOKEN — 60 запросов в час)'}`);
+    throw new RateLimitError(`лимит GitHub API исчерпан, следующая проверка после ${hhmm(limitedUntil)}`);
+  }
+  if(r.status===200&&r.headers.etag){store[url]={etag:r.headers.etag,data:r.data};saveEtags();}
+  return r;
+}
 const ghOk=async(url)=>{
   const r=await gh(url);
-  if(r.status!==200)throw new Error(r.status===403?'лимит GitHub API исчерпан, повторите позже':`GitHub ответил ${r.status} на ${url}`);
+  if(r.status!==200)throw new Error(`GitHub ответил ${r.status} на ${url}`);
   return r.data;
 };
 
@@ -152,7 +184,7 @@ async function getVersionInfo({force=false,maxAge=CACHE_MS}={}){
     const v={...(cache||{ok:true,repo:REPO,repoUrl:REPO_URL,local:readLocalCommit(),channel:channelOf(currentTag(),[],[]),
       branches:[],releases:[],stable:null,branch:null,remote:null,release:null,status:'unknown',behindBy:null,compareUrl:null,build:null,newerReleases:0}),
       checkedAt:Date.now(),error:e.message};
-    cache=v;cacheAt=Date.now();cacheTtl=ERROR_MS;
+    cache=v;cacheAt=Date.now();cacheTtl=Math.max(ERROR_MS,limitedUntil-Date.now());
     return v;
   }).finally(()=>{inFlight=null;});
   return inFlight;
