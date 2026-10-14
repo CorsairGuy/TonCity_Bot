@@ -117,9 +117,10 @@ async function runBoosterAutomationLoop(api,name,accountId){
       if(accountLoops.isStopped(accountId)){logger.info(`[${name}] [booster-loop] аккаунт удалён, останавливаюсь`);return;}
       // ОЧЕРЕДЬ активации: строка = ОДИН экземпляр, повторы одного типа разрешены («мифик, мифик,
       // лега»). Идём строго по pos; каждая успешно активированная позиция УДАЛЯЕТСЯ (расходуется).
-      // Порядок = приоритет: если первая позиция сейчас недоступна (занят слот), ждём именно её, а
-      // не перескакиваем на следующий тип — иначе заданная пользователем последовательность
-      // нарушалась бы. Пропускаем только позиции, которых вообще нет в инвентаре (иначе застрянем).
+      // Порядок = приоритет: если первая позиция сейчас недоступна (занят слот или активен другой
+      // тип), ждём именно её и следующие позиции не трогаем вообще — иначе заданная пользователем
+      // последовательность нарушалась бы. Пропускаем только позиции, которых вообще нет в инвентаре
+      // или запас которых кончился (иначе застрянем).
       const queueRows=await BoosterQueue.findAll({where:{account:name},order:[['pos','ASC'],['id','ASC']]});
       if(!queueRows.length){await waitOrWake(name,6*60*60*1000);continue;}
 
@@ -146,9 +147,11 @@ async function runBoosterAutomationLoop(api,name,accountId){
         const currentlyActive=stillActive?(row.booster_currently_active??0):0;
         if(activeTypeName!=null&&activeTypeName!==row.name){
           // заблокировано ДРУГИМ активным типом — блокировка снимется, когда закончится он
+          // Дальше по очереди НЕ идём: иначе следующая позиция того же типа, что активен сейчас,
+          // обходила бы стоящую впереди («лега, эпик×4» при активном эпике включал эпик, а лега ждала)
           const blocker=rows.find(r=>r.name===activeTypeName);
           if(blocker?.booster_active_until)soonest=Math.min(soonest??Infinity,new Date(blocker.booster_active_until).getTime());
-          continue;
+          break;
         }
         if(currentlyActive<activeLimit){
           if(boosterStock(row)<=0){await qrow.destroy().catch(()=>{});continue;} // запас кончился — позиция мертва
@@ -168,12 +171,15 @@ async function runBoosterAutomationLoop(api,name,accountId){
             });
             await logAction(name,'booster_activate',{building_id:row.name,detail:JSON.stringify({auto:true,queue:true})});
             await qrow.destroy().catch(()=>{});   // позиция израсходована
+            activeTypeName=row.name;              // теперь активен этот тип — другие за ним ждут его окончания
             logger.info(`[${name}] [booster-loop] активирован ${row.name} (из очереди)`);
+            continue;
           }
-          continue;
+          break;   // не удалось — повторим ту же позицию в следующий проход, следующие не трогаем
         }
-        // на лимите — ближайшее освобождение = когда закончится уже активный этого типа
+        // на лимите — ждём именно эту позицию: ближайшее освобождение = конец уже активного этого типа
         if(stillActive)soonest=Math.min(soonest??Infinity,untilMs);
+        break;
       }
 
       if(activatedAny){
