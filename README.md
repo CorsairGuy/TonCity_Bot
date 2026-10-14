@@ -58,7 +58,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Панель откроется на `http://localhost:3000`. Дальше:
+Панель откроется на `http://localhost:3000`. Запуск стеком Portainer — [docs/portainer.md](docs/portainer.md) (файл `docker-compose.portainer.yml`). Дальше:
 
 1. На странице **Аккаунты** добавьте игровые аккаунты.
 2. На странице **Настройки** задайте пароль панели и включите нужные функции. Там же указываются токен Telegram-бота и чат для уведомлений.
