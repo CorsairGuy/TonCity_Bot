@@ -2178,7 +2178,7 @@ export interface VersionInfo {
   // время старта процесса бота — по нему панель понимает, что бот перезапустился
   startedAt?: number;
   auto?: boolean;
-  updater?: { alive: boolean; heartbeatAt: string | null; version: number | null;
+  updater?: { alive: boolean; busy?: boolean; heartbeatAt: string | null; version: number | null; mode?: string | null;
     last: { id: string; state: string; tag: string; message: string; at: string } | null };
   history?: { commit: string; ref: string | null; tag: string; at: string }[];
   checkedAt: number;

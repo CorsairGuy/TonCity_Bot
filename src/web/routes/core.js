@@ -72,7 +72,7 @@ module.exports=function(app,ctx){
       const upd=require('../../utils/selfUpdate');
       const s=mergeDeep(DEFAULTS,loadSettings());
       res.json({...await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'}),
-        canUpdate:upd.isConfigured(),startedAt:PROCESS_STARTED,updater:upd.updaterInfo(),history:upd.history(),auto:!!(s.update&&s.update.auto)});
+        canUpdate:upd.isConfigured()&&!upd.updaterInfo().busy,startedAt:PROCESS_STARTED,updater:upd.updaterInfo(),history:upd.history(),auto:!!(s.update&&s.update.auto)});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
