@@ -133,10 +133,12 @@ async function runStaking(api,name,account){
 }
 
 // Досрочная отмена вклада (кнопка на странице «Стейкинг»).
-// Сверено с бандлом игры 14.10.2026 (chunks/staking-*.js): POST api.federalReserve.staking.cancel
-// с телом {entry_id}, кнопка только у монетных и ещё не созревших вкладов, ответ несёт amount —
-// сколько вернули. Сама строка пути лежит в entry-*.js и целиком не прочитана: взята по образцу
-// соседних entries/collect из того же объекта (/federal-reserve/staking, .../collect).
+// Путь сверен буквально по entry-E5PzOcWX-99471.js (14.10.2026): объект api.federalReserve.staking
+// содержит entries:"/federal-reserve/staking", canCollect:"/federal-reserve/staking/can-collect",
+// collect:"/federal-reserve/staking/collect", cancel:"/federal-reserve/staking/cancel".
+// Тело {entry_id} этим куском бандла не видно (собирается в вызывающей функции), поэтому
+// вердикт — по факту: кнопка только у монетных и ещё не созревших вкладов, ответ несёт amount —
+// сколько вернули.
 const CANCEL_PATH='/federal-reserve/staking/cancel';
 const cancelBody=e=>({entry_id:e.id});
 
