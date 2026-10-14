@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Text, Link, Label, IconButton, Button, ConfirmationDialog, Spinner } from '@primer/react';
 import { SyncIcon, PinIcon, GitBranchIcon, TagIcon } from '@primer/octicons-react';
@@ -38,47 +38,58 @@ export function VersionBadge() {
   const ChIcon = pinned ? PinIcon : ch?.kind === 'stable' ? TagIcon : GitBranchIcon;
   const chText = !ch ? '' : ch.kind === 'stable' ? `stable${v.currentRelease ? ' ' + v.currentRelease : ''}` : ch.name;
 
+  // одна строка состояния: цветная точка + текст
+  const state: { color: string; text: ReactNode } =
+    upd.updating ? { color: 'accent.fg', text: 'Обновляюсь, бот перезапускается…' }
+    : buildFailed && v.build ? { color: 'danger.fg', text: <Link href={v.build.url} target="_blank" rel="noreferrer" sx={{ color: 'danger.fg' }}>Сборка образа не удалась</Link> }
+    : buildRunning && v.build ? { color: 'attention.fg', text: <Link href={v.build.url} target="_blank" rel="noreferrer" muted>Образ собирается на GitHub…</Link> }
+    : v.status === 'behind' ? { color: 'success.fg', text: <Link href={newLink} target="_blank" rel="noreferrer" sx={{ color: 'success.fg' }}>Доступна новая{v.behindBy ? ` (+${v.behindBy})` : ''}</Link> }
+    : pinned && !!v.newerReleases ? { color: 'success.fg', text: <RouterLink to="/settings#updates" style={{ color: 'inherit' }}>Есть релизы новее: {v.newerReleases}</RouterLink> }
+    : v.status === 'current' ? { color: 'success.fg', text: 'Актуальная версия' }
+    : (v.status === 'ahead' || v.status === 'diverged' || v.status === 'unknown_local') ? { color: 'attention.fg', text: 'Локальные изменения' }
+    : { color: 'fg.subtle', text: 'Статус неизвестен' };
+
   return (
-    <Box sx={{ px: 3, py: 2, fontSize: 0, color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: 1 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-        {ch && (
-          <RouterLink to="/settings#updates" style={{ textDecoration: 'none' }} title="Канал обновлений — Настройки">
-            <Label variant={pinned ? 'attention' : 'secondary'} sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-              <ChIcon size={12} />{chText}
-            </Label>
+    <>
+      <div className="nav-separator" />
+      <Box sx={{ mx: 2, mb: 2, p: 2, borderRadius: 2, border: '1px solid', borderColor: 'border.muted', bg: 'canvas.subtle',
+        fontSize: 0, color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Text sx={{ fontWeight: 'semibold', color: 'fg.default' }}>Версия</Text>
+          <Box sx={{ ml: 'auto' }}>
+            <IconButton icon={SyncIcon} aria-label={`Проверить обновления (проверено в ${checked})`} size="small" variant="invisible"
+              disabled={busy || upd.updating} onClick={() => load(true)} />
+          </Box>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          {ch && (
+            <RouterLink to="/settings#updates" style={{ textDecoration: 'none' }} title="Канал обновлений — Настройки">
+              <Label variant={pinned ? 'attention' : 'accent'} sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                <ChIcon size={12} />{chText}
+              </Label>
+            </RouterLink>
+          )}
+          {v.local
+            ? <Link href={`${v.repoUrl}/commit/${v.local.sha}`} target="_blank" rel="noreferrer" muted sx={{ fontFamily: 'mono' }}>{short(v.local.sha)}</Link>
+            : <Text>версия неизвестна</Text>}
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {upd.updating
+            ? <Spinner size="small" />
+            : <Box sx={{ width: 8, height: 8, borderRadius: '50%', bg: state.color, flexShrink: 0 }} />}
+          <Text sx={{ color: 'fg.default' }}>{state.text}</Text>
+        </Box>
+        {!upd.updating && (
+          <RouterLink to="/settings#updates" style={{ color: 'inherit', textDecoration: 'none' }} title="Канал и автообновление — Настройки">
+            <Text sx={{ color: 'fg.subtle', ':hover': { color: 'fg.muted' } }}>
+              {pinned ? 'Версия закреплена' : v.auto ? 'Автообновление включено' : 'Обновление вручную'}
+            </Text>
           </RouterLink>
         )}
-        {v.local
-          ? <Link href={`${v.repoUrl}/commit/${v.local.sha}`} target="_blank" rel="noreferrer" muted sx={{ fontFamily: 'mono' }}>{short(v.local.sha)}</Link>
-          : <Text>версия неизвестна</Text>}
-        <IconButton icon={SyncIcon} aria-label={`Проверить обновления (проверено в ${checked})`} size="small" variant="invisible"
-          disabled={busy || upd.updating} onClick={() => load(true)} />
+        {!upd.updating && canClick && <Button size="small" block variant="primary" onClick={() => setConfirm(true)}>Обновить</Button>}
+        {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
+        {v.error && <Text sx={{ color: 'attention.fg' }}>Нет связи с GitHub: {v.error}</Text>}
       </Box>
-      {v.status === 'behind' && (
-        <Link href={newLink} target="_blank" rel="noreferrer">
-          <Label variant="success">Доступна новая{v.behindBy ? `: +${v.behindBy}` : ''}</Label>
-        </Link>
-      )}
-      {pinned && !!v.newerReleases && (
-        <RouterLink to="/settings#updates" style={{ textDecoration: 'none' }}>
-          <Label variant="success">Есть релизы новее: {v.newerReleases}</Label>
-        </RouterLink>
-      )}
-      {v.status === 'current' && <Text>Актуальная{v.auto ? ', автообновление' : ''}</Text>}
-      {(v.status === 'ahead' || v.status === 'diverged' || v.status === 'unknown_local') && (
-        <Text>Локальные изменения, не из GitHub</Text>
-      )}
-      {buildRunning && v.build && (
-        <Link href={v.build.url} target="_blank" rel="noreferrer" muted>Образ собирается на GitHub…</Link>
-      )}
-      {buildFailed && v.build && (
-        <Link href={v.build.url} target="_blank" rel="noreferrer" sx={{ color: 'danger.fg' }}>Сборка образа не удалась</Link>
-      )}
-      {upd.updating
-        ? <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Spinner size="small" /><Text>Обновляюсь, бот перезапускается…</Text></Box>
-        : canClick && <Button size="small" onClick={() => setConfirm(true)}>Обновить</Button>}
-      {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
-      {v.error && <Text sx={{ color: 'attention.fg' }}>Нет связи с GitHub: {v.error}</Text>}
 
       {(confirm || upd.busyOps) && (
         <ConfirmationDialog
@@ -98,6 +109,6 @@ export function VersionBadge() {
             : <>Бот скачает новую версию канала {chText} и перезапустится. Задачи на аккаунтах прервутся и продолжатся после запуска, обычно это меньше минуты. Настройки, база и токены не меняются.</>}
         </ConfirmationDialog>
       )}
-    </Box>
+    </>
   );
 }
