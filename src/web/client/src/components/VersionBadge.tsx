@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Box, Text, Link, Label, IconButton, Button, ConfirmationDialog, Spinner } from '@primer/react';
-import { SyncIcon, PinIcon, GitBranchIcon, TagIcon } from '@primer/octicons-react';
+import { Box, Text, Link, Label, IconButton, ConfirmationDialog, Spinner } from '@primer/react';
+import { SyncIcon, PinIcon, GitBranchIcon, TagIcon, DownloadIcon } from '@primer/octicons-react';
 import { api, VersionInfo } from '../api';
 import { useSelfUpdate } from '../hooks/useSelfUpdate';
 
@@ -86,7 +86,13 @@ export function VersionBadge() {
             </Text>
           </RouterLink>
         )}
-        {!upd.updating && canClick && <Button size="small" block variant="primary" onClick={() => setConfirm(true)}>Обновить</Button>}
+        {!upd.updating && canClick && (
+          // как пункты меню (nav-item), а не primer-кнопка: блок живёт в сайдбаре
+          <button type="button" className="nav-item" style={{ margin: '-4px -8px', width: 'calc(100% + 16px)', color: 'var(--fg)' }}
+            onClick={() => setConfirm(true)}>
+            <DownloadIcon /><span>Обновить</span>
+          </button>
+        )}
         {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
         {v.error && <Text sx={{ color: 'attention.fg' }}>Нет связи с GitHub: {v.error}</Text>}
       </Box>

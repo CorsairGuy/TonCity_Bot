@@ -57,7 +57,7 @@ Portainer → значок пользователя → **My account** → **Acc
 | `DB_EXPOSED_PORT` | `3377` | порт базы снаружи |
 | `BOT_TAG` | `latest` | канал: `latest`/`main`, `stable`, `1.0`, `sha-…` |
 | `PORTAINER_TOKEN` | токен из шага 3 | смена версии из панели |
-| `PORTAINER_URL` | `https://host.docker.internal:9443` | только если Portainer на другом порту, например `http://host.docker.internal:9000` |
+| `PORTAINER_URL` | не нужна | обновлятель сам находит Portainer (https :9443, http :9000, http :9443); задавать, только если он на другом адресе |
 | `TONCITYQUESTS_BOT_HASH` | из старого `.env` | можно пусто |
 
 Лишние строки из `.env` (`DB_HOST`, `WEB_BIND`, `WATCHTOWER_*`) можно удалить, они ни на что не влияют.

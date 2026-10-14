@@ -15,7 +15,7 @@
 # хостовому пути на неё ставится симлинк — так относительные пути (./config, ./logs, .env)
 # раскрываются в правильные пути хоста.
 #
-# Режим Portainer (docker-compose.portainer.yml, заданы PORTAINER_URL и PORTAINER_TOKEN): стек
+# Режим Portainer (docker-compose.portainer.yml, задан PORTAINER_TOKEN): стек
 # принадлежит Portainer, его файл и переменные лежат в базе Portainer, а не на диске. Поэтому
 # обновлятель не зовёт docker compose сам, а через API Portainer меняет переменную BOT_TAG стека и
 # передеплоивает его с pullImage. Portainer пересоздаёт только то, что изменилось (обычно бота),
@@ -64,9 +64,25 @@ set_env_tag(){
   fi
 }
 # --- Portainer ---
+# Адрес API: Portainer бывает на https :9443 (самоподписанный сертификат), на http :9000 или на
+# http прямо на :9443 (тогда https даёт «TLS packet length too long»). Пробуем заданный адрес и
+# типовые варианты, берём первый, где отвечает HTTP-сервер (любой код, кроме 000), и запоминаем.
+PBASE=
+portainer_base(){
+  [ -n "$PBASE" ] && return 0
+  h=host.docker.internal; u="${PORTAINER_URL%/}"
+  alt=; case "$u" in https://*) alt="http://${u#https://}";; http://*) alt="https://${u#http://}";; esac
+  for c in $u $alt https://$h:9443 http://$h:9000 http://$h:9443; do
+    code=$(curl -s -k -o /dev/null --max-time 10 -w '%{http_code}' "$c/api/system/status" 2>/dev/null)
+    if [ -n "$code" ] && [ "$code" != 000 ]; then
+      PBASE="$c"; [ "$c" = "$u" ] || log "Portainer найден по адресу $c (задан ${u:-—})"; return 0
+    fi
+  done
+  return 1
+}
 portainer(){ # METHOD path [json-тело] → тело ответа; ошибка HTTP = ненулевой код
-  set -- "$1" "${PORTAINER_URL%/}/api$2" "${3:-}"
-  k=; [ "${PORTAINER_INSECURE:-0}" = 1 ] && k=-k   # самоподписанный сертификат Portainer (:9443)
+  set -- "$1" "$PBASE/api$2" "${3:-}"
+  k=; case "$PBASE" in https://*) k=-k;; esac   # у Portainer обычно самоподписанный сертификат
   if [ -n "$3" ]; then
     printf '%s' "$3" | curl -sS --fail-with-body --max-time 900 $k -X "$1" \
       -H "X-API-Key: $PORTAINER_TOKEN" -H 'Content-Type: application/json' --data-binary @- "$2"
@@ -78,6 +94,9 @@ process_portainer(){ # id tag
   id="$1"; tag="$2"
   name="${PORTAINER_STACK:-$(label "$BOT" com.docker.compose.project)}"
   [ -n "$name" ] || { status "$id" error "$tag" "не найдено имя стека (задайте PORTAINER_STACK)"; return; }
+  # адрес ищем заново на каждую заявку (Portainer могли переустановить) и не внутри $(…):
+  # там найденный адрес не сохранился бы
+  PBASE=; portainer_base || { status "$id" error "$tag" "Portainer не найден: задайте PORTAINER_URL (пробовал https :9443, http :9000, http :9443)"; return; }
   if ! stacks=$(portainer GET /stacks 2>&1); then status "$id" error "$tag" "Portainer не ответил: $(echo "$stacks" | tail -n 2 | tr '\n' ' ')"; return; fi
   stack=$(echo "$stacks" | jq -c --arg n "$name" '[.[]|select((.Name|ascii_downcase)==($n|ascii_downcase))][0] // empty')
   [ -n "$stack" ] || { status "$id" error "$tag" "в Portainer нет стека «$name»"; return; }
@@ -138,7 +157,7 @@ process(){ # id tag
   else status "$id" updated "$tag" "бот перезапущен"; docker image prune -f >/dev/null 2>&1; fi
 }
 
-if [ -n "$PORTAINER_URL" ] && [ -n "$PORTAINER_TOKEN" ]; then
+if [ -n "$PORTAINER_TOKEN" ]; then
   MODE=portainer; CUR_TAG=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$BOT" 2>/dev/null | sed -n 's/^BOT_TAG=//p')
 else MODE=compose; CUR_TAG=$(env_tag); fi
 log "запущен ($MODE), бот: $BOT"
