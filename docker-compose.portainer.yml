@@ -62,12 +62,12 @@ services:
     environment:
       BOT_CONTAINER: ${STACK_NAME:-toncity}_bot
       TZ: UTC
-      # API Portainer: адрес, как он виден из контейнера (host.docker.internal = сам сервер),
-      # токен — Portainer → My account → Access tokens. PORTAINER_INSECURE=1 — самоподписанный
-      # сертификат на :9443. PORTAINER_STACK — имя стека, если отличается от имени проекта бота.
-      PORTAINER_URL: ${PORTAINER_URL:-https://host.docker.internal:9443}
+      # API Portainer: токен — Portainer → My account → Access tokens. Адрес обновлятель находит
+      # сам (https :9443, http :9000, http :9443 на host.docker.internal = сам сервер), PORTAINER_URL
+      # нужен, только если Portainer на другом адресе или порту. PORTAINER_STACK — имя стека, если
+      # отличается от имени проекта бота.
+      PORTAINER_URL: ${PORTAINER_URL:-}
       PORTAINER_TOKEN: ${PORTAINER_TOKEN:-}
-      PORTAINER_INSECURE: ${PORTAINER_INSECURE:-1}
       PORTAINER_STACK: ${PORTAINER_STACK:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
