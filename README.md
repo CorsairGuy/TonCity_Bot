@@ -38,26 +38,24 @@
 |---|---|
 | Бот | Node.js, Express, Sequelize, MariaDB |
 | Веб-панель | React 18, [Primer React](https://primer.style/react), Vite, TypeScript |
-| Запуск | Docker Compose (база + бот) |
+| Запуск | Docker Compose (база + бот + Watchtower), образ из GitHub Actions |
 
 ---
 
 ## Как запустить
 
-Понадобятся **Docker** с Docker Compose и **Node.js 22**.
+Понадобится **Docker** с Docker Compose. Готовый образ бота (код, зависимости и собранная панель) собирается в GitHub Actions на каждое изменение в `main` и лежит в `ghcr.io/corsairguy/toncity_bot`, на сервере ничего собирать не нужно.
 
 ```bash
-# 1. Скачать проект
+# 1. Скачать проект (нужны docker-compose.yml, .env.example и папка config/)
 git clone https://github.com/CorsairGuy/TonCity_Bot.git
 cd TonCity_Bot
 
-# 2. Создать файл настроек и вписать свой пароль базы
+# 2. Создать файл настроек: пароль базы и ключ обновлятеля WATCHTOWER_TOKEN
 cp .env.example .env
+#    WATCHTOWER_TOKEN — любая длинная случайная строка, например: openssl rand -hex 32
 
-# 3. Собрать веб-панель (обязательно перед первым запуском)
-cd src/web/client && npm install && npm run build && cd ../../..
-
-# 4. Запустить базу и бота
+# 3. Запустить базу, бота и обновлятель
 docker compose up -d
 ```
 
@@ -67,6 +65,23 @@ docker compose up -d
 2. На странице **Настройки** задайте пароль панели и включите нужные функции. Там же указываются токен Telegram-бота и чат для уведомлений.
 
 Если панель открыта не только на своём компьютере, пароль обязателен.
+
+### Обновление
+
+Внизу меню панели видна версия бота. Когда на GitHub появляется новая версия и её образ собран, там же появляется кнопка **«Обновить»**: бот скачивает новый образ через Watchtower и перезапускается (обычно меньше минуты). `.env`, `config/`, база и логи при этом не меняются.
+
+- **Автоматически:** `WATCHTOWER_AUTO=true` в `.env` — обновления ставятся сами по расписанию `WATCHTOWER_SCHEDULE` (по умолчанию 21:00 UTC = 02:00 GMT+5). Применить: `docker compose up -d`.
+- **Вручную из консоли:** `docker compose pull bot && docker compose up -d bot`.
+- **Откат:** в `.env` указать `BOT_TAG=sha-<полный коммит>` (теги видны в GitHub → Packages), затем `docker compose up -d`. Вернуться на свежую версию — очистить `BOT_TAG`.
+
+### Разработка с правкой кода на месте
+
+Код с хоста подключается в контейнер, nodemon перезапускает бота при правках:
+
+```bash
+cd src/web/client && npm install && npm run build && cd ../../..
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db bot
+```
 
 ### Без Docker
 

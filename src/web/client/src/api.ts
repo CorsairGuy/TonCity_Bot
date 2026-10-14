@@ -14,6 +14,11 @@ export const api = {
   // maintenance (автопауза запросов к игре во время техработ)
   maintenance: () => req<{ ok: boolean; active: boolean; since: number | null; retryInMs: number }>('/api/maintenance'),
 
+  // проверка новой версии бота на GitHub (только чтение)
+  version: (force = false) => req<VersionInfo>('/api/version' + (force ? '?force=1' : '')),
+  // обновление бота через Watchtower; если образ новый, бот перезапустится раньше ответа
+  update: (force = false) => req<{ ok: boolean; updated?: number; busy?: string[]; error?: string }>('/api/update', post({ force })),
+
   // auth
   authStatus: () => req<{ ok: boolean; required: boolean; authed: boolean }>('/api/auth/status'),
   login: (password: string) => req<{ ok: boolean; error?: string }>('/api/login', post({ password })),
@@ -2181,3 +2186,23 @@ export interface MinigameStatusRow {
 
 export type Game2048Direction = 'up' | 'down' | 'left' | 'right';
 export type Game2048Status = 'ongoing' | 'won' | 'lost';
+
+export interface VersionInfo {
+  ok: boolean;
+  error?: string | null;
+  repo: string;
+  branch: string;
+  repoUrl: string;
+  local: { sha: string; branch: string | null; source: 'git' | 'env' } | null;
+  remote: { sha: string; message: string; date: string | null; url: string } | null;
+  release: { tag: string; name: string | null; date: string | null; url: string } | null;
+  // current — актуальна; behind — на GitHub есть новые коммиты; ahead/diverged — локально свои коммиты;
+  // unknown_local — локального коммита нет на GitHub; unknown — локальная версия не определена
+  status: 'current' | 'behind' | 'ahead' | 'diverged' | 'unknown_local' | 'unknown';
+  behindBy: number | null;
+  compareUrl: string | null;
+  // сборка Docker-образа последнего коммита в GitHub Actions
+  build: { status: string; conclusion: string | null; url: string } | null;
+  canUpdate?: boolean;
+  checkedAt: number;
+}

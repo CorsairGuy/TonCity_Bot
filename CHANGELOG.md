@@ -14,6 +14,15 @@
 
 ---
 
+## 2026-10-14 — Обновление бота из панели: образ из GitHub Actions + Watchtower
+- Внизу меню панели плашка версии: текущий коммит, метка «Новая версия: +N» со ссылкой на сравнение коммитов (или релиз), статус сборки образа и кнопка «Обновить» с подтверждением. После обновления панель ждёт новый процесс и перезагружается сама.
+- `.github/workflows/docker.yml`: на каждый push в `main` образ собирается и публикуется в `ghcr.io/corsairguy/toncity_bot` (теги `latest` и `sha-<коммит>`, коммит в `APP_COMMIT`). Секреты не нужны, хватает `GITHUB_TOKEN`.
+- `docker-compose.yml`: `bot` теперь из образа (без `./src` и nodemon), подключены только `config/` и `logs/`; новый сервис `watchtower` (форк `nicholas-fedor`, только свой `STACK_NAME`, наружу не открыт, по умолчанию только по кнопке). `docker-compose.dev.yml` — прежний режим с кодом с хоста.
+- `Dockerfile`: `npm ci` по lock-файлам, `APP_COMMIT`, справочники `config/` докладываются из образа только если их нет, запуск через `exec node` (SIGTERM доходит до бота).
+- Бэкенд: `utils/versionCheck.js` + `GET /api/version` (публичный GitHub API без токена, кэш 30 мин, ручная проверка не чаще раза в минуту), `utils/selfUpdate.js` + `POST /api/update` (не стартует посреди операций `opRegistry` без `force`), `opRegistry.activeKeys()`.
+- Проверено локально: сборка образа, копирование справочников, штатный SIGTERM, Watchtower 1.23.1 с локальным реестром (обновляет только свой scope, отвечает после обновления, без нового образа — `updated:0`). На боевом сервере ещё не запускалось: нужен переезд (README → «Как запустить», `WATCHTOWER_TOKEN` в `.env`).
+- Внимание: изменения справочников в `config/` на сервер с образом не приезжают (папка подключается с хоста).
+
 ## 2026-10-14 — Названия предметов из игры, иконки в src/items, бот без nodemon
 - Бот в контейнере запускается обычным `node` (`docker-compose.yml`: `command` + `init: true`, монтирование `nodemon.json` убрано). Код теперь приходит через git, обновление — `git pull` и `docker compose restart bot`. Изменение compose применяется только `docker compose down && docker compose up -d`. `npm run dev` по-прежнему nodemon, `src/items` у него в игноре.
 - Иконки предметов: `src/items/<тег>.png` с тем же тегом, что в `ITEMS_BY_ID` (`itemCatalog.tagOf`: `rare`, `shard_rare`, `mystery_rare`, `policy_pack_rare`, `eternal_booster`…). Недостающие бот докачивает туда из ассетов игры (по каталогу аккаунтов и по справочнику из бандла). Маршрут `/items/live` и папки `src/items/live/`, `items-live/` больше не используются; `items-live/` на сервере можно удалить.
