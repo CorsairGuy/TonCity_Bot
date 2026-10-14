@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1117" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="TonCity" />
+    <link rel="apple-touch-icon" href="/pwa-icon.svg" />
+    <title>TonCity Bot</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+    <style>
+      /* Сплэш на время проверки обновления SW (см. registerSW.ts waitForFreshSW) — цвет фона и текста
+         берём синхронно из localStorage ДО первой отрисовки, чтобы не мигнуть противоположной темой.
+         Спиннер — ПИКСЕЛЬ В ПИКСЕЛЬ копия @primer/react Spinner size="medium" (svg 0 0 16 16, r=7,
+         strokeWidth=2, 32px, поворот 1s linear) — тот же спиннер показывает LoginGate.tsx сразу после
+         маунта, пока проверяет авторизацию. Одинаковый размер/цвет/анимация делают переход между
+         сплэшем и первым React-экраном визуально бесшовным (там, где раньше было заметное мигание
+         "другой спиннер другого размера").
+      */
+      #splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 9999;
+        transition: opacity .15s ease-out; }
+      #splash svg { animation: tc-spin 1s linear infinite; }
+      @keyframes tc-spin { to { transform: rotate(360deg); } }
+    </style>
+    <script>
+      (function () {
+        try {
+          var dark = localStorage.getItem('tc-theme') === 'dark';
+          var bg = dark ? '#0d1117' : '#ffffff';
+          var fg = dark ? '#f0f6fc' : '#1f2328'; // Primer fg.default (dark/light)
+          document.documentElement.style.background = bg;
+          document.write(
+            '<div id="splash" style="background:' + bg + ';color:' + fg + '">' +
+              '<svg height="32" width="32" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+                '<circle cx="8" cy="8" r="7" stroke="currentColor" stroke-opacity="0.25" stroke-width="2" vector-effect="non-scaling-stroke"></circle>' +
+                '<path d="M15 8a7.002 7.002 0 00-7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"></path>' +
+              '</svg>' +
+            '</div>'
+          );
+        } catch (e) { /* localStorage недоступен — просто без сплэша, main.tsx смонтирует сразу */ }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

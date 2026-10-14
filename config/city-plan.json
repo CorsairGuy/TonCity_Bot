@@ -1,0 +1,10 @@
+{
+  "buildings": [
+    {
+      "x": 3,
+      "y": 16,
+      "id": "RES_minimalist_cabin.png",
+      "level": 1
+    }
+  ]
+}

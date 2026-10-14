@@ -1,0 +1,30 @@
+# node_modules собирается ВНУТРИ образа (RUN npm install), не тащим с хоста —
+# иначе Windows-сборка затирает правильную Linux-ную (ломаются нативные модули,
+# «пропадает» ws и т.п.). Это критично: без этого COPY . . перезаписывает /app/node_modules.
+node_modules
+**/node_modules
+
+# сборочный вывод React — пересобирается в образе (npm run build)
+src/web/dist
+
+# логи и локальные артефакты (монтируются volume'ами / не нужны в образе)
+logs
+*.log
+.git
+.gitignore
+.env
+.env.*
+tmp
+*.tmp
+
+# личные данные конкретной инсталляции (токен бота, chat id, хэш пароля веб-панели) — НЕ должны
+# попасть в образ при раздаче проекта другим людям; сам код устойчив к их отсутствию (см.
+# src/config.js loadSettings())
+config/settings.json
+config/bot-state.json
+
+# редакторские / ОС
+.vscode
+.idea
+.DS_Store
+Thumbs.db

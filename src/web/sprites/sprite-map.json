@@ -1,0 +1,1442 @@
+{
+  "COM_wonderland_kingdom.png": {
+    "atlas": "tiles/tonCityTiles_8_a35b2779af9448a62983ccf122221375.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 656
+    }
+  },
+  "RES_coastal_retreat.png": {
+    "atlas": "tiles/tonCityTiles_8_a35b2779af9448a62983ccf122221375.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 447
+    }
+  },
+  "SER_medical_center_3_star.png": {
+    "atlas": "tiles/tonCityTiles_8_a35b2779af9448a62983ccf122221375.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 589
+    }
+  },
+  "RES_crystal_aurora_3_star.png": {
+    "atlas": "tiles/tonCityTiles_17_ef0decd1fe19907e3eaa28dbe7d7148e.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 2084
+    }
+  },
+  "RES_crystal_aurora_2_star.png": {
+    "atlas": "tiles/tonCityTiles_17_ef0decd1fe19907e3eaa28dbe7d7148e.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 2084
+    }
+  },
+  "COM_bank_2_star.png": {
+    "atlas": "tiles/tonCityTiles_17_ef0decd1fe19907e3eaa28dbe7d7148e.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 637
+    }
+  },
+  "road_2_trees_2.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 576
+    }
+  },
+  "crossroads.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "road_2_trees_1.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 576
+    }
+  },
+  "road_1.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 0,
+      "y": 576,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "t_turn_1_2.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 753,
+      "y": 576,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "road_2.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 1506,
+      "y": 576,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "road_1_christmas.png": {
+    "atlas": "tiles/tonCityTiles_5_1109321e20e4eb2a8f317afd6868b8ea.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "t_turn_1_1.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 753,
+      "y": 1152,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "t_turn_2_2.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 1506,
+      "y": 1152,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "t_turn_2_1.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 0,
+      "y": 1728,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "asphalt.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 753,
+      "y": 1728,
+      "w": 753,
+      "h": 422
+    }
+  },
+  "crosswalk_2.png": {
+    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
+    "frame": {
+      "x": 1506,
+      "y": 1728,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "SER_central_park.png": {
+    "atlas": "tiles/tonCityTiles_15_c52d6bb26c350322986ee99f641ae2db.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 466
+    }
+  },
+  "SER_regional_police.png": {
+    "atlas": "tiles/tonCityTiles_15_c52d6bb26c350322986ee99f641ae2db.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 620
+    }
+  },
+  "RES_utopia_megacomplex.png": {
+    "atlas": "tiles/tonCityTiles_15_c52d6bb26c350322986ee99f641ae2db.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 1280
+    }
+  },
+  "SER_fire_headquarters_2_star.png": {
+    "atlas": "tiles/tonCityTiles_14_f0bdc25888f65d900e6990163f7371a4.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 646
+    }
+  },
+  "SER_fire_headquarters_3_star.png": {
+    "atlas": "tiles/tonCityTiles_14_f0bdc25888f65d900e6990163f7371a4.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 646
+    }
+  },
+  "COM_office_tower_2_star.png": {
+    "atlas": "tiles/tonCityTiles_14_f0bdc25888f65d900e6990163f7371a4.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 671
+    }
+  },
+  "COM_grand_arcanum_2_star.png": {
+    "atlas": "tiles/tonCityTiles_22_7d913bff0697abeed3d36eb87526e700.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1666
+    }
+  },
+  "RES_luxurious_villa.png": {
+    "atlas": "tiles/tonCityTiles_22_7d913bff0697abeed3d36eb87526e700.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 459
+    }
+  },
+  "SER_fire_department.png": {
+    "atlas": "tiles/tonCityTiles_22_7d913bff0697abeed3d36eb87526e700.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 594
+    }
+  },
+  "SPE_satoshi_tower.png": {
+    "atlas": "tiles/tonCityTiles_6_9ebd5d15ec12a972a3bc779e0796e8e4.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1224
+    }
+  },
+  "RES_nova_nexus_1_star.png": {
+    "atlas": "tiles/tonCityTiles_6_9ebd5d15ec12a972a3bc779e0796e8e4.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 1633
+    }
+  },
+  "RES_village_house.png": {
+    "atlas": "tiles/tonCityTiles_6_9ebd5d15ec12a972a3bc779e0796e8e4.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 532
+    }
+  },
+  "COM_bank_1_star.png": {
+    "atlas": "tiles/tonCityTiles_4_67a981c54421e2126464c8606f00d383.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 637
+    }
+  },
+  "RES_nova_nexus.png": {
+    "atlas": "tiles/tonCityTiles_4_67a981c54421e2126464c8606f00d383.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 1633
+    }
+  },
+  "forest4.png": {
+    "atlas": "tiles/tonCityTiles_4_67a981c54421e2126464c8606f00d383.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 460
+    }
+  },
+  "SER_botanical_garden_1_star.png": {
+    "atlas": "tiles/tonCityTiles_3_97475dee8a82f840ebc908d7b5a794ba.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 505
+    }
+  },
+  "COM_gas_station.png": {
+    "atlas": "tiles/tonCityTiles_3_97475dee8a82f840ebc908d7b5a794ba.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 529
+    }
+  },
+  "RES_crystal_aurora_1_star.png": {
+    "atlas": "tiles/tonCityTiles_3_97475dee8a82f840ebc908d7b5a794ba.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 2084
+    }
+  },
+  "river_2.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_060.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "river_1.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_038.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 0,
+      "y": 434,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "fountain.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 753,
+      "y": 434,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "water.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 1506,
+      "y": 434,
+      "w": 753,
+      "h": 318
+    }
+  },
+  "cityTiles_051.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 0,
+      "y": 868,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_045.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 753,
+      "y": 868,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_046.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 1506,
+      "y": 868,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_052.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 0,
+      "y": 1302,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_053.png": {
+    "atlas": "tiles/waterTiles_0_52584f1e01476e760aebb8b923256e53.png",
+    "frame": {
+      "x": 753,
+      "y": 1302,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "forest2.png": {
+    "atlas": "tiles/tonCityTiles_1_ee59293271458bc3d81f465579a31596.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 481
+    }
+  },
+  "road_2_christmas.png": {
+    "atlas": "tiles/tonCityTiles_1_ee59293271458bc3d81f465579a31596.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "COM_startup_hub_2_star.png": {
+    "atlas": "tiles/tonCityTiles_1_ee59293271458bc3d81f465579a31596.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 795
+    }
+  },
+  "COM_grand_arcanum.png": {
+    "atlas": "tiles/tonCityTiles_16_4cdbabd9d15f646be816b1de5eaf84ff.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1666
+    }
+  },
+  "RES_nova_nexus_2_star.png": {
+    "atlas": "tiles/tonCityTiles_16_4cdbabd9d15f646be816b1de5eaf84ff.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 1633
+    }
+  },
+  "RES_nova_nexus_3_star.png": {
+    "atlas": "tiles/tonCityTiles_16_4cdbabd9d15f646be816b1de5eaf84ff.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 1633
+    }
+  },
+  "SER_city_police.png": {
+    "atlas": "tiles/tonCityTiles_24_83abb7b34596321a264156ad337580b3.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 538
+    }
+  },
+  "COM_broadcast_center.png": {
+    "atlas": "tiles/tonCityTiles_24_83abb7b34596321a264156ad337580b3.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 864
+    }
+  },
+  "COM_grocery_store.png": {
+    "atlas": "tiles/tonCityTiles_24_83abb7b34596321a264156ad337580b3.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 519
+    }
+  },
+  "COM_startup_hub_1_star.png": {
+    "atlas": "tiles/tonCityTiles_19_8a347fbfb6d73547dfc576d35951a736.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 795
+    }
+  },
+  "RES_wooden_cottage.png": {
+    "atlas": "tiles/tonCityTiles_19_8a347fbfb6d73547dfc576d35951a736.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 461
+    }
+  },
+  "SER_botanical_garden_2_star.png": {
+    "atlas": "tiles/tonCityTiles_19_8a347fbfb6d73547dfc576d35951a736.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 505
+    }
+  },
+  "SPE_central_market.png": {
+    "atlas": "tiles/tonCityTiles_5_1109321e20e4eb2a8f317afd6868b8ea.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1800
+    }
+  },
+  "COM_startup_hub.png": {
+    "atlas": "tiles/tonCityTiles_5_1109321e20e4eb2a8f317afd6868b8ea.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 796
+    }
+  },
+  "SER_botanical_garden_3_star.png": {
+    "atlas": "tiles/tonCityTiles_20_e1df90377cc3b8ed3c2ec1ca3c2d8ddf.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 505
+    }
+  },
+  "SPE_wisdom_stronghold.png": {
+    "atlas": "tiles/tonCityTiles_20_e1df90377cc3b8ed3c2ec1ca3c2d8ddf.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 1495
+    }
+  },
+  "SER_regional_hospital.png": {
+    "atlas": "tiles/tonCityTiles_20_e1df90377cc3b8ed3c2ec1ca3c2d8ddf.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 668
+    }
+  },
+  "COM_cinema.png": {
+    "atlas": "tiles/tonCityTiles_10_777755d619e45684588068fb738cfcca.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 624
+    }
+  },
+  "SER_city_hospital.png": {
+    "atlas": "tiles/tonCityTiles_10_777755d619e45684588068fb738cfcca.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 604
+    }
+  },
+  "forest.png": {
+    "atlas": "tiles/tonCityTiles_10_777755d619e45684588068fb738cfcca.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 481
+    }
+  },
+  "COM_museum.png": {
+    "atlas": "tiles/tonCityTiles_21_04881224818f6647f2a13bb4e23d4029.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 490
+    }
+  },
+  "SER_police_headquarters.png": {
+    "atlas": "tiles/tonCityTiles_21_04881224818f6647f2a13bb4e23d4029.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 517
+    }
+  },
+  "COM_grand_arcanum_3_star.png": {
+    "atlas": "tiles/tonCityTiles_21_04881224818f6647f2a13bb4e23d4029.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 1666
+    }
+  },
+  "construction2.png": {
+    "atlas": "tiles/tonCityTiles_28_99d7de29274d6a912699723462cf1933.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 659
+    }
+  },
+  "RES_metropolitan_tower.png": {
+    "atlas": "tiles/tonCityTiles_28_99d7de29274d6a912699723462cf1933.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 820
+    }
+  },
+  "COM_grand_hotel.png": {
+    "atlas": "tiles/tonCityTiles_28_99d7de29274d6a912699723462cf1933.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 712
+    }
+  },
+  "RES_apartment_complex.png": {
+    "atlas": "tiles/tonCityTiles_25_b3e85b22b482035d2863fd599a2229a4.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 636
+    }
+  },
+  "SER_botanical_garden.png": {
+    "atlas": "tiles/tonCityTiles_25_b3e85b22b482035d2863fd599a2229a4.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 505
+    }
+  },
+  "COM_meridian_club.png": {
+    "atlas": "tiles/tonCityTiles_25_b3e85b22b482035d2863fd599a2229a4.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 467
+    }
+  },
+  "RES_seaside_condominiums.png": {
+    "atlas": "tiles/tonCityTiles_12_4c750a58f77897a08f6ddd1ffb8d2c9e.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1295
+    }
+  },
+  "COM_office_tower.png": {
+    "atlas": "tiles/tonCityTiles_12_4c750a58f77897a08f6ddd1ffb8d2c9e.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 671
+    }
+  },
+  "SER_fire_station.png": {
+    "atlas": "tiles/tonCityTiles_12_4c750a58f77897a08f6ddd1ffb8d2c9e.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "RES_eco_tower.png": {
+    "atlas": "tiles/tonCityTiles_30_bf4bfefff273215ddabaf8db7212f9a1.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 877
+    }
+  },
+  "COM_bank.png": {
+    "atlas": "tiles/tonCityTiles_11_70f1a9bcc55ec96bfeeae8d71924ff21.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 637
+    }
+  },
+  "COM_hotel.png": {
+    "atlas": "tiles/tonCityTiles_11_70f1a9bcc55ec96bfeeae8d71924ff21.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 733
+    }
+  },
+  "COM_school.png": {
+    "atlas": "tiles/tonCityTiles_11_70f1a9bcc55ec96bfeeae8d71924ff21.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 561
+    }
+  },
+  "RES_crystal_aurora.png": {
+    "atlas": "tiles/tonCityTiles_13_95f39b6c7429d4f3192d24cc4eaa5e0b.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 2084
+    }
+  },
+  "SER_medical_center.png": {
+    "atlas": "tiles/tonCityTiles_13_95f39b6c7429d4f3192d24cc4eaa5e0b.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 589
+    }
+  },
+  "SPE_fortune_pavilion.png": {
+    "atlas": "tiles/tonCityTiles_13_95f39b6c7429d4f3192d24cc4eaa5e0b.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 512
+    }
+  },
+  "RES_celestial_spire.png": {
+    "atlas": "tiles/tonCityTiles_26_0ed8bfe2af277a66def575532ee9d899.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 2262
+    }
+  },
+  "construction.png": {
+    "atlas": "tiles/tonCityTiles_26_0ed8bfe2af277a66def575532ee9d899.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "COM_stadium.png": {
+    "atlas": "tiles/tonCityTiles_26_0ed8bfe2af277a66def575532ee9d899.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "SER_medical_center_2_star.png": {
+    "atlas": "tiles/tonCityTiles_9_3671b7bad342745be6bb07874dd699a9.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 589
+    }
+  },
+  "COM_empyrean_exchange.png": {
+    "atlas": "tiles/tonCityTiles_9_3671b7bad342745be6bb07874dd699a9.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 976
+    }
+  },
+  "SPE_federal_reserve.png": {
+    "atlas": "tiles/tonCityTiles_9_3671b7bad342745be6bb07874dd699a9.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 623
+    }
+  },
+  "SER_police_headquarters_1_star.png": {
+    "atlas": "tiles/tonCityTiles_29_7bb5c1c5cdce15e9fa34b8ec4a30730c.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 516
+    }
+  },
+  "RES_royal_retreat.png": {
+    "atlas": "tiles/tonCityTiles_29_7bb5c1c5cdce15e9fa34b8ec4a30730c.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 464
+    }
+  },
+  "SER_medical_center_1_star.png": {
+    "atlas": "tiles/tonCityTiles_29_7bb5c1c5cdce15e9fa34b8ec4a30730c.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 589
+    }
+  },
+  "forest3.png": {
+    "atlas": "tiles/tonCityTiles_0_2d10a6f406d039f11876c9ff33ef00ad.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 460
+    }
+  },
+  "COM_grand_arcanum_1_star.png": {
+    "atlas": "tiles/tonCityTiles_0_2d10a6f406d039f11876c9ff33ef00ad.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 1666
+    }
+  },
+  "RES_urban_heights.png": {
+    "atlas": "tiles/tonCityTiles_0_2d10a6f406d039f11876c9ff33ef00ad.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 835
+    }
+  },
+  "cityTiles_059.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_062.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_076.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "sole_tree.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 0,
+      "y": 512,
+      "w": 753,
+      "h": 512
+    }
+  },
+  "cityTiles_075.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 753,
+      "y": 512,
+      "w": 753,
+      "h": 512
+    }
+  },
+  "cityTiles_061.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 1506,
+      "y": 512,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "green.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 0,
+      "y": 1024,
+      "w": 753,
+      "h": 422
+    }
+  },
+  "cityTiles_068.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 753,
+      "y": 1024,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_054.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 1506,
+      "y": 1024,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "cityTiles_083.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 0,
+      "y": 1536,
+      "w": 753,
+      "h": 512
+    }
+  },
+  "cityTiles_069.png": {
+    "atlas": "tiles/greeneryTiles_0_a92beda5a8af3df6feea52b7cc196820.png",
+    "frame": {
+      "x": 753,
+      "y": 1536,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "COM_bank_3_star.png": {
+    "atlas": "tiles/tonCityTiles_18_2067f52de51a880c2cf00390135789f3.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 637
+    }
+  },
+  "SER_fire_headquarters.png": {
+    "atlas": "tiles/tonCityTiles_18_2067f52de51a880c2cf00390135789f3.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 646
+    }
+  },
+  "COM_minicafe.png": {
+    "atlas": "tiles/tonCityTiles_18_2067f52de51a880c2cf00390135789f3.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 499
+    }
+  },
+  "SER_police_headquarters_2_star.png": {
+    "atlas": "tiles/tonCityTiles_7_e4d7c03d229df5c799c8e1c703c5d8c1.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 516
+    }
+  },
+  "empty.png": {
+    "atlas": "tiles/tonCityTiles_7_e4d7c03d229df5c799c8e1c703c5d8c1.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "SER_police_headquarters_3_star.png": {
+    "atlas": "tiles/tonCityTiles_7_e4d7c03d229df5c799c8e1c703c5d8c1.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 516
+    }
+  },
+  "RES_skyscraper.png": {
+    "atlas": "tiles/tonCityTiles_23_1558559de778aea83dde19f97b406ad6.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1222
+    }
+  },
+  "COM_minishop.png": {
+    "atlas": "tiles/tonCityTiles_23_1558559de778aea83dde19f97b406ad6.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 470
+    }
+  },
+  "roundabout_christmas.png": {
+    "atlas": "tiles/tonCityTiles_23_1558559de778aea83dde19f97b406ad6.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "crosswalk_1.png": {
+    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "sand.png": {
+    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "turn_4.png": {
+    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "turn_1.png": {
+    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
+    "frame": {
+      "x": 0,
+      "y": 576,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "turn_3.png": {
+    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
+    "frame": {
+      "x": 753,
+      "y": 576,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "roundabout.png": {
+    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
+    "frame": {
+      "x": 1506,
+      "y": 576,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "turn_2.png": {
+    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
+    "frame": {
+      "x": 0,
+      "y": 1152,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "COM_startup_hub_3_star.png": {
+    "atlas": "tiles/tonCityTiles_2_309f0503da4032027231eaac31985878.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 795
+    }
+  },
+  "RES_skyline_apartments.png": {
+    "atlas": "tiles/tonCityTiles_2_309f0503da4032027231eaac31985878.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 730
+    }
+  },
+  "RES_minimalist_cabin.png": {
+    "atlas": "tiles/tonCityTiles_2_309f0503da4032027231eaac31985878.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "SER_fire_headquarters_1_star.png": {
+    "atlas": "tiles/tonCityTiles_27_2b3022672b42eea465f434830686ff13.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 646
+    }
+  },
+  "COM_office_tower_1_star.png": {
+    "atlas": "tiles/tonCityTiles_27_2b3022672b42eea465f434830686ff13.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 671
+    }
+  },
+  "COM_casino_resort.png": {
+    "atlas": "tiles/tonCityTiles_27_2b3022672b42eea465f434830686ff13.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 1507
+    }
+  },
+  "CAP_DEC_turn_1.png": {
+    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_SPE_quest_dome.png": {
+    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 511
+    }
+  },
+  "CAP_guild_headquarters.png": {
+    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 2006
+    }
+  },
+  "CAP_COM_office_tower.png": {
+    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 671
+    }
+  },
+  "CAP_COM_startup_hub.png": {
+    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 796
+    }
+  },
+  "CAP_BEN_prosperity_tower.png": {
+    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 642
+    }
+  },
+  "CAP_DEC_t_turn_3.png": {
+    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_COM_crystal_mine.png": {
+    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 453
+    }
+  },
+  "CAP_DEC_t_turn_1.png": {
+    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_SPE_foreign_ministry.png": {
+    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1403
+    }
+  },
+  "CAP_DEC_road_1.png": {
+    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 438
+    }
+  },
+  "CAP_DEC_t_turn_2.png": {
+    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 439
+    }
+  },
+  "CAP_DEC_park.png": {
+    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 438
+    }
+  },
+  "CAP_DEC_t_turn_4.png": {
+    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_DEC_road_2.png": {
+    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 439
+    }
+  },
+  "CAP_COM_finance_center.png": {
+    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1087
+    }
+  },
+  "CAP_BEN_commerce_hall.png": {
+    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 494
+    }
+  },
+  "CAP_BEN_resource_barn.png": {
+    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 515
+    }
+  },
+  "CAP_BEN_trade_center.png": {
+    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1636
+    }
+  },
+  "CAP_SPE_timeless_market.png": {
+    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 603
+    }
+  },
+  "CAP_level0.png": {
+    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 565
+    }
+  },
+  "CAP_DEC_turn_2.png": {
+    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 439
+    }
+  },
+  "CAP_DEC_turn_3.png": {
+    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_BEN_treasury_hall.png": {
+    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 637
+    }
+  },
+  "CAP_DEC_turn_4.png": {
+    "atlas": "capital/capital_9_5ccffc5647e5f90a778270074967954e.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 439
+    }
+  },
+  "CAP_SPE_tech_factory.png": {
+    "atlas": "capital/capital_9_5ccffc5647e5f90a778270074967954e.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 509
+    }
+  },
+  "CAP_DEC_intersection.png": {
+    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_BEN_clock_tower.png": {
+    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 884
+    }
+  },
+  "CAP_BEN_foundation_stones.png": {
+    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 523
+    }
+  }
+}

@@ -1,0 +1,57 @@
+services:
+  db:
+    image: mariadb:10.11
+    container_name: toncity_db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_NAME:-db_main}
+    ports:
+      - "${DB_EXPOSED_PORT:-3377}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 15s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  bot:
+    build: .
+    container_name: toncity_bot
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      # В контейнере слушаем на всех интерфейсах, иначе публикация порта (ports) не достучится
+      # до приложения. Доступ снаружи защищён паролем веб-панели (задаётся в Настройках).
+      WEB_BIND: 0.0.0.0
+    command: npx nodemon
+    ports:
+      # ОБЕ стороны берём из WEB_PORT — приложение внутри контейнера слушает именно этот порт
+      # (src/config.js: webPort=process.env.WEB_PORT), а не захардкоженный 3000. Раньше правая
+      # часть была захардкожена как 3000 — при смене WEB_PORT в .env на что-то другое (напр. 3396)
+      # проброс уезжал "хост:3396 → контейнер:3000", а внутри контейнера уже никто не слушал 3000
+      # (переехало на 3396) — панель становилась недоступна снаружи без единой ошибки в логах.
+      - "${WEB_PORT:-3000}:${WEB_PORT:-3000}"
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./src:/app/src
+      # именованный volume ПОВЕРХ ./src:/app/src — иначе bind-mount всего src/ с хоста подменяет
+      # собранный в образе фронтенд (Dockerfile: npm run build → src/web/dist) пустой/отсутствующей
+      # директорией с хоста, и панель отвечает "Frontend не собран". Docker при первом запуске сам
+      # копирует содержимое этого пути ИЗ ОБРАЗА в новый именованный volume — дальше он живёт
+      # независимо от bind-mount'а хоста.
+      - web_dist:/app/src/web/dist
+      - ./nodemon.json:/app/nodemon.json
+    restart: unless-stopped
+    mem_limit: 4g
+    memswap_limit: 4g
+volumes:
+  db_data:
+  web_dist:

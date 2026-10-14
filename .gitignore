@@ -1,0 +1,8 @@
+node_modules/
+logs/
+.env
+*.log
+
+# личные данные конкретной инсталляции — см. .dockerignore
+config/settings.json
+config/bot-state.json

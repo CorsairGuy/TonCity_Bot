@@ -1,0 +1,364 @@
+{
+  "buildings": [
+    {
+        "x": 9,
+        "y": 4,
+        "id": "CAP_DEC_turn_4.png",
+        "level": 1
+    },
+    {
+        "x": 9,
+        "y": 3,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 9,
+        "y": 2,
+        "id": "CAP_DEC_turn_1.png",
+        "level": 1
+    },
+    {
+        "x": 9,
+        "y": 7,
+        "id": "CAP_DEC_turn_1.png",
+        "level": 1
+    },
+    {
+        "x": 9,
+        "y": 9,
+        "id": "CAP_DEC_turn_4.png",
+        "level": 1
+    },
+    {
+        "x": 9,
+        "y": 8,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 8,
+        "y": 8,
+        "id": "CAP_COM_crystal_mine.png",
+        "level": 7
+    },
+    {
+        "x": 8,
+        "y": 3,
+        "id": "CAP_SPE_tech_factory.png",
+        "level": 1
+    },
+    {
+        "x": 8,
+        "y": 5,
+        "id": "CAP_COM_office_tower.png",
+        "level": 25
+    },
+    {
+        "x": 8,
+        "y": 6,
+        "id": "CAP_COM_startup_hub.png",
+        "level": 17
+    },
+    {
+        "x": 8,
+        "y": 9,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 8,
+        "y": 4,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 8,
+        "y": 2,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 8,
+        "y": 7,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 4,
+        "y": 8,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 4,
+        "y": 2,
+        "id": "CAP_DEC_turn_1.png",
+        "level": 1
+    },
+    {
+        "x": 4,
+        "y": 4,
+        "id": "CAP_BEN_clock_tower.png",
+        "level": 5
+    },
+    {
+        "x": 4,
+        "y": 3,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 4,
+        "y": 5,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 4,
+        "y": 6,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 4,
+        "y": 9,
+        "id": "CAP_DEC_turn_4.png",
+        "level": 1
+    },
+    {
+        "x": 4,
+        "y": 7,
+        "id": "CAP_DEC_intersection.png",
+        "level": 1
+    },
+    {
+        "x": 6,
+        "y": 5,
+        "id": "CAP_COM_finance_center.png",
+        "level": 14
+    },
+    {
+        "x": 6,
+        "y": 8,
+        "id": "CAP_COM_startup_hub.png",
+        "level": 17
+    },
+    {
+        "x": 6,
+        "y": 7,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 6,
+        "y": 6,
+        "id": "CAP_SPE_quest_dome.png",
+        "level": 1
+    },
+    {
+        "x": 6,
+        "y": 3,
+        "id": "CAP_COM_office_tower.png",
+        "level": 25
+    },
+    {
+        "x": 6,
+        "y": 2,
+        "id": "CAP_BEN_resource_barn.png",
+        "level": 10
+    },
+    {
+        "x": 6,
+        "y": 4,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 7,
+        "y": 9,
+        "id": "CAP_DEC_turn_2.png",
+        "level": 1
+    },
+    {
+        "x": 7,
+        "y": 7,
+        "id": "CAP_DEC_intersection.png",
+        "level": 1
+    },
+    {
+        "x": 7,
+        "y": 3,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 7,
+        "y": 6,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 7,
+        "y": 5,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 7,
+        "y": 4,
+        "id": "CAP_DEC_intersection.png",
+        "level": 1
+    },
+    {
+        "x": 7,
+        "y": 8,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 7,
+        "y": 2,
+        "id": "CAP_DEC_turn_3.png",
+        "level": 1
+    },
+    {
+        "x": 2,
+        "y": 8,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 2,
+        "y": 3,
+        "id": "CAP_DEC_road_1.png",
+        "level": 1
+    },
+    {
+        "x": 2,
+        "y": 2,
+        "id": "CAP_SPE_foreign_ministry.png",
+        "level": 1
+    },
+    {
+        "x": 2,
+        "y": 6,
+        "id": "CAP_SPE_timeless_market.png",
+        "level": 1
+    },
+    {
+        "x": 2,
+        "y": 5,
+        "id": "CAP_BEN_prosperity_tower.png",
+        "level": 13
+    },
+    {
+        "x": 2,
+        "y": 9,
+        "id": "CAP_DEC_turn_2.png",
+        "level": 1
+    },
+    {
+        "x": 2,
+        "y": 4,
+        "id": "CAP_DEC_turn_2.png",
+        "level": 1
+    },
+    {
+        "x": 2,
+        "y": 7,
+        "id": "CAP_DEC_turn_3.png",
+        "level": 1
+    },
+    {
+        "x": 3,
+        "y": 9,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 3,
+        "y": 3,
+        "id": "CAP_BEN_trade_center.png",
+        "level": 3
+    },
+    {
+        "x": 3,
+        "y": 5,
+        "id": "CAP_COM_office_tower.png",
+        "level": 25
+    },
+    {
+        "x": 3,
+        "y": 4,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 3,
+        "y": 2,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 3,
+        "y": 6,
+        "id": "CAP_COM_office_tower.png",
+        "level": 26
+    },
+    {
+        "x": 3,
+        "y": 7,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 3,
+        "y": 8,
+        "id": "CAP_BEN_commerce_hall.png",
+        "level": 13
+    },
+    {
+        "x": 5,
+        "y": 3,
+        "id": "CAP_COM_office_tower.png",
+        "level": 25
+    },
+    {
+        "x": 5,
+        "y": 8,
+        "id": "CAP_COM_office_tower.png",
+        "level": 26
+    },
+    {
+        "x": 5,
+        "y": 2,
+        "id": "CAP_BEN_treasury_hall.png",
+        "level": 13
+    },
+    {
+        "x": 5,
+        "y": 7,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    },
+    {
+        "x": 5,
+        "y": 6,
+        "id": "CAP_COM_finance_center.png",
+        "level": 15
+    },
+    {
+        "x": 5,
+        "y": 5,
+        "id": "CAP_guild_headquarters.png",
+        "level": 8
+    },
+    {
+        "x": 5,
+        "y": 4,
+        "id": "CAP_DEC_road_2.png",
+        "level": 1
+    }
+  ]
+}
