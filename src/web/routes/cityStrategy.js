@@ -226,18 +226,24 @@ module.exports=function(app,ctx){
   // ручная сверка с игрой (кнопка "Проверить" на вкладке) — единственное место, где раздел вообще
   // делает живой GET /boosters/active: фоновый цикл (modules/boosterAutomation.js) его больше не
   // опрашивает на таймере, только эта кнопка — на случай если игрок активировал ускоритель
-  // напрямую в игре, а не через бота, и БД про это ещё не знает.
+  // напрямую в игре, а не через бота, и БД про это ещё не знает. Перед сверкой перечитывает и склад
+  // (/storage/allitemdata → Inventory): ускорители, полученные после ежедневной синхронизации
+  // (квест, событие, покупка), сразу появляются в списке вкладки, а израсходованные — пропадают.
   app.post('/api/city-strategy/:account/boosters/check',async(req,res)=>{
     try{
+      let added=0;
       await opRegistry.run(`boostersCheck:${req.params.account}`,async()=>{
         const acc=await findAccountByName(req.params.account);
         const api=await makeApiForAccount(acc.id,{noLock:true});
         const{getEndsByType}=require('../../modules/boosterAutomation');
         const{Inventory}=require('../../db/index');
+        const before=new Set((await Inventory.findAll({where:{account:acc.name,type:'booster'},attributes:['name']})).map(r=>r.name));
+        await require('../../modules/inventory').runInventory(api,acc.name,{rethrow:true});
         const[endsByType,rows]=await Promise.all([
           getEndsByType(api),
           Inventory.findAll({where:{account:acc.name,type:'booster'}}),
         ]);
+        added=rows.filter(r=>!before.has(r.name)).length;
         for(const row of rows){
           const ends=endsByType.get(row.name)||[];
           await row.update({
@@ -246,7 +252,7 @@ module.exports=function(app,ctx){
           });
         }
       });
-      res.json({ok:true});
+      res.json({ok:true,added});
     }catch(e){res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});}
   });
 

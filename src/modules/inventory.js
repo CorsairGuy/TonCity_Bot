@@ -6,7 +6,8 @@ const itemCache=require('../utils/itemCache');
 
 // Синхронизация склада аккаунта в БД. Паки автоматически НЕ открываются —
 // только вручную со страницы инвентаря (веб-эндпоинт /api/storage-live/.../open-pack).
-async function runInventory(api,name){
+// rethrow:true — ошибку синхронизации пробросить вызывающему (ручная кнопка должна её показать)
+async function runInventory(api,name,{rethrow=false}={}){
   try{
     const all=await api.get('/storage/allitemdata');
     const items=all?.items||[];
@@ -52,6 +53,6 @@ async function runInventory(api,name){
         });
       }
     }catch(e){logger.warn(`[${name}] [inventory] itemCache: ${e.message}`);}
-  }catch(e){logger.error(`[${name}] [inventory]: ${e.message}`);}
+  }catch(e){logger.error(`[${name}] [inventory]: ${e.message}`);if(rethrow)throw e;}
 }
 module.exports={runInventory};

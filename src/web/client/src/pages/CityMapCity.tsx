@@ -737,7 +737,7 @@ export function CityMapCity() {
     setBoostersChecking(true);
     try {
       const r = await api.checkBoosters(account);
-      showFlash(r.ok ? 'Сверено с игрой' : (r.error ?? 'Ошибка'), !!r.ok);
+      showFlash(r.ok ? (r.added ? `Сверено с игрой, новых ускорителей: ${r.added}` : 'Сверено с игрой') : (r.error ?? 'Ошибка'), !!r.ok);
       if (r.ok) loadBoosters();
     } catch (e) { showFlash(String(e), false); }
     finally { setBoostersChecking(false); }

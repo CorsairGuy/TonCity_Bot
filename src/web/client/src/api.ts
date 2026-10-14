@@ -255,7 +255,7 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters/${encodeURIComponent(name)}/activate`, post({})),
   // единственный живой запрос к игре во всей вкладке — разовая сверка по кнопке "Проверить"
   checkBoosters: (account: string) =>
-    req<{ ok: boolean; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters/check`, post({})),
+    req<{ ok: boolean; error?: string; added?: number }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters/check`, post({})),
   // лог действий по городу
   cityActionLog: (account: string, limit = 200) =>
     req<{ ok: boolean; rows: CityActionLogRow[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/action-log?limit=${limit}`),
