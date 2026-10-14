@@ -230,6 +230,7 @@ Config-файлы: `buildings.txt`/`capital_buildings.txt`, `city-coords.json`/`
 - Живые данные игры не кэшировать в PWA (в `vite.config.ts` `/api/*` — `NetworkOnly`).
 - Тестов в проекте нет. Минимальная проверка: `node --check` изменённых файлов бэкенда и `npm run build` фронта.
 - В конце работы — запись в `CHANGELOG.md`.
+- Кнопки в последнем столбце таблицы (`DataTable`) — прижаты вправо средствами Primer: у колонки `align: 'end'`, ячейка — `<Box sx={{display:'flex',justifyContent:'flex-end'}}>` (образец — `pages/City.tsx`, «Карта»).
 - Модалки — только новый `Dialog` из `@primer/react/experimental` (legacy `Dialog` из `@primer/react` больше нигде не используется). Мобильный bottom-sheet включается явно: `position={{narrow:'bottom',regular:'center'}}`.
 
 ## 9. Уроки и подводные камни
