@@ -28,12 +28,23 @@ async function runTownhall(api,name){
       const cd=diversity.civic_draw;
       const baseUnits=(cd.draws_ready??0)+(cd.draw_progress??0);
       const rate=cd.draws_per_day??0;
-      const readyNow=baseUnits>=1||!!cd.claimable;
+      // ГОТОВНОСТЬ — ТОЛЬКО claimable. Раньше было `baseUnits>=1||claimable`, и это давало вечный
+      // цикл: игра отдаёт draws_ready:1 при claimable:false (накоплено ≠ можно забрать), мы писали
+      // ready_at=now → страница показывала «готово: 1» и включала кнопку → claim → сервер видит
+      // claimable:false, отказывает и ресинкает снимок → снимок пишет ТО ЖЕ САМОЕ → кнопка снова
+      // активна. Накопленные draws_ready оставляем в снимке как есть (их показываем), но признаком
+      // готовности считаем исключительно флаг самой игры.
+      const readyNow=!!cd.claimable;
       let readyAt=null;
       if(readyNow){
         readyAt=now;
       }else{
-        const newReadyAt=rate>0?new Date(now.getTime()+((1-baseUnits)/rate)*86400000):null;
+        // Время до СЛЕДУЮЩЕЙ единицы, а не до «первой». Раньше считалось (1-baseUnits)/rate — при
+        // уже накопленном розыгрыше (baseUnits>=1) это давало 0 или отрицательное, т.е. прогноз
+        // «готово прямо сейчас», хотя игра забрать не даёт. Берём дробную часть: сколько осталось
+        // добрать до ближайшего целого — прогноз остаётся рабочим и когда накопления уже есть.
+        const frac=baseUnits-Math.floor(baseUnits);
+        const newReadyAt=rate>0?new Date(now.getTime()+((1-frac)/rate)*86400000):null;
         const prev=await CivicDrawStatus.findOne({where:{account:name},attributes:['ready_at']});
         const prevReadyAt=prev?.ready_at?new Date(prev.ready_at):null;
         readyAt=newReadyAt&&prevReadyAt?new Date(Math.max(newReadyAt.getTime(),prevReadyAt.getTime())):(newReadyAt??prevReadyAt);

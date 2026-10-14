@@ -19,10 +19,14 @@ module.exports=function(app,ctx){
     try{
       const{FortuneLog}=require('../../db/index');
       const{Op}=require('sequelize');
-      const date=req.query.date;// YYYY-MM-DD, default today
-      const d=date?new Date(date):new Date();
-      const start=new Date(d);start.setHours(0,0,0,0);
-      const end=new Date(d);end.setHours(23,59,59,999);
+      // Границы суток — строго в UTC: суточные циклы бота живут по UTC (sleepUntilUtcMidnight,
+      // isDifferentDay, ключи вида toISOString().slice(0,10)), и раньше setHours брал их по
+      // локальной зоне процесса — на машине с TZ != UTC день в этой выборке съезжал на несколько
+      // часов и колесо «за сегодня» показывало часть вчерашних вращений.
+      const date=req.query.date;// YYYY-MM-DD, default today (UTC)
+      const day=(date?String(date):new Date().toISOString()).slice(0,10);
+      const start=new Date(`${day}T00:00:00.000Z`);
+      const end=new Date(`${day}T23:59:59.999Z`);
       const rows=await FortuneLog.findAll({where:{spun_at:{[Op.between]:[start,end]}},order:[['spun_at','ASC']]});
       res.json({ok:true,rows:rows.map(r=>({id:r.id,account:r.account,spun_at:r.spun_at,reward:r.reward?JSON.parse(r.reward):null}))});
     }catch(e){res.status(500).json({ok:false,error:e.message});}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  Box, Button, Dialog, Flash, Label, Spinner, TabNav, Text,
+  Box, Button, Flash, Label, Spinner, TabNav, Text,
 } from '@primer/react';
 import {
   ZapIcon, ArrowUpIcon, ArrowDownIcon, PackageIcon, StarFillIcon, SyncIcon,
@@ -13,7 +13,7 @@ import {
 } from '../api';
 import { ITEMS_BY_ID, fmt, itemImgSrc } from '../utils';
 import { CoinValue, CrystalValue } from './Icons';
-import { Scrollable } from './Scrollable';
+import { Dialog } from '@primer/react/experimental';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -60,9 +60,12 @@ function AmountInput({ value, onChange, min = 1, max }: { value: number; onChang
   );
 }
 
-export function RewardRow({ rw, i, total, children }: {
+export function RewardRow({ rw, i, total, children, right }: {
   rw: { reward_id: number; reward_type: string; probability: number; rarity: { booster_rarity: string; valid: boolean } | null; crystals_amount: number | null };
   i: number; total: number; children?: React.ReactNode;
+  // чем заменить правую колонку: на вкладке «Цель» полезен не шанс, а сколько паков
+  // осталось открыть до гарантированного выпадения
+  right?: React.ReactNode;
 }) {
   const rarity = rw.rarity?.valid ? rw.rarity.booster_rarity : null;
   const meta = ITEMS_BY_ID[rw.reward_id] ?? null;
@@ -90,8 +93,26 @@ export function RewardRow({ rw, i, total, children }: {
         )}
         {children}
       </Box>
-      <Text sx={{ fontSize: 0, fontFamily: 'mono', color: 'fg.muted', flexShrink: 0, ml: 2 }}>{(rw.probability * 100).toFixed(1)}%</Text>
+      {right ?? <Text sx={{ fontSize: 0, fontFamily: 'mono', color: 'fg.muted', flexShrink: 0, ml: 2 }}>{(rw.probability * 100).toFixed(1)}%</Text>}
     </Box>
+  );
+}
+
+// Сколько паков нужно открыть до гарантированного выпадения этой цели. null — у набора нет
+// гарантии по этому предмету (в guaranteed_drops он не перечислен).
+function attemptsFor(meta: BoosterPackMeta | null, itemId: number | undefined): number | null {
+  if (itemId == null) return null;
+  const g = (meta?.guaranteed_drops ?? []).find(x => x.target_item_id === itemId);
+  return g ? g.attempts_required : null;
+}
+
+// Правая колонка вкладки «Цель»: сколько паков открыть до гарантии
+export function PacksToGuarantee({ n }: { n: number | null }) {
+  if (n == null) return <Text sx={{ fontSize: 0, color: 'fg.subtle', flexShrink: 0, ml: 2 }}>без гарантии</Text>;
+  return (
+    <Text sx={{ fontSize: 0, fontFamily: 'mono', color: 'fg.muted', flexShrink: 0, ml: 2, whiteSpace: 'nowrap' }}>
+      {n} {n % 10 === 1 && n % 100 !== 11 ? 'пак' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'пака' : 'паков'}
+    </Text>
   );
 }
 
@@ -323,6 +344,11 @@ function PackModal({
 
   const rewards = packMeta?.rewards ?? [];
   const itemRewards = rewards.filter(r => r.reward_type === 'item');
+  // На вкладке «Цель» показываем ТОЛЬКО предметы с гарантией: у набора она есть не на всё, что
+  // выпадает (у летнего — на 3 позиции из 10), а выбирать цель без серии бессмысленно.
+  const targetRewards = itemRewards
+    .filter(r => attemptsFor(packMeta, r.reward_id) != null)
+    .sort((a, b) => (attemptsFor(packMeta, a.reward_id) ?? 0) - (attemptsFor(packMeta, b.reward_id) ?? 0));
   const isCrystals = item.sell_currency === 'crystals';
   const sellTotal = item.sell_price * sellAmount;
 
@@ -432,17 +458,21 @@ function PackModal({
                 return (
                   <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Text sx={{ fontSize: 1 }}>{targetMeta?.name ?? `Предмет #${p.target_item_id}`}</Text>
-                    <Text sx={{ fontSize: 1 }}>— {p.current_count ?? 0} / {p.required_count ?? 0}</Text>
+                    <Text sx={{ fontSize: 1 }}>— открыто {p.current_streak ?? 0} из {attemptsFor(packMeta, p.target_item_id) ?? '?'}</Text>
                   </Box>
                 );
               })}
             </Box>
           )}
           <Text sx={{ fontSize: 1, color: 'fg.muted' }}>
-            Выберите предмет — при накоплении серии следующий пак гарантирует его выпадение.
+            Справа — сколько паков нужно открыть подряд, чтобы цель выпала гарантированно.
+            Показаны только предметы с гарантией: на остальные награды набора серия не считается.
           </Text>
+          {targetRewards.length === 0 && (
+            <Text sx={{ fontSize: 1, color: 'fg.muted' }}>У этого набора нет предметов с гарантией.</Text>
+          )}
           <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, overflow: 'hidden' }}>
-            {itemRewards.map((rw, i) => {
+            {targetRewards.map((rw, i) => {
               const isSelected = selectedTarget === rw.reward_id;
               return (
                 <Box
@@ -451,12 +481,12 @@ function PackModal({
                   sx={{
                     cursor: 'pointer',
                     bg: isSelected ? 'accent.subtle' : 'canvas.default',
-                    borderBottom: i < itemRewards.length - 1 ? '1px solid' : 'none',
+                    borderBottom: i < targetRewards.length - 1 ? '1px solid' : 'none',
                     borderColor: 'border.muted',
                     '&:hover': { bg: isSelected ? 'accent.subtle' : 'canvas.subtle' },
                   }}
                 >
-                  <RewardRow rw={rw} i={i} total={itemRewards.length}>
+                  <RewardRow rw={rw} i={i} total={targetRewards.length} right={<PacksToGuarantee n={attemptsFor(packMeta, rw.reward_id)} />}>
                     {isSelected && <Label sx={{ bg: 'accent.emphasis', color: 'white', borderColor: 'transparent', fontSize: 0 }}>Выбрано</Label>}
                   </RewardRow>
                 </Box>
@@ -605,13 +635,21 @@ export function StorageModal({ accountName, accountId, itemId, onClose }: Storag
   const title = meta?.name ?? `Предмет #${itemId}`;
 
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ maxWidth: 520, width: '95vw' }}>
-      <Dialog.Header>
-        <Text sx={{ fontWeight: 'bold' }}>{title}</Text>
-        {item && <Text sx={{ color: 'fg.muted', ml: 1 }}>— {item.quantity}шт</Text>}
-      </Dialog.Header>
-
-      <Scrollable style={{ maxHeight: '65vh', padding: 8 }}>
+    <Dialog
+      title={item ? `${title} — ${item.quantity}шт` : title}
+      onClose={onClose}
+      width="xlarge"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      /* футер здесь — не набор кнопок, а произвольные узлы (footerActions приходят
+         от вложенных модалок), поэтому renderFooter вместо footerButtons */
+      renderFooter={() => (
+        <Dialog.Footer sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <Button leadingVisual={SyncIcon} onClick={loadData} disabled={loading}>Обновить</Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>{footerActions}</Box>
+        </Dialog.Footer>
+      )}
+    >
+      <Box>
         <OpenedRewards rewards={openedRewards} />
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><Spinner /></Box>
@@ -632,13 +670,6 @@ export function StorageModal({ accountName, accountId, itemId, onClose }: Storag
             )}
           </>
         ) : null}
-      </Scrollable>
-
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-        <Button leadingVisual={SyncIcon} onClick={loadData} disabled={loading}>Обновить</Button>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          {footerActions}
-        </Box>
       </Box>
     </Dialog>
   );

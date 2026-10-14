@@ -64,8 +64,20 @@ export function Quiz() {
   // и для восстановления прогресса после перезагрузки страницы (см. reattachLive ниже): в обоих
   // случаях сервер либо стартует решение, либо, если оно уже идёт, просто подписывает на него —
   // повторного запуска не происходит (см. web/lib/quizProgress.js)
+  // 13.10.2026: раньше EventSource закрывался только по 'done'/ошибке — уход со страницы посреди
+  // решения (~2.5 мин) оставлял соединение висеть, несколько таких утечек (+ реклама/2048 с других
+  // страниц) исчерпывали лимит браузера в 6 соединений на адрес (HTTP/1.1) и панель переставала
+  // открывать НОВЫЕ страницы вообще — выглядело как зависание бота, хотя сам бот работал нормально.
+  // streamsRef закрывает соединения этой страницы при уходе; прогресс при возврате не теряется —
+  // load() выше сам переподключается к ещё идущим решениям и получает текущий вопрос первым же
+  // сообщением (см. web/lib/quizProgress.js).
+  const streamsRef = useRef<Set<EventSource>>(new Set());
+  useEffect(() => () => { for (const es of streamsRef.current) es.close(); streamsRef.current.clear(); }, []);
+
   const attachStream = (id: number, name: string) => {
     const es = new EventSource(`/api/quiz/solve-stream?account_id=${id}`);
+    streamsRef.current.add(es);
+    const close = () => { es.close(); streamsRef.current.delete(es); };
     es.onmessage = (e) => {
       const data = JSON.parse(e.data);
       if (data.type === 'progress') {
@@ -80,7 +92,7 @@ export function Quiz() {
           justStartedTimer.current = setTimeout(() => setJustStarted(false), 5000);
         }
       } else if (data.type === 'done') {
-        es.close();
+        close();
         setSolving(prev => { const n = new Set(prev); n.delete(id); return n; });
         setLive(prev => { const n = new Map(prev); n.delete(id); return n; });
         if (data.ok) {
@@ -90,7 +102,7 @@ export function Quiz() {
       }
     };
     es.onerror = () => {
-      es.close();
+      close();
       setSolving(prev => { const n = new Set(prev); n.delete(id); return n; });
       setLive(prev => { const n = new Map(prev); n.delete(id); return n; });
       showFlash(`[${name}] ошибка соединения`, false);
@@ -192,17 +204,19 @@ export function Quiz() {
               renderCell: row => row._res?.score != null ? <span className="mono">{fmt(row._res.score)}</span> : <Text sx={{ color: 'fg.muted' }}>—</Text>,
             },
             {
-              header: '', field: 'id', id: 'action',
+              header: '', field: 'id', id: 'action', align: 'end',
               renderCell: row => {
                 const done = !!row._res;
                 // сам решаемый аккаунт блокируется на всё время (row._solving); остальные —
                 // только на 5с после старта любого решения (justStarted), не на всю длительность
                 return (
-                  <Button variant="primary" leadingVisual={ZapIcon}
-                    loading={row._solving} disabled={done || row._solving || (justStarted && !row._solving)}
-                    onClick={() => solveOne(row.id, row.name)}>
-                    {done ? 'Сыграно' : 'Решить'}
-                  </Button>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button variant="primary" leadingVisual={ZapIcon}
+                      loading={row._solving} disabled={done || row._solving || (justStarted && !row._solving)}
+                      onClick={() => solveOne(row.id, row.name)}>
+                      {done ? 'Сыграно' : 'Решить'}
+                    </Button>
+                  </Box>
                 );
               },
             },

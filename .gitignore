@@ -1,8 +1,31 @@
 node_modules/
 logs/
-.env
 *.log
+.env
+.env.*
+!.env.example
 
 # личные данные конкретной инсталляции — см. .dockerignore
 config/settings.json
 config/bot-state.json
+
+# данные БД (bind-mount MariaDB) и дампы
+db_data/
+*.sql
+*.sql.gz
+*.dump
+
+# кэш, который бот сам скачивает из игры
+items-live/
+config/items-live.json
+config/buildings-live.json
+
+# сборка фронтенда
+src/web/dist/
+
+# локальные настройки Claude Code / редакторов
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

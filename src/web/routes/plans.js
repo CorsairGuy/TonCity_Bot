@@ -241,10 +241,19 @@ module.exports=function(app,ctx){
 
   app.get('/api/buildingslist',(req,res)=>{
     try{
-      const type=req.query.type==='capital'?'capital_buildings.txt':'buildings.txt';
-      const fp=path.join(process.cwd(),'config',type);
-      if(!fs.existsSync(fp))return res.json({ok:true,buildings:[]});
-      res.json({ok:true,buildings:JSON.parse(fs.readFileSync(fp,'utf8'))});
+      // ГОРОД: отдаём тот же каталог, по которому считает бот — живой (config/buildings-live.json,
+      // см. utils/buildingCatalog.js), а статичный buildings.txt только фолбэком. Иначе панель
+      // показывает ДОСОБЫТИЙНЫЕ цены: на карнавале скидку −75% сервер отдаёт прямо в каталоге
+      // (base_price ×0.25), и без живого каталога все цены на карте города вчетверо завышены —
+      // ровно на это была жалоба 21.08.2026, уже ПОСЛЕ починки каталога у бота.
+      // СТОЛИЦА: у неё свой формат и свой файл, живого каталога для неё нет.
+      if(req.query.type==='capital'){
+        const fp=path.join(process.cwd(),'config','capital_buildings.txt');
+        if(!fs.existsSync(fp))return res.json({ok:true,buildings:[]});
+        return res.json({ok:true,buildings:JSON.parse(fs.readFileSync(fp,'utf8'))});
+      }
+      const map=require('../cityStats').buildingsMap();
+      res.json({ok:true,buildings:[...map.values()]});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
@@ -252,7 +261,10 @@ module.exports=function(app,ctx){
     try{
       const{CitySnapshot}=require('../../db/index');
       const rows=await CitySnapshot.findAll({order:[['account','ASC']]});
-      res.json({ok:true,rows:rows.map(r=>({account:r.account,buildings:r.buildings?JSON.parse(r.buildings):[],unlockedSections:r.unlocked_sections?JSON.parse(r.unlocked_sections):[],updated_at:r.updated_at}))});
+      // unlockedSections=null означает «в снимке этих данных ещё нет» (старая строка или снимок
+      // писал код, который поле не заполнял). Это НЕ то же самое, что пустой список: на пустом
+      // списке карта заперла бы весь город. Клиент по null просто не рисует замки — см. CityMapCity.
+      res.json({ok:true,rows:rows.map(r=>({account:r.account,buildings:r.buildings?JSON.parse(r.buildings):[],unlockedSections:r.unlocked_sections?JSON.parse(r.unlocked_sections):null,updated_at:r.updated_at}))});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
@@ -265,7 +277,7 @@ module.exports=function(app,ctx){
       // лидер видит/апгрейдит столицу, см. capitalStrategy.js findGuildContext) — иначе после
       // удаления аккаунта-лидера гильдия годами висела бы в списке осиротевшей записью
       // CapitalSnapshot, хотя мы её больше не контролируем.
-      const leaderRows=await GuildSnapshot.findAll({where:{role:'Leader'},attributes:['guild_id','account']});
+      const leaderRows=await GuildSnapshot.findAll({where:{role:['Leader','Officer']},attributes:['guild_id','account']});
       const accountNames=new Set((await Account.findAll({attributes:['name']})).map(a=>a.name));
       const leaderGuildIds=new Set(leaderRows.filter(r=>accountNames.has(r.account)).map(r=>r.guild_id));
       const rows=leaderGuildIds.size

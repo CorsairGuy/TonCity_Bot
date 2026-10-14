@@ -111,16 +111,19 @@ export function Promocodes() {
               header: '',
               field: 'name',
               id: 'action',
+              align: 'end',
               renderCell: row => (
-                <Button
-                  variant="primary"
-                  leadingVisual={TagIcon}
-                  loading={activatingOne.has(row._id)}
-                  disabled={activatingOne.has(row._id)}
-                  onClick={() => activateOne(row._id, row.name)}
-                >
-                  Активировать
-                </Button>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="primary"
+                    leadingVisual={TagIcon}
+                    loading={activatingOne.has(row._id)}
+                    disabled={activatingOne.has(row._id)}
+                    onClick={() => activateOne(row._id, row.name)}
+                  >
+                    Активировать
+                  </Button>
+                </Box>
               ),
             },
           ]}

@@ -175,12 +175,15 @@ export function City() {
             {
               header: '',
               field: 'hasMap',
+              align: 'end',
               renderCell: row => (
                 row.hasMap && (
-                  <Button variant="primary"
-                    onClick={() => navigate(`/city-map?account=${encodeURIComponent(row.name)}`)}>
-                    Карта / Действия
-                  </Button>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button variant="primary"
+                      onClick={() => navigate(`/city-map?account=${encodeURIComponent(row.name)}`)}>
+                      Карта
+                    </Button>
+                  </Box>
                 )
               ),
             },

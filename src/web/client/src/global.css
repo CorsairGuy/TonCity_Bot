@@ -241,18 +241,28 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
    в тёмной теме ниже. */
 .ic-common,.ic-basic,.ic-shard_common,.ic-mystery_common       { background: rgba(255,255,255,.8); border: 1px solid #ddd; }
 .ic-uncommon,.ic-advanced,.ic-shard_uncommon,.ic-mystery_uncommon { background: rgba(39,174,96,.10); border: 1px solid rgba(39,174,96,.5); }
-.ic-rare,.ic-elite,.ic-shard_rare,.ic-mystery_rare             { background: rgba(35,143,213,.12); border: 1px solid rgba(35,143,213,.5); }
-.ic-component,.ic-epic,.ic-premium,.ic-shard_epic,.ic-mystery_epic { background: rgba(169,47,220,.14); border: 1px solid rgba(169,47,220,.5); }
-.ic-legendary,.ic-ultimate,.ic-masterplan,.ic-shard_legendary,.ic-mystery_legendary,.ic-snowflake {
+.ic-rare,.ic-elite,.ic-shard_rare,.ic-mystery_rare,.ic-policy_pack_rare             { background: rgba(35,143,213,.12); border: 1px solid rgba(35,143,213,.5); }
+.ic-component,.ic-epic,.ic-premium,.ic-shard_epic,.ic-mystery_epic,.ic-policy_pack_epic { background: rgba(169,47,220,.14); border: 1px solid rgba(169,47,220,.5); }
+.ic-legendary,.ic-ultimate,.ic-masterplan,.ic-shard_legendary,.ic-mystery_legendary,.ic-snowflake,.ic-policy_pack_legendary {
   background: linear-gradient(45deg, rgba(241,196,15,.16), rgba(241,196,15,.24) 50%, rgba(241,196,15,.16));
   border: 1px solid rgba(241,196,15,.55);
   animation: legendaryBorder 3s ease-in-out infinite;
 }
-.ic-mythic,.ic-shard_mythic,.ic-mystery_mythic,.ic-eternal,.ic-shard_eternal,.ic-mystery_eternal {
+/* ВАЖНО: тег "eternal" (без префикса, id 11 "Вечный набор" ускорителей) — это НАЗВАНИЕ предмета,
+   не редкость — реальная игровая редкость этого конкретного предмета МИФИЧЕСКАЯ (подтверждено
+   пользователем вживую 31.07.2026), поэтому он красится вместе с mythic. А вот shard_eternal
+   (id 22 "Вечный осколок") и mystery_eternal (id 29 "Вечная тайная политика") — это ДЕЙСТВИТЕЛЬНО
+   отдельная редкость ВЫШЕ мифической (см. группу ниже, красится как "Зимний набор"), их с
+   .ic-eternal (bare) путать нельзя — разные предметы, разная семантика тега. */
+.ic-mythic,.ic-shard_mythic,.ic-mystery_mythic,.ic-policy_pack_mythic,.ic-eternal {
   background: linear-gradient(45deg, rgba(211,84,0,.10), rgba(211,84,0,.18) 50%, rgba(211,84,0,.10));
   border: 1px solid rgba(211,84,0,.5);
 }
-.ic-winter {
+/* редкость ВЫШЕ мифической (осколок/тайная политика "Вечный/Вечная") — визуально красится как
+   "Зимний набор" (крапивно-малиновый), НЕ как мифик (оранжевый) — подтверждено пользователем
+   вживую (30.07.2026, диалог открытия набора политик показал "Мифический осколок" и "Вечный
+   осколок" рядом — цвета должны различаться). */
+.ic-shard_eternal,.ic-mystery_eternal,.ic-winter {
   background: linear-gradient(45deg, rgba(220,20,60,.10), rgba(220,20,60,.18) 50%, rgba(220,20,60,.10));
   border: 1px solid rgba(220,20,60,.5);
 }
@@ -386,23 +396,18 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 body:has([data-portal-root] [role=dialog]) .sidebar,
 body:has([data-portal-root] [role=dialog]) .app-header { z-index: 0 !important; }
 
-/* ── полировка модалок (Primer legacy Dialog) ─────────────────────────────────
-   Кнопка закрытия по умолчанию position:absolute; top:8px — визуально «уезжает»
-   вверх относительно шапки (p:3), а длинный заголовок заезжает под неё.
-   ВАЖНО: кнопка НЕ имеет атрибута aria-label — IconButton в текущей версии
-   @primer/react оборачивает её в Tooltip, который заменяет aria-label на
-   aria-labelledby (указывает на скрытый <span> с текстом тултипа). Этот же
-   span рендерится СРАЗУ после кнопки, поэтому `button + *` попадал бы в него,
-   а не в шапку — селекторы ниже учитывают оба нюанса: находим кнопку по
-   data-component="IconButton", а шапку — как первый div-потомок диалога. */
-[role="dialog"] > button[data-component="IconButton"] { top: 10px !important; right: 12px !important; }
-/* Заголовок диалога — Primer задаёт ему фикс. p:3 (16px) инлайново, здесь приводим
-   к единому 8px отступу со всех сторон модалок; справа место под крестик (48px). */
-[role="dialog"] > div:first-of-type {
-  min-height: 50px;
-  align-items: center !important;
-  padding: 8px 48px 8px 12px !important;
-}
+/* ── плотность модалок (Dialog из @primer/react/experimental) ────────────────
+   Шапка у него уже 8px, а тело (Dialog.Body) и футер (Dialog.Footer) заданы в
+   space.3 = 16px — приводим к тем же 8px по всей модалке.
+   Селекторы структурные: тело — единственный потомок скролл-обёртки
+   .DialogOverflowWrapper, футер — соседний с ней блок (его может не быть, если
+   не передан footerButtons, поэтому `+ div`, а не `:last-child`).
+   Специфичности (0,3,0) хватает, чтобы перебить styled-components без !important. */
+[role="dialog"][data-position-regular] .DialogOverflowWrapper > *,
+[role="dialog"][data-position-narrow] .DialogOverflowWrapper > * { padding: 8px; }
+[role="dialog"][data-position-regular] .DialogOverflowWrapper + div,
+[role="dialog"][data-position-narrow] .DialogOverflowWrapper + div { padding: 8px; }
+
 
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -475,23 +480,6 @@ body:has([data-portal-root] [role=dialog]) .app-header { z-index: 0 !important; 
 
   /* пока открыто меню — фон не скроллится */
   body.menu-open { overflow: hidden; }
-
-  /* модалки (Primer legacy Dialog) — разворачиваем на весь экран при тех же условиях, что и
-     сайдбар. Primer сам даёт мобильный вид только на ≤750px и БЕЗ учёта высоты (телефон в
-     альбомной ориентации не попадал), а собственный sx каждой модалки (maxWidth/width) в каскаде
-     идёт ПОСЛЕ media-запроса Primer с той же специфичностью и перебивал его — поэтому раньше на
-     мобильном модалки были ~95vw по центру, а не в полный экран. !important здесь решает оба
-     нюанса разом, независимо от sx конкретной модалки. */
-  [role="dialog"] {
-    position: fixed !important;
-    top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
-    transform: none !important;
-    width: 100vw !important; width: 100dvw !important;
-    height: 100vh !important; height: 100dvh !important;
-    max-width: 100vw !important; max-height: 100vh !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-  }
 
   /* правый сайдбар карты города (страница "Карта города") — по аналогии с левым меню навигации:
      по умолчанию свёрнут, открывается кнопкой в общем мобильном хидере (см. PanelToggleContext,
@@ -582,15 +570,15 @@ html[data-theme="dark"] .item-card.clickable:hover .item-card__box { box-shadow:
    всегда тёмная, поэтому здесь точные исходные значения, не адаптация. */
 html[data-theme="dark"] .ic-common,html[data-theme="dark"] .ic-basic,html[data-theme="dark"] .ic-shard_common,html[data-theme="dark"] .ic-mystery_common { background: #1e1e1e; border-color: #333; }
 html[data-theme="dark"] .ic-uncommon,html[data-theme="dark"] .ic-advanced,html[data-theme="dark"] .ic-shard_uncommon,html[data-theme="dark"] .ic-mystery_uncommon { background: rgba(39,174,96,.08); border-color: rgba(39,174,96,.4); }
-html[data-theme="dark"] .ic-rare,html[data-theme="dark"] .ic-elite,html[data-theme="dark"] .ic-shard_rare,html[data-theme="dark"] .ic-mystery_rare { background: rgba(35,143,213,.15); border-color: rgba(35,143,213,.4); }
-html[data-theme="dark"] .ic-component,html[data-theme="dark"] .ic-epic,html[data-theme="dark"] .ic-premium,html[data-theme="dark"] .ic-shard_epic,html[data-theme="dark"] .ic-mystery_epic { background: rgba(169,47,220,.2); border-color: rgba(169,47,220,.3); }
-html[data-theme="dark"] .ic-legendary,html[data-theme="dark"] .ic-ultimate,html[data-theme="dark"] .ic-masterplan,html[data-theme="dark"] .ic-shard_legendary,html[data-theme="dark"] .ic-mystery_legendary,html[data-theme="dark"] .ic-snowflake {
+html[data-theme="dark"] .ic-rare,html[data-theme="dark"] .ic-elite,html[data-theme="dark"] .ic-shard_rare,html[data-theme="dark"] .ic-mystery_rare,html[data-theme="dark"] .ic-policy_pack_rare { background: rgba(35,143,213,.15); border-color: rgba(35,143,213,.4); }
+html[data-theme="dark"] .ic-component,html[data-theme="dark"] .ic-epic,html[data-theme="dark"] .ic-premium,html[data-theme="dark"] .ic-shard_epic,html[data-theme="dark"] .ic-mystery_epic,html[data-theme="dark"] .ic-policy_pack_epic { background: rgba(169,47,220,.2); border-color: rgba(169,47,220,.3); }
+html[data-theme="dark"] .ic-legendary,html[data-theme="dark"] .ic-ultimate,html[data-theme="dark"] .ic-masterplan,html[data-theme="dark"] .ic-shard_legendary,html[data-theme="dark"] .ic-mystery_legendary,html[data-theme="dark"] .ic-snowflake,html[data-theme="dark"] .ic-policy_pack_legendary {
   background: linear-gradient(45deg, rgba(241,196,15,.35), rgba(241,196,15,.45) 50%, rgba(241,196,15,.35));
 }
-html[data-theme="dark"] .ic-mythic,html[data-theme="dark"] .ic-shard_mythic,html[data-theme="dark"] .ic-mystery_mythic,html[data-theme="dark"] .ic-eternal,html[data-theme="dark"] .ic-shard_eternal,html[data-theme="dark"] .ic-mystery_eternal {
+html[data-theme="dark"] .ic-mythic,html[data-theme="dark"] .ic-shard_mythic,html[data-theme="dark"] .ic-mystery_mythic,html[data-theme="dark"] .ic-policy_pack_mythic,html[data-theme="dark"] .ic-eternal {
   background: linear-gradient(45deg, rgba(211,84,0,.15), rgba(211,84,0,.3) 50%, rgba(211,84,0,.15));
 }
-html[data-theme="dark"] .ic-winter {
+html[data-theme="dark"] .ic-shard_eternal,html[data-theme="dark"] .ic-mystery_eternal,html[data-theme="dark"] .ic-winter {
   background: linear-gradient(45deg, rgba(220,20,60,.15), rgba(220,20,60,.3) 50%, rgba(220,20,60,.15));
 }
 

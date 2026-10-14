@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Box, Button, Flash, Heading, Label } from '@primer/react';
 import { ProgressBar } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
@@ -18,6 +18,7 @@ export function DailyAds() {
   const [watchingOne, setWatchingOne] = useState<Set<number>>(new Set());
   const [liveProgress, setLiveProgress] = useState<Map<number, LiveProgress>>(new Map());
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:dailyads', () => load());
+  const [verifying, setVerifying] = useState(false);
   const { flash, showFlash } = useFlash();
 
   const load = async () => {
@@ -40,18 +41,45 @@ export function DailyAds() {
     } finally { setLoading(false); }
   };
 
+  // Снимок из БД мог остаться со вчера: игра сбрасывает счётчик рекламы каждые сутки, и вчерашние
+  // 10/10 выглядели на странице сегодняшним «Готово», хотя ни одна реклама за новый день не
+  // смотрена. Поэтому при открытии страницы (и всегда, когда среди строк есть устаревшие) идём за
+  // живым статусом в игру и заменяем строки на правдивые. Снимок при этом показываем сразу — без
+  // пустого экрана, но со статусом «нужно обновить», пока не приедет ответ.
+  const verifyLive = async () => {
+    setVerifying(true);
+    try {
+      const d = await api.dailyAdsLiveStatus();
+      if (d.ok) setRows(sortByName(d.rows, 'name'));
+    } catch { /* сеть моргнула — на странице останется пометка «нужно обновить» */ }
+    finally { setVerifying(false); }
+  };
+
   // подписка на стрим прогресса конкретного аккаунта — используется и для свежего запуска
   // (watchOne), и для восстановления прогресса после перезагрузки страницы (см. load выше):
   // сервер либо стартует просмотр, либо, если он уже идёт, просто подписывает на него —
   // повторного запуска не происходит (см. web/lib/adsProgress.js)
+  // 13.10.2026: раньше EventSource закрывался только по 'done' от сервера или по ошибке — если
+  // уйти со страницы, пока реклама ещё смотрится (до ~100с, по 10с на ролик), соединение оставалось
+  // висеть в браузере. Браузер по HTTP/1.1 держит не больше 6 одновременных соединений на адрес —
+  // несколько таких утечек (реклама/викторина/2048 с других страниц) исчерпывали лимит, и панель
+  // переставала открывать НОВЫЕ страницы вообще (похоже на зависание бота, хотя сам бот работал
+  // нормально). streamsRef — открытые по этой странице соединения, закрываются при уходе со
+  // страницы; прогресс при возврате не теряется — load() выше сам переподключается к ещё идущим
+  // просмотрам и получает текущее состояние первым же сообщением (см. web/lib/adsProgress.js start()).
+  const streamsRef = useRef<Set<EventSource>>(new Set());
+  useEffect(() => () => { for (const es of streamsRef.current) es.close(); streamsRef.current.clear(); }, []);
+
   const attachStream = (id: number, name: string) => {
     const es = new EventSource(`/api/daily-ads/watch-stream?account_id=${id}`);
+    streamsRef.current.add(es);
+    const close = () => { es.close(); streamsRef.current.delete(es); };
     es.onmessage = (e) => {
       const data = JSON.parse(e.data);
       if (data.type === 'progress') {
         setLiveProgress(prev => new Map(prev).set(id, { current: data.current, limit: data.limit }));
       } else if (data.type === 'done') {
-        es.close();
+        close();
         setWatchingOne(prev => { const n = new Set(prev); n.delete(id); return n; });
         setLiveProgress(prev => { const n = new Map(prev); n.delete(id); return n; });
         if (data.ok) { showFlash(`[${name}] просмотрено ${data.claimed}/${data.limit}`, true); load(); }
@@ -59,7 +87,7 @@ export function DailyAds() {
       }
     };
     es.onerror = () => {
-      es.close();
+      close();
       setWatchingOne(prev => { const n = new Set(prev); n.delete(id); return n; });
       setLiveProgress(prev => { const n = new Map(prev); n.delete(id); return n; });
       showFlash(`[${name}] ошибка соединения`, false);
@@ -94,7 +122,7 @@ export function DailyAds() {
     finally { setRefreshing(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load().then(verifyLive); }, []);
 
   const data = [...rows]
     .sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true }))
@@ -120,9 +148,10 @@ export function DailyAds() {
         <Button variant="primary" leadingVisual={EyeIcon} loading={watchingAll} disabled={watchingAll} onClick={watchAll}>
           Смотреть всем
         </Button>
-        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
+        <Button leadingVisual={SyncIcon} loading={refreshing || verifying} disabled={refreshing || verifying} onClick={refresh}>
           Обновить
         </Button>
+        {verifying && <span style={{ alignSelf: 'center', fontSize: 12, color: 'var(--fgColor-muted)' }}>уточняю статус у игры…</span>}
       </Box>
 
       <Table.Container>
@@ -170,25 +199,32 @@ export function DailyAds() {
               header: 'Статус',
               field: '_done',
               sortBy: 'basic',
-              renderCell: row => row.limit_reached
-                ? <Label variant="success">Готово</Label>
-                : <Label>Доступно</Label>,
+              renderCell: row => row.stale
+                ? <Label variant="secondary" title="данные за прошлые сутки — уточняются у игры">Нужно обновить</Label>
+                : row.limit_reached
+                  ? <Label variant="success">Готово</Label>
+                  : <Label>Доступно</Label>,
             },
             {
               header: '',
               field: 'name',
               id: 'action',
-              renderCell: row => !row.limit_reached ? (
-                <Button
-                  variant="primary"
-                  leadingVisual={EyeIcon}
-                  loading={watchingOne.has(row.id)}
-                  disabled={watchingOne.has(row.id)}
-                  onClick={() => watchOne(row.id, row.name)}
-                >
-                  Смотреть
-                </Button>
-              ) : null,
+              align: 'end',
+              renderCell: row => (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  {(!row.limit_reached || row.stale) && (
+                    <Button
+                      variant="primary"
+                      leadingVisual={EyeIcon}
+                      loading={watchingOne.has(row.id)}
+                      disabled={watchingOne.has(row.id)}
+                      onClick={() => watchOne(row.id, row.name)}
+                    >
+                      Смотреть
+                    </Button>
+                  )}
+                </Box>
+              ),
             },
           ]}
         />

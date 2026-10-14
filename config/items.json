@@ -1,32 +1,212 @@
 {
-  "0":  {"tag":"common",           "name":"Обычный ускоритель",       "scale":0.73},
-  "1":  {"tag":"uncommon",         "name":"Необычный ускоритель",     "scale":0.73},
-  "2":  {"tag":"rare",             "name":"Редкий ускоритель",        "scale":0.73},
-  "3":  {"tag":"epic",             "name":"Эпический ускоритель",     "scale":0.73},
-  "4":  {"tag":"legendary",        "name":"Легендарный ускоритель",   "scale":0.73},
-  "5":  {"tag":"mythic",           "name":"Мифический ускоритель",    "scale":0.73},
-  "6":  {"tag":"basic",            "name":"Базовый набор",            "scale":0.5},
-  "7":  {"tag":"advanced",         "name":"Продвинутый набор",        "scale":0.5},
-  "8":  {"tag":"elite",            "name":"Элитный набор",            "scale":0.5},
-  "9":  {"tag":"premium",          "name":"Премиум набор",            "scale":0.5},
-  "10": {"tag":"ultimate",         "name":"Ультимейт набор",          "scale":0.5},
-  "11": {"tag":"eternal",          "name":"Вечный набор",             "scale":0.5},
-  "12": {"tag":"masterplan",       "name":"Мастерплан",               "scale":0.9},
-  "13": {"tag":"component",        "name":"Компонент",                "scale":0.9},
-  "14": {"tag":"snowflake",        "name":"Снежинка",                 "scale":0.9},
-  "15": {"tag":"winter",           "name":"Зимний набор",             "scale":0.5},
-  "16": {"tag":"shard_common",     "name":"Обычный осколок",          "scale":0.85},
-  "17": {"tag":"shard_uncommon",   "name":"Необычный осколок",        "scale":0.85},
-  "18": {"tag":"shard_rare",       "name":"Редкий осколок",           "scale":0.85},
-  "19": {"tag":"shard_epic",       "name":"Эпический осколок",        "scale":0.85},
-  "20": {"tag":"shard_legendary",  "name":"Легендарный осколок",      "scale":0.85},
-  "21": {"tag":"shard_mythic",     "name":"Мифический осколок",       "scale":0.85},
-  "22": {"tag":"shard_eternal",    "name":"Вечный осколок",           "scale":0.85},
-  "23": {"tag":"mystery_common",   "name":"Обычная тайная политика",     "scale":0.85},
-  "24": {"tag":"mystery_uncommon", "name":"Необычная тайная политика",   "scale":0.85},
-  "25": {"tag":"mystery_rare",     "name":"Редкая тайная политика",      "scale":0.85},
-  "26": {"tag":"mystery_epic",     "name":"Эпическая тайная политика",   "scale":0.85},
-  "27": {"tag":"mystery_legendary","name":"Легендарная тайная политика", "scale":0.85},
-  "28": {"tag":"mystery_mythic",   "name":"Мифическая тайная политика",  "scale":0.85},
-  "29": {"tag":"mystery_eternal",  "name":"Вечная тайная политика",      "scale":0.85}
+ "0": {
+  "tag": "common",
+  "name": "Обычный ускоритель",
+  "scale": 0.73
+ },
+ "1": {
+  "tag": "uncommon",
+  "name": "Необычный ускоритель",
+  "scale": 0.73
+ },
+ "2": {
+  "tag": "rare",
+  "name": "Редкий ускоритель",
+  "scale": 0.73
+ },
+ "3": {
+  "tag": "epic",
+  "name": "Эпический ускоритель",
+  "scale": 0.73
+ },
+ "4": {
+  "tag": "legendary",
+  "name": "Легендарный ускоритель",
+  "scale": 0.73
+ },
+ "5": {
+  "tag": "mythic",
+  "name": "Мифический ускоритель",
+  "scale": 0.73
+ },
+ "6": {
+  "tag": "basic",
+  "name": "Базовый набор",
+  "scale": 0.5
+ },
+ "7": {
+  "tag": "advanced",
+  "name": "Продвинутый набор",
+  "scale": 0.5
+ },
+ "8": {
+  "tag": "elite",
+  "name": "Элитный набор",
+  "scale": 0.5
+ },
+ "9": {
+  "tag": "premium",
+  "name": "Премиум набор",
+  "scale": 0.5
+ },
+ "10": {
+  "tag": "ultimate",
+  "name": "Ультимейт набор",
+  "scale": 0.5
+ },
+ "11": {
+  "tag": "eternal",
+  "name": "Вечный набор",
+  "scale": 0.5
+ },
+ "12": {
+  "tag": "masterplan",
+  "name": "Мастерплан",
+  "scale": 0.9
+ },
+ "13": {
+  "tag": "component",
+  "name": "Компонент",
+  "scale": 0.9
+ },
+ "14": {
+  "tag": "snowflake",
+  "name": "Снежинка",
+  "scale": 0.9
+ },
+ "15": {
+  "tag": "winter",
+  "name": "Зимний набор",
+  "scale": 0.5
+ },
+ "16": {
+  "tag": "shard_common",
+  "name": "Обычный осколок",
+  "scale": 0.85
+ },
+ "17": {
+  "tag": "shard_uncommon",
+  "name": "Необычный осколок",
+  "scale": 0.85
+ },
+ "18": {
+  "tag": "shard_rare",
+  "name": "Редкий осколок",
+  "scale": 0.85
+ },
+ "19": {
+  "tag": "shard_epic",
+  "name": "Эпический осколок",
+  "scale": 0.85
+ },
+ "20": {
+  "tag": "shard_legendary",
+  "name": "Легендарный осколок",
+  "scale": 0.85
+ },
+ "21": {
+  "tag": "shard_mythic",
+  "name": "Мифический осколок",
+  "scale": 0.85
+ },
+ "22": {
+  "tag": "shard_eternal",
+  "name": "Вечный осколок",
+  "scale": 0.85
+ },
+ "23": {
+  "tag": "mystery_common",
+  "name": "Обычная тайная политика",
+  "scale": 0.85
+ },
+ "24": {
+  "tag": "mystery_uncommon",
+  "name": "Необычная тайная политика",
+  "scale": 0.85
+ },
+ "25": {
+  "tag": "mystery_rare",
+  "name": "Редкая тайная политика",
+  "scale": 0.85
+ },
+ "26": {
+  "tag": "mystery_epic",
+  "name": "Эпическая тайная политика",
+  "scale": 0.85
+ },
+ "27": {
+  "tag": "mystery_legendary",
+  "name": "Легендарная тайная политика",
+  "scale": 0.85
+ },
+ "28": {
+  "tag": "mystery_mythic",
+  "name": "Мифическая тайная политика",
+  "scale": 0.85
+ },
+ "29": {
+  "tag": "mystery_eternal",
+  "name": "Вечная тайная политика",
+  "scale": 0.85
+ },
+ "31": {
+  "tag": "policy_pack_rare",
+  "name": "Редкий набор политик",
+  "scale": 0.5
+ },
+ "32": {
+  "tag": "policy_pack_epic",
+  "name": "Эпический набор политик",
+  "scale": 0.5
+ },
+ "33": {
+  "tag": "policy_pack_legendary",
+  "name": "Легендарный набор политик",
+  "scale": 0.5
+ },
+ "34": {
+  "tag": "policy_pack_mythic",
+  "name": "Мифический набор политик",
+  "scale": 0.5
+ },
+ "35": {
+  "tag": "blueprint_tome",
+  "name": "Чертёж",
+  "scale": 0.8
+ },
+ "36": {
+  "tag": "reform_stone_epic",
+  "name": "Камень реформ (эпический)",
+  "scale": 0.8
+ },
+ "37": {
+  "tag": "reform_stone_legendary",
+  "name": "Камень реформ (легендарный)",
+  "scale": 0.8
+ },
+ "38": {
+  "tag": "reform_stone_mythic",
+  "name": "Камень реформ (мифический)",
+  "scale": 0.8
+ },
+ "39": {
+  "tag": "eternal_booster",
+  "name": "Вечный ускоритель",
+  "scale": 0.73
+ },
+ "40": {
+  "tag": "crystal",
+  "name": "Алмазный набор",
+  "scale": 0.5
+ },
+ "41": {
+  "tag": "summer",
+  "name": "Летний набор",
+  "scale": 0.5
+ },
+ "42": {
+  "tag": "ticket",
+  "name": "Билет",
+  "scale": 0.8
+ }
 }

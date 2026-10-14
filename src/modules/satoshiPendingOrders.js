@@ -38,7 +38,21 @@ async function checkOnce(price) {
           const gamePrice = await api.get('/satoshi-tower/price').catch(() => null);
 
           const before = new Set((await SatoshiPosition.findAll({ where: { account: acc.name }, attributes: ['id'] })).map(r => r.id));
-          const openResult = await api.post('/satoshi-tower/positions', { side: order.side, leverage: order.leverage, margin: order.margin });
+          // Игровой (серверный) TP/SL — обновление игры 31.07.2026: задать его можно ТОЛЬКО здесь,
+          // в самом запросе открытия. Точка отсчёта — живая цена игры (не биржи: уровни проверяет
+          // и исполняет сервер игры по своей цене). Та же математика, что у кнопки открытия в вебе.
+          const { buildOpenTriggers } = require('../utils/satoshiTriggers');
+          const cfg = await api.get('/satoshi-tower/config').catch(() => null);
+          const entry = Number(gamePrice?.price) || null;
+          const openBody = {
+            side: order.side, leverage: order.leverage, margin: order.margin,
+            ...buildOpenTriggers(cfg, {
+              side: order.side, entry, margin: order.margin, leverage: order.leverage,
+              tp_price: order.tp_price, sl_price: order.sl_price,
+              tp_pnl_pct: order.tp_pnl_pct, sl_pnl_pct: order.sl_pnl_pct,
+            }),
+          };
+          const openResult = await api.post('/satoshi-tower/positions', openBody);
           const satoshiMod = require('./satoshi');
           await satoshiMod.applyBalance(acc.id, openResult?.new_balance);
           await satoshiMod.runSatoshi(api, acc.name).catch(() => {});

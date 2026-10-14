@@ -59,11 +59,20 @@ function buildingLabel(id: string): string {
 // время улучшения — та же формула, что и upgradeDuration() в web/cityStats.js (сверена с бандлом
 // игры: getBaseUpgradeDuration городского здания), нужна клиенту для живого прогресс-бара стройки,
 // т.к. игра не отдаёт время НАЧАЛА стройки — только b.end (время окончания)
+// Потолок временный: на «Летний карнавал» (10-23.08.2026) игра урезала его с 24ч до 12ч —
+// см. подробный комментарий у upgradeTimeCapSec() в web/cityStats.js. Столиц это не касается.
 const UPGRADE_TIME_CAP_SEC = 86400;
+const EVENT_UPGRADE_TIME_CAP_SEC = 43200;
+const EVENT_CAP_FROM_MS = Date.UTC(2026, 7, 10);
+const EVENT_CAP_TO_MS = Date.UTC(2026, 7, 24);
+function upgradeTimeCapSec(nowMs = Date.now()): number {
+  return (nowMs >= EVENT_CAP_FROM_MS && nowMs < EVENT_CAP_TO_MS) ? EVENT_UPGRADE_TIME_CAP_SEC : UPGRADE_TIME_CAP_SEC;
+}
 function upgradeDurationSec(incSec: number, level: number): number {
   if (!incSec) return 0;
-  const capLevel = Math.floor(Math.log2(UPGRADE_TIME_CAP_SEC / incSec)) + 2;
-  return level > capLevel ? UPGRADE_TIME_CAP_SEC : incSec * Math.pow(2, level - 2);
+  const cap = upgradeTimeCapSec();
+  const capLevel = Math.floor(Math.log2(cap / incSec)) + 2;
+  return level > capLevel ? cap : incSec * Math.pow(2, level - 2);
 }
 function fmtTimeLeft(ms: number): string {
   if (ms <= 0) return '0м';
@@ -143,8 +152,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   // "x_y" клетки закрытой секции → id секции — только город, только пока секция не в unlockedSections
   const lockedCells = useMemo(() => {
     const m = new Map<string, string>();
-    if (type !== 'city' || !sections?.length) return m;
-    const unlocked = new Set(unlockedSections || []);
+    // unlockedSections не передали (снимок ещё без этих данных) — замков не рисуем вовсе,
+    // иначе весь город выглядит запертым
+    if (type !== 'city' || !sections?.length || !unlockedSections) return m;
+    const unlocked = new Set(unlockedSections);
     for (const sec of sections) {
       if (unlocked.has(sec.id)) continue;
       for (const c of sec.coordinates) m.set(`${c.x}_${c.y}`, sec.id);

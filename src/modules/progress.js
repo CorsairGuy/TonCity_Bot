@@ -1,19 +1,21 @@
 'use strict';
-const {CityStrategy,GlobalUpgradePlan,CitySnapshot}=require('../db/index');
+const {GlobalUpgradePlan,CitySnapshot}=require('../db/index');
+const cityPlans=require('../db/cityPlans');
 const logger=require('../utils/logger');
 const {globalLock}=require('../utils/lock');
 const {sleep,fmt,withRetry}=require('../utils/helpers');
 const {isCityPaused}=require('../utils/botState');
+const {waitOrWake}=require('../utils/cityWake');
 const cityLive=require('../utils/cityLive');
 const {buildingsMap:cityBuildingsMap,upgradeStep,upgradeDuration,effectiveUpgradeDuration,computeCityStats}=require('../web/cityStats');
-const {logAction}=require('./cityActionLog');
+const {logAction,updateAction}=require('./cityActionLog');
 
 // Прокачка города управляется пользовательскими целями со страницы "Города" → "Карта" (см.
 // web/routes/cityStrategy.js), в порядке приоритета:
-//  1. Ручная очередь (CityStrategy.queue: [{x,y}]) — конкретные здания, назначенные "улучшить
+//  1. Ручная очередь (city_upgrade_queue: строка на клетку) — конкретные здания, назначенные "улучшить
 //     следующими"; разбирается строителями первой, по одному зданию на строителя, запись
 //     вычёркивается из очереди навсегда, как только на неё реально запущен апгрейд.
-//  2. Личный план (CityStrategy.targets: [{x,y,target_level}]) — цель привязана к КОНКРЕТНОЙ
+//  2. Личный план (city_upgrade_target: строка на клетку, с target_level) — цель привязана к КОНКРЕТНОЙ
 //     клетке, не к семье здания, иначе один клик по карте задавал бы цель сразу всем экземплярам
 //     семьи.
 //  3. Общий план по семействам (GlobalUpgradePlan: [{family_id,target_level}]) — не привязан к
@@ -46,7 +48,20 @@ function extractCurrentProfit(prog){
 // бандла + живым запросом 22.07.2026), никакого отдельного запроса не нужно, см. CitySnapshot.
 function unlockedSectionsOf(prog){
   const list=prog?.progress?.unlocked_sections;
-  return JSON.stringify(Array.isArray(list)?list:[]);
+  // ВАЖНО: если игра списка не дала (нет поля, другая форма ответа, сбой), возвращаем undefined,
+  // а НЕ "[]". Пустой массив — это утверждение «не разблокировано НИЧЕГО», и карта на нём запирает
+  // весь город; отсутствие поля — это «не знаю», и тогда замки просто не рисуются (CityMapCity:
+  // null/undefined ⇒ без замков). Поле с undefined в upsert не кладём вообще, поэтому уже
+  // сохранённый хороший список не затирается.
+  return Array.isArray(list)?JSON.stringify(list):undefined;
+}
+
+// Строка снимка города: секции добавляются, ТОЛЬКО если игра их прислала.
+function citySnapshotPayload(name,buildings,prog){
+  const sections=unlockedSectionsOf(prog);
+  const row={account:name,buildings:JSON.stringify(buildings),updated_at:new Date()};
+  if(sections!==undefined)row.unlocked_sections=sections;
+  return row;
 }
 
 function describeError(e){
@@ -106,8 +121,8 @@ async function loadPolicyEffects(api){
 // продлевать, дальше улучшения снова идут без ускорения.
 async function loadConstructionBoostMods(api,account){
   try{
-    const{getActiveBoosterInfo}=require('./boosterAutomation');
-    const info=await getActiveBoosterInfo(api);
+    const{getDurationBoosterInfo}=require('./boosterAutomation');
+    const info=await getDurationBoosterInfo(api);
     if(!info?.name)return null;
     const{BoosterAutomation,Inventory}=require('../db/index');
     const auto=await BoosterAutomation.findOne({where:{account,booster_name:info.name}});
@@ -130,17 +145,154 @@ async function loadConstructionBoostMods(api,account){
   }catch(_){return null;}
 }
 
-// личный план (targets) + ручная очередь (queue) + запланированные реконструкции (reconstructPlan)
-// аккаунта, из одной строки CityStrategy
-async function loadStrategy(account){
+// ВНИМАНИЕ: значение НЕ применяется автоматически (см. web/routes/cityStrategy.js) — только
+// показывается как диагностика. Причина: отличить «стройка шла под ускорителем» от «сервер дал
+// ивентовый бонус» задним числом нечем. Проверено на живых снимках: у аккаунта, который постоянно
+// держит ускорители, медиана отношений даёт 0.20 — это буст, а не ивент; примени такое, и прогноз
+// соврёт в пять раз. Отношения возвращаются как есть, вместе с распределением.
+//
+// СЕРВЕРНЫЙ множитель времени строек (ивенты). В клиенте игры его НЕТ: getUpgradeDuration (реверс
+// бандла entry-*.js, класс городского здания) учитывает ровно три вещи — базу
+// construction_increment·2^(lvl-2) с потолком 24ч, гильдийский upgradeTimeReduction (=1-reduced_
+// upgrade_times) и политиковый constructionTimeMultiplier, плюс ПОСЛЕДНИЙ активный ускоритель.
+// Значит бонус ивента применяет сервер, и никакая формула на клиенте его предсказать не может.
+// Зато его видно ПО ФАКТУ: игра отдаёт у каждой идущей стройки start и end. Сверяем фактическую
+// длительность с нашей предсказанной и берём медиану отношений — этот коэффициент и есть всё, что
+// сервер сделал сверх формулы. Стройки, попавшие под ускоритель, из выборки исключаем (там своя
+// математика окна), как и явно протухшие.
+function measureActualVsPredicted(current,buildingsMap,{reducedUpgradeTimes=0,constructionTimeMultiplier=1}={},boosterWindowsList=null){
   try{
-    const row=await CityStrategy.findOne({where:{account}});
-    let targets=[],queue=[],reconstructPlan=[];
-    if(row?.targets){const arr=JSON.parse(row.targets);if(Array.isArray(arr))targets=arr;}
-    if(row?.queue){const arr=JSON.parse(row.queue);if(Array.isArray(arr))queue=arr;}
-    if(row?.reconstruct_plan){const arr=JSON.parse(row.reconstruct_plan);if(Array.isArray(arr))reconstructPlan=arr;}
-    return{targets,queue,reconstructPlan};
-  }catch(_){return{targets:[],queue:[],reconstructPlan:[]};}
+    const ratios=[];
+    const windows=Array.isArray(boosterWindowsList)?boosterWindowsList:[];
+    for(const b of current){
+      if(!b?.start||!b?.end)continue;
+      const info=buildingsMap.get(b.id);
+      if(!info)continue;
+      const startMs=new Date(b.start).getTime(),endMs=new Date(b.end).getTime();
+      if(!(endMs>startMs))continue;
+      // под ускорителем — пропускаем: там длительность считается по окну, а не по чистой формуле
+      if(windows.some(w=>w.fromMs<endMs&&w.toMs>startMs))continue;
+      const base=upgradeDuration(info,Number(b.level||0));
+      if(!base)continue;
+      const predicted=base*(1-reducedUpgradeTimes)*(constructionTimeMultiplier||1);
+      if(predicted<=0)continue;
+      ratios.push(((endMs-startMs)/1000)/predicted);
+    }
+    if(!ratios.length)return{samples:0,median:null,spread:null};
+    ratios.sort((a,b)=>a-b);
+    return{
+      samples:ratios.length,
+      median:ratios[Math.floor(ratios.length/2)],
+      spread:[ratios[0],ratios[ratios.length-1]],
+    };
+  }catch(_){return{samples:0,median:null,spread:null};}
+}
+
+// ОКНА УСКОРИТЕЛЕЙ на будущее — для вкладки «Прогноз»: не только тот буст, что активен сейчас, но
+// и вся очередь активации (BoosterQueue, вкладка «Ускорители»), у каждой позиции свой множитель и
+// своя длительность. Пример: сейчас лега, дальше по очереди эпик и два мифика — прогноз должен
+// считать каждый отрезок по своему множителю, иначе после конца текущего буста он занижает скорость.
+//
+// Модель последовательная: следующая позиция начинается там, где заканчивается предыдущая. Это
+// прямо следует из правила игры, зашитого в boosterAutomation.js: пока активен ХОТЬ ОДИН
+// ускоритель, активировать можно ТОЛЬКО тот же тип — значит другой тип физически ждёт конца
+// текущего окна. Стакование одинакового типа (active_limit>1) как «умножение» НЕ моделируем —
+// поведение игры на этот счёт не проверено, поэтому одинаковые позиции просто продлевают время.
+// САМОКАЛИБРОВКА. `multiplier` из API НЕ равен делителю времени: замерено 07.08 на живых стройках —
+// при базе 86400 и гильдийских ×0.88 («работа» 76032с) игра поставила 22293.504с, т.е. делитель
+// легендарного 3.4105; под мификом пользователь видит ~4ч20м, делитель 4.874. Отношение этих двух
+// делителей = 10/7 в точности, т.е. связь с API-множителем линейная, но коэффициент неизвестен.
+// Вместо того чтобы его угадывать, ИЗМЕРЯЕМ: у идущих сейчас строек, целиком накрытых текущим
+// окном, делитель = «работа»/(end-start). Полученный коэффициент k = делитель/множитель_API
+// переносим на остальные окна очереди. Плюс этого подхода — он же автоматически вбирает любой
+// СЕРВЕРНЫЙ бонус (ивенты), которого в клиентской формуле игры нет вообще.
+function measureCurrentDivisor(current,buildingsMap,{reducedUpgradeTimes=0,constructionTimeMultiplier=1},boosterEndsAt){
+  const now=Date.now(),vals=[];
+  for(const b of current||[]){
+    if(!b?.start||!b?.end)continue;
+    const endMs=new Date(b.end).getTime(),startMs=new Date(b.start).getTime();
+    if(!(endMs>startMs)||endMs<=now)continue;      // только идущие сейчас
+    if(boosterEndsAt&&endMs>boosterEndsAt)continue; // окно должно накрывать стройку целиком
+    const info=buildingsMap.get(b.id);
+    if(!info)continue;
+    const work=upgradeDuration(info,Number(b.level||0))*(1-reducedUpgradeTimes)*(constructionTimeMultiplier||1);
+    if(work<=0)continue;
+    vals.push(work/((endMs-startMs)/1000));
+  }
+  if(vals.length<2)return null;
+  vals.sort((a,b)=>a-b);
+  const med=vals[Math.floor(vals.length/2)];
+  // разброс больше 5% — значит в выборку попали стройки с частичным покрытием, доверять нельзя
+  if(!(med>0)||vals[vals.length-1]/vals[0]>1.05)return null;
+  return med;
+}
+
+async function loadBoosterTimeline(api,account,calib=null){
+  try{
+    const{getDurationBoosterInfo}=require('./boosterAutomation');
+    const{BoosterQueue}=require('../db/index');
+    const[info,storage,qrows]=await Promise.all([
+      getDurationBoosterInfo(api).catch(()=>null),
+      api.get('/storage/allitemdata').catch(()=>null),
+      BoosterQueue.findAll({where:{account},order:[['pos','ASC'],['id','ASC']]}).catch(()=>[]),
+    ]);
+    const raw=storage?.items;
+    const items=Array.isArray(raw)?raw:Object.values(raw||{});
+    // множитель и длительность ОДНОГО экземпляра отдаёт сама игра (booster.multiplier / .duration в
+    // наносекундах), запас — quantity (активировать можно и soulbound-экземпляры)
+    const meta=new Map();
+    for(const it of items){
+      const id=String(it?.item_id??it?.id??'');
+      if(!id||!it?.booster)continue;
+      meta.set(id,{
+        multiplier:Number(it.booster.multiplier)||1,
+        durationMs:Number(it.booster.duration||0)/1e6,
+        stock:Math.max(0,Number(it.quantity)||0),
+      });
+    }
+    const now=Date.now();
+    const segments=[];
+    let cursor=now;
+    // k — во сколько раз реальный делитель отличается от множителя из API (см. measureCurrentDivisor)
+    let k=1,measured=null;
+    if(info&&info.multiplier>1&&info.endsAt>now&&calib?.current&&calib?.buildingsMap){
+      measured=measureCurrentDivisor(calib.current,calib.buildingsMap,calib,info.endsAt);
+      if(measured&&info.multiplier>0)k=measured/info.multiplier;
+    }
+    if(info&&info.multiplier>1&&info.endsAt>now){
+      segments.push({fromMs:now,toMs:info.endsAt,multiplier:measured||info.multiplier,api_multiplier:info.multiplier,name:info.name,measured:!!measured});
+      cursor=info.endsAt;
+    }
+    const spent=new Map();
+    for(const q of qrows){
+      const m=meta.get(String(q.booster_name));
+      if(!m||!m.durationMs||m.multiplier<=1)continue; // тип неизвестен/нет данных — позиция для прогноза бесполезна
+      const used=spent.get(q.booster_name)||0;
+      if(used>=m.stock)continue;                      // экземпляров уже не осталось — активировать будет нечего
+      spent.set(q.booster_name,used+1);
+      segments.push({fromMs:cursor,toMs:cursor+m.durationMs,multiplier:m.multiplier*k,api_multiplier:m.multiplier,name:q.booster_name,measured:k!==1});
+      cursor+=m.durationMs;
+    }
+    // ЛОГ КАЛИБРОВКИ: сырые множители из игры рядом с окнами. Нужен, чтобы сопоставить
+    // `multiplier` из API с ФАКТИЧЕСКИМ делителем времени, посчитанным по start/end реальных
+    // строек (07.08: у легендарного факт дал 3.4105 при базе 86400 и гильдийских 0.88 —
+    // если в API окажется другое число, значит между ними есть преобразование).
+    if(segments.length){
+      logger.info(`[${account}] [forecast] окна ускорителей (k=${k.toFixed(4)}${measured?', замерено':', без замера'}): `+segments.map(w=>
+        `${w.name??'?'} API×${w.api_multiplier}→делитель ${Number(w.multiplier).toFixed(3)} до ${new Date(w.toMs).toISOString().slice(11,19)}`).join(' → '));
+    }
+    return segments.length?segments:null;
+  }catch(_){return null;}
+}
+
+// личный план (targets) + ручная очередь (queue) + запланированные реконструкции (reconstructPlan)
+// аккаунта. С 19.08 лежат ПОСТРОЧНО (строка = клетка) в city_upgrade_target/city_upgrade_queue/
+// city_reconstruct_plan — см. db/cityPlans.js. Раньше это были три JSON-блоба в одной строке
+// city_strategy: любое сохранение переписывало весь список, а на базе без UNIQUE(account) upsert
+// вставлял частичную строку и план пропадал целиком.
+async function loadStrategy(account){
+  try{return await cityPlans.loadPlans(account);}
+  catch(_){return{targets:[],queue:[],reconstructPlan:[]};}
 }
 
 // общий (глобальный) план по семействам зданий — не привязан к аккаунту, см. web/routes/cityStrategy.js
@@ -197,22 +349,51 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
   const pickedKeys=new Set();
   let left=budget;
 
+  // ОЧЕРЕДЬ — ПРИОРИТЕТ ПО СТРОИТЕЛЯМ, а не исключительный шлюз (правило подтверждено
+  // пользователем 04.08): очередь забирает столько свободных строителей, сколько может занять
+  // ПРЯМО СЕЙЧАС, а всё, что осталось, уходит в план. Запись, которая уже строится, своего
+  // строителя УЖЕ занимает — держать из-за неё второго простаивающим неправильно (был такой
+  // промежуточный вариант, откатан: одна запись в очереди строилась, а второй строитель стоял).
+  // Если строителей не хватило на всю очередь — план в этом проходе не получит их всё равно,
+  // потому что цикл ниже ограничен тем же freeB.
+  // Причины пропуска копим, чтобы вызывающий мог их залогировать: жалоба «очередь пропускает
+
+  // здания без причины» разбиралась вслепую именно потому, что все пропуски были молчаливыми.
+
+  const skipped=[];
+
   for(const q of queue){
+
     if(result.length>=freeB)break;
+
     const key=`${Number(q.x)},${Number(q.y)}`;
+
     if(pickedKeys.has(key))continue; // это же здание уже получило апгрейд в этом проходе — ждём следующего захода
+
     const b=current.find(c=>Number(c.x)===Number(q.x)&&Number(c.y)===Number(q.y));
-    if(!b)continue; // здание снесено/недостижимо — оставляем решение об удалении вызывающей стороне
-    if(b.end&&new Date(b.end).getTime()>now)continue; // уже строится — попробуем в следующий заход
+
+    if(!b){skipped.push(`(${q.x},${q.y}) нет здания на клетке`);continue;}
+
+    if(b.end&&new Date(b.end).getTime()>now)continue; // уже строится — свой строитель у него есть, идём дальше
+
     const lvl=Number(b.level||0);
+
     const info=buildingsMap.get(b.id);
-    if(!info)continue;
+
+    if(!info){skipped.push(`(${q.x},${q.y}) ${b.id} нет в каталоге зданий`);continue;}
+
     const price=Math.round(upgradeStep(info,lvl)*policyMult*(1-discount));
-    if(price>left)continue; // бюджета не хватает сейчас — остаётся в очереди на следующий заход
+
+    if(price>left){skipped.push(`(${q.x},${q.y}) ${b.id} ур.${lvl}: цена ${fmt(price)} > остатка бюджета ${fmt(left)}`);continue;}
+
     result.push({...b,upgrade_price:price});
+
     consumedQueueKeys.push(key);
+
     pickedKeys.add(key);
+
     left-=price;
+
   }
 
   const candidates=[];
@@ -240,7 +421,7 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
     pickedKeys.add(key);
     left-=price;
   }
-  return{picked:result,consumedQueueKeys};
+  return{picked:result,consumedQueueKeys,skipped};
 }
 
 // прогноз действий бота (страница "Карта города" → вкладка "Прогноз") — ЧИСТАЯ функция, без единого
@@ -253,10 +434,12 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
 // не хватает денег. НЕ ограничено фиксированным горизонтом времени (раньше было 3 суток) — считает
 // ВСЕ запланированные улучшения (очередь+личный+общий план), пока они не будут исчерпаны либо не
 // упрёмся в MAX_ITERATIONS (защита от зависания, а не намеренный лимит). durationMods —
-// {reducedUpgradeTimes, constructionTimeMultiplier, booster:{multiplier,endsAt}|null}, см.
+// {reducedUpgradeTimes, constructionTimeMultiplier, booster:{multiplier,endsAt}|null,
+//  boosterTimeline:[{fromMs,toMs,multiplier}]|null — вся очередь активации, см. loadBoosterTimeline}, см.
 // cityStats.js effectiveUpgradeDuration — те же бонусы, что реально действуют в игре на время стройки.
 function simulateFutureActions(current,queue,personalTargets,globalPlan,buildingsMap,discount,policyMult,builders,coins,cityProfitPerHour,durationMods=null){
-  const sim=current.map(b=>({...b,_busyUntil:b.end?new Date(b.end).getTime():0}));
+  // _preBuilt — стройка шла ещё до начала симуляции: её уровень игра уже учла (см. ниже)
+  const sim=current.map(b=>({...b,_busyUntil:b.end?new Date(b.end).getTime():0,_preBuilt:!!b.end}));
   let simQueue=queue.map(q=>({...q}));
   let simCoins=coins,simTime=Date.now();
   const events=[];
@@ -266,9 +449,16 @@ function simulateFutureActions(current,queue,personalTargets,globalPlan,building
   while(iterations++<MAX_ITERATIONS){
     // "завершаем" стройки, чьё время уже прошло к этому моменту симуляции — иначе повторные записи
     // в очереди того же здания считались бы с одного и того же устаревшего уровня
-    for(const b of sim){
-      if(b._busyUntil&&b._busyUntil<=simTime){b.level=(Number(b.level)||0)+1;b._busyUntil=0;}
-    }
+      // ВАЖНО: у здания, которое УЖЕ строилось на момент старта прогноза, игра отдаёт УЖЕ НОВЫЙ
+      // уровень (постройка помечается end в будущем, а level инкрементируется сразу — на этом же
+      // строится обнуление profit «в стройке», см. cityStats). Поэтому такие стройки завершаем
+      // БЕЗ повторного +1, иначе прогноз показывал бы «16→17» там, где идёт 15→16, — каждая строка
+      // уезжала на уровень вперёд (замечено 13.08).
+      for(const b of sim){
+        if(!b._busyUntil||b._busyUntil>simTime)continue;
+        if(!b._preBuilt)b.level=(Number(b.level)||0)+1;
+        b._busyUntil=0;b._preBuilt=false;
+      }
     const busyCount=sim.filter(b=>b._busyUntil>simTime).length;
     const free=builders-busyCount;
     if(free<=0){
@@ -302,11 +492,15 @@ function simulateFutureActions(current,queue,personalTargets,globalPlan,building
       const info=buildingsMap.get(b.id);
       const lvl=Number(b.level||0);
       const durationMs=info?Math.round(effectiveUpgradeDuration(info,lvl,durationMods,simTime)*1000):0;
+      // множитель окна, действующего на МОМЕНТ СТАРТА этого апгрейда — чтобы в панели было видно,
+      // под каким ускорителем посчитана строка, и расхождение с игрой сразу локализовалось
+      const win=(durationMods?.boosterTimeline||[]).find(w=>w.fromMs<=simTime&&w.toMs>simTime);
+      const boostMult=win?win.multiplier:(durationMods?.booster?.endsAt>simTime?durationMods.booster.multiplier:null);
       const idx=sim.findIndex(s=>Number(s.x)===Number(b.x)&&Number(s.y)===Number(b.y));
       if(idx===-1)continue;
       sim[idx]._busyUntil=simTime+durationMs;
       simCoins-=b.upgrade_price||0;
-      events.push({x:b.x,y:b.y,building_id:b.id,level_from:lvl,level_to:lvl+1,start:simTime,end:simTime+durationMs,duration_ms:durationMs});
+      events.push({x:b.x,y:b.y,building_id:b.id,level_from:lvl,level_to:lvl+1,start:simTime,end:simTime+durationMs,duration_ms:durationMs,boost_multiplier:boostMult??null,boost_name:win?.name??null});
     }
   }
   return events.sort((a,b)=>a.start-b.start);
@@ -322,30 +516,26 @@ async function runProgressAction(name,label,work){
   }
 }
 
-// запланированные реконструкции (вкладка "Реконструкция" → "Запланировать", CityStrategy.
-// reconstruct_plan: [{x,y}]) — не привязаны к строителям (реконструкция не занимает строителя,
+// запланированные реконструкции (вкладка "Реконструкция" → "Запланировать", таблица
+// city_reconstruct_plan) — не привязаны к строителям (реконструкция не занимает строителя,
 // это мгновенный сброс уровня, не стройка), поэтому проверяются НЕЗАВИСИМО от builders/targets:
 // как только здание на этой клетке достигнет required_lvl и не будет занято текущей стройкой,
 // сразу шлём [{type:'reconstruct',id,x,y}] и вычёркиваем запись (одноразовая, как и очередь
 // улучшений). Если условие ещё не выполнено — запись просто остаётся ждать следующего вызова.
 async function runPendingReconstructions(api,name,current,buildingsMap){
   let plan;
-  try{
-    const row=await CityStrategy.findOne({where:{account:name}});
-    plan=row?.reconstruct_plan?JSON.parse(row.reconstruct_plan):[];
-    if(!Array.isArray(plan))plan=[];
-  }catch(_){return false;}
+  try{plan=(await cityPlans.loadPlans(name)).reconstructPlan;}catch(_){return false;}
   if(!plan.length)return false;
   const now=Date.now();
-  const remaining=[];
+  const done=[];          // выполнено или стало недостижимо — вычёркиваем ТОЧЕЧНО, по своей строке
   let changed=false;
   for(const p of plan){
     const b=current.find(c=>Number(c.x)===Number(p.x)&&Number(c.y)===Number(p.y));
-    if(!b)continue; // здание снесено/перемещено куда-то ещё — план на него тихо недостижим
+    if(!b){done.push(p);continue;} // здание снесено/перемещено куда-то ещё — план на него недостижим
     const info=buildingsMap.get(b.id);
-    if(!info||!info.is_reconstructible||info.required_lvl==null)continue; // здание больше не реконструируемо (напр. уже эволюционировало) — план снят
+    if(!info||!info.is_reconstructible||info.required_lvl==null){done.push(p);continue;} // больше не реконструируемо (напр. эволюционировало)
     const busy=b.end&&new Date(b.end).getTime()>now;
-    if(busy||Number(b.level||0)<info.required_lvl){remaining.push(p);continue;} // ещё не готово — ждём
+    if(busy||Number(b.level||0)<info.required_lvl)continue; // ещё не готово — строка просто остаётся ждать
     const ok=await runProgressAction(name,`reconstruct ${b.id} at (${b.x},${b.y})`,async()=>{
       await sleep(1000);
       await api.post('/progress/',[{type:'reconstruct',id:b.id,x:b.x,y:b.y}]);
@@ -353,20 +543,31 @@ async function runPendingReconstructions(api,name,current,buildingsMap){
     });
     if(ok){
       changed=true;
+      done.push(p);
       await logAction(name,'reconstruct',{x:b.x,y:b.y,building_id:b.id,level_from:Number(b.level||0)});
     }
-    else remaining.push(p); // не получилось (напр. не хватило components) — попробуем в следующий заход
+    // не получилось (напр. не хватило components) — строку не трогаем, попробуем в следующий заход
   }
-  if(remaining.length!==plan.length){
-    try{
-      const row=await CityStrategy.findOne({where:{account:name}});
-      if(row)await row.update({reconstruct_plan:JSON.stringify(remaining),updated_at:new Date()});
-    }catch(e){logger.warn(`[${name}] [progress] не удалось сохранить план реконструкций: ${e.message}`);}
+  if(done.length){
+    // удаляем ровно свои клетки: то, что пользователь добавил в план прямо во время прохода,
+    // остаётся нетронутым (раньше здесь переписывался весь список и такие правки терялись)
+    try{await cityPlans.removeReconstruct(name,done);}
+    catch(e){logger.warn(`[${name}] [progress] не удалось обновить план реконструкций: ${e.message}`);}
   }
   return changed;
 }
 
 async function runProgress(api,name,opts={}){
+  // Цены берём из локального каталога (config/buildings-live.json). 13.10.2026: кнопки «Обновить»
+  // для него в панели НЕТ (бэкенд-ручка /api/refresh/buildings есть, фронт её никогда не вызывал) —
+  // поэтому каталог висел на снимке от 27.09 три недели: событийная скидка в нём могла не совпадать
+  // с текущими ценами игры, бот считал апгрейд доступным по старым цифрам, а игра на реальной
+  // (другой) цене отказывала в сохранении generic-ошибкой «Не удалось сохранить данные прогресса»
+  // (отличить от «не хватает строителей/бюджета» по сообщению нельзя — игра не детализирует причину).
+  // ensureFresh (а не ensureExists) сам переспрашивает /buildings/ раз в TTL_MS (6ч, см.
+  // buildingCatalog.js) без всякой кнопки — именно это и было задумано комментарием там же
+  // («Устаревшее авто-обновление по TTL... нигде не вызывается»), просто никогда не включено.
+  await require('../utils/buildingCatalog').ensureFresh(api).catch(()=>{});
   const{upgrading=true}=opts;
   if(isCityPaused()){logger.info(`[${name}] [progress] прокачка на паузе — пропускаю`);return;}
   try{
@@ -377,12 +578,18 @@ async function runProgress(api,name,opts={}){
     try{
       prog=await withRetry(()=>api.get('/progress/'),2,1500,`${name} progress load`);
     }catch(e){
+      // ВАЖНО: не «нечего улучшать», а СБОЙ. Раньше здесь был голый return, и вызывающий
+      // cityUpgradeLoop честно считал, что целей нет, после чего засыпал ДО ШЕСТИ ЧАСОВ. Один
+      // отвалившийся WS в 03:42 UTC 21.08 стоил трёх часов простоя посреди ивента: цикл ожил
+      // только когда пользователь нажал «Сохранить» и разбудил его вручную.
       logger.error(`[${name}] [progress] load failed: ${describeError(e)}`);
-      return;
+      const err=new Error(`не удалось загрузить /progress/: ${e.message}`);
+      err.transient=true;      // цикл повторит через минуту, а не уснёт на 6 часов
+      throw err;
     }
     const data=prog?.progress?.data||{},coins=data.coins||0,builders=(prog?.progress?.builders||1)+builderBonus;
     let current=Array.isArray(data.buildings)?data.buildings:[];
-    try{await CitySnapshot.upsert({account:name,buildings:JSON.stringify(current),unlocked_sections:unlockedSectionsOf(prog),updated_at:new Date()},{conflictFields:['account']});}catch(_){}
+    try{await CitySnapshot.upsert(citySnapshotPayload(name,current,prog),{conflictFields:['account']});}catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
     cityLive.broadcast(name,current);
     const busy=current.filter(b=>b.end&&new Date(b.end).getTime()>Date.now()).length;
     logger.info(`[${name}] [progress] coins: ${fmt(coins)} | builders: ${builders-busy}/${builders}${builderBonus?` (+${builderBonus} бонус)`:''} | buildings: ${current.length} | discount: ${Math.round(discount*100)}%`);
@@ -397,22 +604,28 @@ async function runProgress(api,name,opts={}){
     // запланированные реконструкции не занимают строителя (не стройка, а мгновенный сброс) —
     // проверяются НЕЗАВИСИМО от builders/targets, поэтому делаем это до всех ранних return ниже
     if(await runPendingReconstructions(api,name,current,buildingsMap)){
-      try{await CitySnapshot.upsert({account:name,buildings:JSON.stringify(current),unlocked_sections:unlockedSectionsOf(prog),updated_at:new Date()},{conflictFields:['account']});}catch(_){}
+      try{await CitySnapshot.upsert(citySnapshotPayload(name,current,prog),{conflictFields:['account']});}catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
       cityLive.broadcast(name,current);
     }
 
-    const{targets:personalTargets,queue:initialQueue}=await loadStrategy(name);
-    const globalPlan=await loadGlobalPlan();
+    let{targets:personalTargets,queue:initialQueue}=await loadStrategy(name);
+    let globalPlan=await loadGlobalPlan();
     if(!personalTargets.length&&!initialQueue.length&&!globalPlan.size){
       logger.info(`[${name}] [progress] нет настроенных целей улучшений — простой`);
       return;
     }
     if(!upgrading||builders<=0)return;
     let queue=initialQueue.slice();
-    const persistQueue=async()=>{
+    // Вычёркиваем ровно потреблённые записи ИЗ ТЕКУЩЕГО значения в БД, а не переписываем колонку
+    // своей копией: пользователь мог добавить в очередь новые клетки прямо во время прохода, и
+    // запись целиком затёрла бы их.
+    // Вычёркиваем ровно потреблённые клетки СВОИМИ строками, а не переписываем список: пользователь
+    // мог добавить в очередь новые клетки прямо во время прохода, и перезапись затёрла бы их.
+    const persistQueue=async(consumed)=>{
       try{
-        const row=await CityStrategy.findOne({where:{account:name}});
-        if(row)await row.update({queue:JSON.stringify(queue),updated_at:new Date()});
+        const cells=consumed.map(k=>{const[x,y]=String(k).split(',');return{x:Number(x),y:Number(y)};});
+        await cityPlans.removeQueue(name,cells);
+        queue=(await cityPlans.loadPlans(name)).queue;
       }catch(e){logger.warn(`[${name}] [progress] не удалось сохранить очередь: ${e.message}`);}
     };
 
@@ -425,7 +638,7 @@ async function runProgress(api,name,opts={}){
       // (таблица городов, карта города) весь этот период показывала устаревший снимок из начала
       // цикла, не видя уже запущенные апгрейды. Пишем свежий снимок при каждом обновлении состояния,
       // а не только при первой загрузке.
-      try{await CitySnapshot.upsert({account:name,buildings:JSON.stringify(current),unlocked_sections:unlockedSectionsOf(latest),updated_at:new Date()},{conflictFields:['account']});}catch(_){}
+      try{await CitySnapshot.upsert(citySnapshotPayload(name,current,latest),{conflictFields:['account']});}catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
       cityLive.broadcast(name,current);
       // тот же живой ответ — тут профит мог измениться относительно прошлого refreshState (именно
       // здесь цикл узнаёт о завершившемся апгрейде), см. комментарий у первого вызова выше
@@ -437,6 +650,18 @@ async function runProgress(api,name,opts={}){
 
     while(true){
       if(isCityPaused()){logger.info(`[${name}] [progress] прокачка на паузе — выхожу из цикла`);break;}
+      // ПЕРЕЧИТЫВАЕМ стратегию КАЖДЫЙ проход. Цикл живёт часами: он ждёт освобождения строителя
+      // внутри waitOrWake (в логах бывает «builders busy, waiting 17504s»), а очередь/цели
+      // загружались ОДИН раз перед while — всё, что пользователь добавлял в ручную очередь за это
+      // время, цикл просто не видел и продолжал работать по плану. Сохранение через панель будит
+      // цикл (cityWake), но будить его без перечитывания было бессмысленно: он просыпался со
+      // старым списком в памяти. Отсюда жалоба «ручная очередь игнорируется».
+      try{
+        const fresh=await loadStrategy(name);
+        personalTargets=fresh.targets;
+        queue=fresh.queue;
+        globalPlan=await loadGlobalPlan();
+      }catch(e){logger.warn(`[${name}] [progress] не удалось перечитать стратегию: ${e.message}`);}
       const state=await refreshState();
       await runPendingReconstructions(api,name,current,buildingsMap); // здание могло дойти до required_lvl прямо во время этого цикла апгрейдов
       const busyNow=current.filter(b=>b.end&&new Date(b.end).getTime()>Date.now()).length;
@@ -448,42 +673,50 @@ async function runProgress(api,name,opts={}){
           .sort((a,b)=>a-b)[0];
         const waitMs=nextEnd?Math.max(5000,nextEnd-Date.now()+2000):30000;
         logger.info(`[${name}] [progress] builders busy, waiting ${Math.ceil(waitMs/1000)}s`);
-        await sleep(waitMs);
+        // waitOrWake, а не голый sleep — активация ускорителя (modules/boosterAutomation.js)
+        // сокращает уже идущие стройки и после этого зовёт cityWake.wake(name); без waitOrWake
+        // этот sleep досиживал бы до СТАРОГО (посчитанного ДО ускорения) времени окончания,
+        // хотя стройки уже могли закончиться раньше — апгрейды запускались бы с большой
+        // задержкой вместо того, чтобы продолжить сразу же, как только освободился строитель.
+        await waitOrWake(name,waitMs);
         continue;
       }
       const effectiveTargets=resolveEffectiveTargets(current,personalTargets,globalPlan);
-      const{picked,consumedQueueKeys}=pickStrategyTargets(current,queue,effectiveTargets,buildingsMap,discount,upgradeCostMultiplier,free,state.coins);
-      if(consumedQueueKeys.length){
-        // ВАЖНО: одно и то же здание может стоять в очереди НЕСКОЛЬКО раз подряд (несколько
-        // последовательных апгрейдов) — consumedQueueKeys содержит ключ клетки РОВНО столько раз,
-        // сколько её реально запустили в этом проходе (обычно 1). Раньше здесь стоял Set-based
-        // filter — он вычёркивал ВСЕ записи с таким ключом разом, а не только использованную,
-        // из-за чего при частичном разборе очереди с повторами (напр. 5× одно и то же здание,
-        // а сейчас выполнился только 1 апгрейд) остальные 4 повтора того же здания тоже пропадали
-        // из персистентной очереди. Убираем строго по ОДНОЙ записи на каждый потреблённый ключ.
-        const toRemove=[...consumedQueueKeys];
-        queue=queue.filter(q=>{
-          const key=`${Number(q.x)},${Number(q.y)}`;
-          const idx=toRemove.indexOf(key);
-          if(idx===-1)return true;
-          toRemove.splice(idx,1);
-          return false;
-        });
-        await persistQueue();
-      }
+      const{picked,consumedQueueKeys,skipped}=pickStrategyTargets(current,queue,effectiveTargets,buildingsMap,discount,upgradeCostMultiplier,free,state.coins);
+
+      // почему очередь пропустила записи — видно в логе, а не только в поведении
+
+      if(skipped&&skipped.length)logger.info(`[${name}] [progress] очередь пропустила: ${skipped.join('; ')}`);
+      // ВАЖНО: одно и то же здание может стоять в очереди НЕСКОЛЬКО раз подряд (несколько
+      // последовательных апгрейдов) — consumedQueueKeys содержит ключ клетки РОВНО столько раз,
+      // сколько её реально запустили в этом проходе (обычно 1); persistQueue убирает строго по
+      // ОДНОЙ записи на каждый потреблённый ключ, а не все записи с таким ключом разом.
+      if(consumedQueueKeys.length)await persistQueue(consumedQueueKeys);
       if(!picked.length){
         const stillBusy=current.filter(b=>b.end&&new Date(b.end).getTime()>Date.now());
         if(stillBusy.length){
           const nextEnd=Math.min(...stillBusy.map(b=>new Date(b.end).getTime()));
           const waitMs=Math.max(5000,nextEnd-Date.now()+2000);
           logger.info(`[${name}] [progress] нет доступных апгрейдов по целям, жду ${Math.ceil(waitMs/1000)}s строителя`);
-          await sleep(waitMs);
+          // тот же приём, что и выше — активация ускорителя может сократить это ожидание
+          await waitOrWake(name,waitMs);
           continue;
         }
         logger.info(`[${name}] [progress] цели сейчас недостижимы (нет зданий/не хватает денег) — завершаю цикл`);
         break;
       }
-      let launched=false;
+      // Запускаем ВСЮ пачку подряд, по одному тяжёлому обновлению состояния НА ПАЧКУ, а не на
+      // каждый апгрейд. Раньше после каждого запуска шёл полный refreshState() (GET /progress/ +
+      // broadcast + проверка «Пути мэра»), и пачка из N свободных строителей растягивалась на N
+      // тяжёлых кругов — строители простаивали по несколько минут, хотя работа для них была.
+      // Промежуточный refresh не нужен для корректности: pickStrategyTargets уже набирает пачку
+      // под НАКОПИТЕЛЬНЫЙ бюджет (left) и не больше числа свободных строителей, т.е. деньги на всю
+      // пачку заведомо посчитаны заранее. Пауза между POST-ами оставлена — она держит темп в рамках
+      // лимита запросов игры, из-за которого нельзя слать апгрейды вплотную.
+      let launched=0;
+      // строки лога этой пачки — после обновления состояния проставим им РЕАЛЬНУЮ длительность
+      const pending=[];
+      logger.info(`[${name}] [progress] запускаю пачку: ${picked.length} апгрейд(ов) на ${free} свободных строителей`);
       for(const b of picked){
         const nextLvl=(Number(b.level)||1)+1;
         const ok=await runProgressAction(name,`upgrade ${b.id} at (${b.x},${b.y}) to lvl ${nextLvl}`,async()=>{
@@ -492,12 +725,29 @@ async function runProgress(api,name,opts={}){
           if(r?.coins!==undefined)logger.info(`[${name}] [progress] upgraded ${b.id} | LVL ${b.level} -> ${nextLvl}`);
         });
         if(ok){
-          launched=true;
+          launched++;
           const info=buildingsMap.get(b.id);
-          await logAction(name,'upgrade',{x:b.x,y:b.y,building_id:b.id,level_from:Number(b.level||0),level_to:nextLvl,duration_ms:info?Math.round(upgradeDuration(info,Number(b.level||0))*1000):null});
-          try{await refreshState();}catch(e){logger.error(`[${name}] [progress] refresh failed after upgrade: ${describeError(e)}`);}
+          // ПРЕДВАРИТЕЛЬНАЯ длительность — голая формула без гильдии/политик/ускорителей, поэтому
+          // в логе появлялись «12ч 0м» там, где по факту стройка шла 1ч40м. Пишем её только как
+          // заглушку, а ниже (после refreshState) заменяем на честную: end, который отдала игра,
+          // минус момент запуска. Игра — единственный источник, который знает про все модификаторы,
+          // включая серверные ивентовые (клиентская формула их не видит, см. cityStats).
+          const row=await logAction(name,'upgrade',{x:b.x,y:b.y,building_id:b.id,level_from:Number(b.level||0),level_to:nextLvl,duration_ms:info?Math.round(upgradeDuration(info,Number(b.level||0))*1000):null});
+          if(row)pending.push({row,x:Number(b.x),y:Number(b.y),startedAt:Date.now()});
         }
-        await sleep(500);
+      }
+      // одно обновление после всей пачки — дальше while сам пересчитает свободных строителей и,
+      // если они ещё есть и цели остались, сразу запустит следующую пачку без ожидания
+      if(launched){
+        try{
+          await refreshState();
+          // фактическая длительность: сколько игра реально отвела на стройку этой клетки
+          for(const p of pending){
+            const b=current.find(c=>Number(c.x)===p.x&&Number(c.y)===p.y);
+            const endMs=b?.end?new Date(b.end).getTime():0;
+            if(endMs>p.startedAt)await updateAction(p.row,{duration_ms:endMs-p.startedAt});
+          }
+        }catch(e){logger.error(`[${name}] [progress] refresh failed after batch: ${describeError(e)}`);}
       }
       if(!launched){
         logger.info(`[${name}] [progress] апгрейды не запустились, жду 30s`);
@@ -510,6 +760,6 @@ module.exports={
   runProgress,
   // экспортировано для web/routes/cityStrategy.js (прогноз) — переиспользуют ту же логику, что
   // реальный цикл, вместо дублирования
-  loadStrategy,loadGlobalPlan,loadGuildBonuses,loadPolicyEffects,loadConstructionBoostMods,
+  loadStrategy,loadGlobalPlan,loadGuildBonuses,loadPolicyEffects,loadConstructionBoostMods,loadBoosterTimeline,measureActualVsPredicted,
   resolveEffectiveTargets,pickStrategyTargets,simulateFutureActions,
 };

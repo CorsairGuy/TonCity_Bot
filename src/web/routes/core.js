@@ -27,6 +27,27 @@ function decodeJwtSubject(token){
 }
 
 module.exports=function(app,ctx){
+  // Каталог предметов игры (id → тип/имя/редкость) + иконки: нужен, чтобы новые предметы
+  // (билеты, летний/алмазный набор, камни реформ) показывались нормально, а не как «#40».
+  // Обновляется не чаще раза в 12ч и любым живым аккаунтом — каталог общий для всех.
+  app.get('/api/items',async(req,res)=>{
+    try{
+      const itemCatalog=require('../../utils/itemCatalog');
+      if(itemCatalog.ageMs()>=12*60*60*1000){
+        try{
+          const{Account}=require('../../db/index');
+          const{Op}=require('sequelize');
+          const acc=await Account.findOne({where:{access_token:{[Op.not]:null}},attributes:['id']});
+          if(acc)await itemCatalog.ensureFresh(await ctx.makeApiForAccount(acc.id,{noLock:true}));
+        }catch(_){/* не вышло — отдадим то, что уже есть */}
+      }
+      // Параметр ?ids= клиент всё ещё присылает, но ничего поштучно мы больше НЕ спрашиваем:
+      // такого эндпоинта у игры нет (см. utils/itemCatalog.js). Отдаём то, что собрано из
+      // /storage/allitemdata; неизвестные id клиент подписывает из своей статической таблицы.
+      res.json({ok:true,items:itemCatalog.read()});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   const{makeApiForAccount}=ctx;
 
   app.get('/api/items-meta',(req,res)=>{
@@ -123,6 +144,18 @@ module.exports=function(app,ctx){
         await acc.update(upd);
         // ручное переименование существующего аккаунта тоже переносит его строки-снимки на новое имя
         if(renameFrom)await require('../../utils/renameAccount').renameAccountRefs(renameFrom,typedName);
+
+        // БАГ (13.10.2026): переавторизация УЖЕ ИМЕНОВАННОГО аккаунта (не плейсхолдера) обновляла
+        // access_token/refresh_token в БД, но ничего не делала с живой сессией — ни seed для подписи
+        // (reqSign), ни переоткрытие WS (wsSession). Прогрев ниже (seed+ensureSession) запускается
+        // ТОЛЬКО для новых аккаунтов-плейсхолдеров (нужно узнать настоящее имя) — уже именованный
+        // аккаунт, у которого давно крутятся фоновые циклы, просто продолжал долбиться старым
+        // мёртвым seed'ом ещё до 10 минут (см. modules/session.js DEAD_COOLDOWN_MS), и статус на
+        // странице Аккаунты висел "Подключается…" сколько угодно после нажатия "Добавить". Явно
+        // сбрасываем сюда — seed сразу, WS принудительно переоткрываем, кулдаун снимаем.
+        if(session_seed)require('../../utils/reqSign').setSeed(acc.id,session_seed);
+        try{require('../../modules/session').clearDeadCooldown(acc.id);}catch(_){}
+        try{require('../../utils/wsSession').notifyRefreshed(acc.id,()=>acc.access_token);}catch(_){}
       }
 
       // Прогреваем ПОДПИСАННУЮ сессию ровно как клиент игры: seed из ответа exchange → живой
@@ -155,6 +188,9 @@ module.exports=function(app,ctx){
       const mergedDuplicate=oldName!=null&&oldName!==finalName;
       const stillPlaceholder=/^account_[0-9a-f]{8}$/i.test(finalName);
       logger.info(`Web UI: account ${finalName} ${created?'added':mergedDuplicate?`updated (объединён с "${oldName}", id ${acc.id})`:'updated'}${stillPlaceholder?' — имя подтянется при первой сессии':''}`);
+      // Поднимаем фоновые циклы прямо сейчас: иначе аккаунт, добавленный на работающем боте,
+      // молчал бы до перезапуска процесса (циклы раздаются один раз при старте, см. index.js).
+      try{require('../../utils/accountLoops').startFor(acc);}catch(e){logger.warn(`[${finalName}] циклы: ${e.message}`);}
       res.json({ok:true,name:finalName,created,placeholder:stillPlaceholder});
     }catch(e){
       const status=e?.response?.status;
@@ -163,11 +199,13 @@ module.exports=function(app,ctx){
     }
   });
 
+  // при удалении аккаунта снимаем отметку в реестре циклов — повторное добавление снова их поднимет
   app.delete('/api/accounts/:id',async(req,res)=>{
     try{
       const{Account,Inventory,GuildSnapshot}=require('../../db/index');
       const acc=await Account.findByPk(req.params.id);
       await Account.destroy({where:{id:req.params.id}});
+      try{require('../../utils/accountLoops').forget(req.params.id);}catch(_){}
       // чистим инвентарь удалённого аккаунта, чтобы не осталось карточек-призраков
       if(acc)await Inventory.destroy({where:{account:acc.name}}).catch(()=>{});
       // и его запись(и) GuildSnapshot — иначе если это был лидер гильдии, страница "Столицы"

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Box, Button, Flash, Heading, Text, Spinner, CounterLabel } from '@primer/react';
 import { SyncIcon, LawIcon, EyeIcon, ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
-import { api, type ShopAccountData, type ShopOffer, type ShopOfferType } from '../api';
+import { api, type ShopAccountData, type ShopOffer, type ShopOfferType, type ShopBalance } from '../api';
 import { useFlash } from '../hooks/useFlash';
+import { QtyPicker, affordableCount } from '../components/QtyPicker';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { IC_COIN, IC_CRYSTAL } from '../components/Icons';
@@ -59,6 +60,16 @@ function pivot(accounts: ShopAccountData[]): PivotedItem[] {
       });
     }
   }
+  // Аккаунты, по которым игра не ответила, раньше просто ИСЧЕЗАЛИ из списка: он строится из
+  // acc.items, а у сбойного аккаунта items пустой. Со стороны это выглядело как «показаны не все
+  // аккаунты» (жалоба 21.08.2026). Добавляем их строкой с ошибкой в КАЖДЫЙ товар.
+  const failed = accounts.filter(a => a.error);
+  for (const item of map.values()) {
+    for (const acc of failed) {
+      item.accounts.push({ account_id: acc.id, account_name: acc.name, offers: [], error: acc.error });
+    }
+    item.accounts.sort((a, b) => a.account_name.localeCompare(b.account_name));
+  }
   return [...map.values()].sort((a, b) => a.item_id - b.item_id);
 }
 
@@ -77,11 +88,30 @@ function ProgressBar({ current, limit }: { current: number; limit: number }) {
   );
 }
 
-function PolicyShopCard({ item, onBought }: { item: PivotedItem; onBought: (accountId: number, offerId: number) => void }) {
+// хватает ли у аккаунта монет/алмазов на конкретный оффер — баланс из БД (api.accounts(), тот же
+// снимок, что показывает страница "Аккаунты"), не живой запрос. "ads" ничего не стоит — всегда true.
+// баланс той валюты, которой оплачивается конкретный оффер (реклама ничего не стоит)
+function balanceFor(balances: Map<number, { balance: number; crystals: number }>, accountId: number, offer: ShopOffer): number {
+  const b = balances.get(accountId);
+  if (!b) return 0;
+  return offer.offer_type === 'crystals' ? b.crystals : b.balance;
+}
+
+function canAfford(bal: { balance: number; crystals: number } | undefined, offer: ShopOffer): boolean {
+  if (offer.offer_type === 'ads') return true;
+  if (!bal) return false;
+  const have = offer.offer_type === 'crystals' ? bal.crystals : bal.balance;
+  return have >= offer.price;
+}
+
+function PolicyShopCard({ item, onBought, balances }: { item: PivotedItem; onBought: (accountId: number, offerId: number, balance?: ShopBalance | null, amount?: number) => void; balances: Map<number, { balance: number; crystals: number }> }) {
   const [selType, setSelType] = useState<ShopOfferType>(item.offerTypes.includes('crystals') ? 'crystals' : item.offerTypes[0]);
   const [collapsed, setCollapsed] = useState(true);
   const [buying, setBuying] = useState<Set<string>>(new Set());
   const [buyingAll, setBuyingAll] = useState(false);
+  // сколько штук покупаем за одно нажатие. Дневной лимит у части товаров — 10 штук, и жать
+  // «Купить» десять раз бессмысленно: игра принимает количество одним запросом (amount).
+  const [qty, setQty] = useState(1);
   const { flash, showFlash } = useFlash();
 
   const meta = ITEMS_BY_ID[item.item_id] ?? null;
@@ -92,54 +122,55 @@ function PolicyShopCard({ item, onBought }: { item: PivotedItem; onBought: (acco
     if (acc.error) return false;
     const offer = acc.offers.find(o => o.offer_type === selType);
     if (!offer) return false;
-    return offer.current < offer.limit;
+    return offer.current < offer.limit && canAfford(balances.get(acc.account_id), offer);
   });
+  // потолок для пикера — самый большой доступный объём среди подходящих аккаунтов
+  const maxQty = Math.max(1, ...eligibleAccounts.map(acc => {
+    const offer = acc.offers.find(o => o.offer_type === selType);
+    return offer ? affordableCount(offer, balanceFor(balances, acc.account_id, offer)) : 1;
+  }), 1);
   const boughtCount = item.accounts.filter(acc => {
     const offer = acc.offers.find(o => o.offer_type === selType);
     return offer && offer.current >= offer.limit;
   }).length;
 
-  const buy = useCallback(async (accountId: number, offer: ShopOffer) => {
+  const buy = useCallback(async (accountId: number, offer: ShopOffer, amount: number) => {
     const key = `${accountId}-${offer.offer_id}`;
     setBuying(prev => new Set(prev).add(key));
     try {
-      const r = await api.shopBuy(accountId, offer.offer_id, 1, offer.offer_type);
-      if (r.ok) onBought(accountId, offer.offer_id);
+      const r = await api.shopBuy(accountId, offer.offer_id, amount, offer.offer_type, true);
+      if (r.ok) onBought(accountId, offer.offer_id, r.balance, amount);
       else showFlash(r.error ?? 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); }
     finally { setBuying(prev => { const s = new Set(prev); s.delete(key); return s; }); }
   }, [onBought, showFlash]);
 
+  // «Купить всем»: количество у каждого аккаунта своё — у одного остался лимит 3, у другого
+  // 10, у третьего не хватает монет на выбранное число. Поэтому идём по аккаунтам по очереди
+  // и каждому покупаем min(выбранное, доступное ему), а не один общий запрос с одним amount.
   const buyAll = useCallback(async () => {
     if (eligibleAccounts.length === 0) return;
     setBuyingAll(true);
     try {
-      const byOffer = new Map<number, number[]>();
+      const results: { name: string; ok: boolean; error?: string }[] = [];
+      let bought = 0;
       for (const acc of eligibleAccounts) {
         const offer = acc.offers.find(o => o.offer_type === selType);
         if (!offer) continue;
-        if (!byOffer.has(offer.offer_id)) byOffer.set(offer.offer_id, []);
-        byOffer.get(offer.offer_id)!.push(acc.account_id);
-      }
-      const results: { name: string; id: number; ok: boolean; error?: string }[] = [];
-      for (const [offerId, accountIds] of byOffer) {
-        const r = await api.shopBuyAll(accountIds, offerId, selType);
-        if (r.ok) {
-          for (const res of r.results) {
-            results.push(res);
-            if (res.ok) onBought(res.id, offerId);
-          }
-        } else {
-          results.push({ name: 'все', id: 0, ok: false, error: r.error });
-        }
+        const amount = Math.max(1, Math.min(qty, affordableCount(offer, balanceFor(balances, acc.account_id, offer))));
+        try {
+          const r = await api.shopBuy(acc.account_id, offer.offer_id, amount, selType, true);
+          if (r.ok) { bought += amount; onBought(acc.account_id, offer.offer_id, r.balance, amount); results.push({ name: acc.account_name, ok: true }); }
+          else results.push({ name: acc.account_name, ok: false, error: r.error });
+        } catch (e) { results.push({ name: acc.account_name, ok: false, error: String(e) }); }
       }
       const failed = results.filter(r => !r.ok);
       const ok = results.filter(r => r.ok).length;
-      if (failed.length === 0) showFlash(`Куплено для ${ok} аккаунтов`, true);
+      if (failed.length === 0) showFlash(`Куплено ${bought} шт. для ${ok} аккаунтов`, true);
       else showFlash(`${ok} куплено, ошибки: ${failed.map(f => f.name).join(', ')}`, false);
     } catch (e) { showFlash(String(e), false); }
     finally { setBuyingAll(false); }
-  }, [eligibleAccounts, selType, onBought, showFlash]);
+  }, [eligibleAccounts, selType, qty, balances, onBought, showFlash]);
 
   return (
     <Box sx={{ border: '1px solid', borderColor: 'border.default', borderLeft: '3px solid', borderLeftColor: color, borderRadius: 2, overflow: 'hidden', mb: 3 }}>
@@ -159,6 +190,7 @@ function PolicyShopCard({ item, onBought }: { item: PivotedItem; onBought: (acco
             <Text as="span" sx={{ color: eligibleAccounts.length > 0 ? 'success.fg' : 'fg.subtle', fontWeight: 'bold' }}>{eligibleAccounts.length} можно</Text>
             <Text as="span" sx={{ color: 'fg.muted' }}>{` · ✓${boughtCount} · ${item.accounts.length}`}</Text>
           </Text>
+          <QtyPicker value={qty} max={maxQty} onChange={setQty} disabled={buyingAll} />
           <Button
             variant={eligibleAccounts.length > 0 ? 'primary' : 'default'}
             leadingVisual={LawIcon}
@@ -166,7 +198,7 @@ function PolicyShopCard({ item, onBought }: { item: PivotedItem; onBought: (acco
             disabled={buyingAll || eligibleAccounts.length === 0}
             onClick={buyAll}
           >
-            Купить всем {eligibleAccounts.length > 0 && <CounterLabel sx={{ ml: 1 }}>{eligibleAccounts.length}</CounterLabel>}
+            Купить{qty > 1 ? ` ×${qty}` : ''} всем {eligibleAccounts.length > 0 && <CounterLabel sx={{ ml: 1 }}>{eligibleAccounts.length}</CounterLabel>}
           </Button>
         </Box>
       </Box>
@@ -199,7 +231,8 @@ function PolicyShopCard({ item, onBought }: { item: PivotedItem; onBought: (acco
           const offer = acc.offers.find(o => o.offer_type === selType);
           const isBuying = buying.has(`${acc.account_id}-${offer?.offer_id}`);
           const exhausted = offer ? offer.current >= offer.limit : true;
-          const canBuy = !!offer && !exhausted && !acc.error && !isBuying;
+          const afford = offer ? canAfford(balances.get(acc.account_id), offer) : false;
+          const canBuy = !!offer && !exhausted && afford && !acc.error && !isBuying;
 
           return (
             <Box key={acc.account_id} sx={{
@@ -228,10 +261,13 @@ function PolicyShopCard({ item, onBought }: { item: PivotedItem; onBought: (acco
                   )}
                   {exhausted ? (
                     <Text sx={{ fontSize: 0, color: 'fg.subtle', whiteSpace: 'nowrap' }}>Исчерпано</Text>
+                  ) : !afford ? (
+                    <Text sx={{ fontSize: 0, color: 'danger.fg', whiteSpace: 'nowrap' }}>Не хватает средств</Text>
                   ) : (
                     <Button variant="primary" leadingVisual={offer.offer_type === 'ads' ? EyeIcon : LawIcon}
-                      loading={isBuying} disabled={!canBuy} onClick={() => offer && buy(acc.account_id, offer)}>
-                      Купить
+                      loading={isBuying} disabled={!canBuy}
+                      onClick={() => offer && buy(acc.account_id, offer, Math.max(1, Math.min(qty, affordableCount(offer, balanceFor(balances, acc.account_id, offer)))))}>
+                      {(() => { const n = offer ? Math.max(1, Math.min(qty, affordableCount(offer, balanceFor(balances, acc.account_id, offer)))) : 1; return n > 1 ? `Купить ×${n}` : 'Купить'; })()}
                     </Button>
                   )}
                 </>
@@ -247,6 +283,7 @@ function PolicyShopCard({ item, onBought }: { item: PivotedItem; onBought: (acco
 
 export function ShopPolicies() {
   const [accounts, setAccounts] = useState<ShopAccountData[]>([]);
+  const [balances, setBalances] = useState<Map<number, { balance: number; crystals: number }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useResumableRefresh('shopPolicies', () => load());
   const { flash, showFlash } = useFlash();
@@ -254,9 +291,23 @@ export function ShopPolicies() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await api.shopPolicies();
-      if (d.ok) setAccounts(d.accounts);
+      // баланс — из БД (та же страница "Аккаунты"), не живой запрос; нужен, чтобы кнопка "Купить"
+      // не предлагала покупку, на которую реально не хватает монет/алмазов на счету
+      const [d, accs] = await Promise.all([api.shopPolicies(), api.accounts().catch(() => null)]);
+      if (d.ok) {
+        setAccounts(d.accounts);
+        // добираем тех, по кому игра не ответила: сервер повторит проход только по ним
+        const retryIds = d.accounts.filter(a => a.error && !a.permanent).map(a => a.id);
+        if (retryIds.length) {
+          api.shopPolicies(retryIds).then(r => {
+            if (!r.ok) return;
+            const fixed = new Map(r.accounts.map(a => [a.id, a]));
+            setAccounts(prev => prev.map(a => fixed.get(a.id) ?? a));
+          }).catch(() => { /* строка останется с ошибкой */ });
+        }
+      }
       else showFlash(d.error ?? 'Ошибка загрузки', false);
+      if (accs?.ok) setBalances(new Map(accs.accounts.map(a => [a.id, { balance: a.balance, crystals: a.crystals }])));
     } catch (e) { showFlash(String(e), false); }
     finally { setLoading(false); }
   }, [showFlash]);
@@ -269,14 +320,28 @@ export function ShopPolicies() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleBought = useCallback((accountId: number, offerId: number) => {
+  const handleBought = useCallback((accountId: number, offerId: number, balance?: ShopBalance | null, amount = 1) => {
+    // баланс приходит с сервера уже пересчитанным из игры — без этого кнопка «Купить»
+    // осталась бы активной по старому числу, и следующая покупка упиралась бы в
+    // 400 «Недостаточно монет»
+    if (balance) {
+      setBalances(prev => {
+        const cur = prev.get(accountId);
+        const next = new Map(prev);
+        next.set(accountId, {
+          balance: balance.balance ?? cur?.balance ?? 0,
+          crystals: balance.crystals ?? cur?.crystals ?? 0,
+        });
+        return next;
+      });
+    }
     setAccounts(prev => prev.map(acc => {
       if (acc.id !== accountId) return acc;
       return {
         ...acc,
         items: acc.items.map(item => ({
           ...item,
-          offers: item.offers.map(o => o.offer_id === offerId ? { ...o, current: o.current + 1 } : o),
+          offers: item.offers.map(o => o.offer_id === offerId ? { ...o, current: o.current + amount } : o),
         })),
       };
     }));
@@ -297,7 +362,7 @@ export function ShopPolicies() {
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
       {items.length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Нет данных</Text>
-        : items.map(item => <PolicyShopCard key={item.item_id} item={item} onBought={handleBought} />)
+        : items.map(item => <PolicyShopCard key={item.item_id} item={item} onBought={handleBought} balances={balances} />)
       }
     </Box>
   );

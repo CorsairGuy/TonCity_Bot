@@ -1,13 +1,15 @@
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Label, Select, Dialog, Checkbox } from '@primer/react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Box, Button, Flash, Heading, Spinner, Text, Label, Select, Checkbox } from '@primer/react';
+import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, PlusIcon } from '@primer/octicons-react';
-import { api, type MarketDealRow, type MarketSellableItem } from '../api';
+import { api, type MarketDealRow, type MarketSellableItem, type PolicyDefEntry } from '../api';
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CrystalValue } from '../components/Icons';
 import { Scrollable } from '../components/Scrollable';
+import { PolicyCardModal } from '../components/PolicyCardModal';
 
 type DealType = 'listings' | 'purchases' | 'sales';
 
@@ -15,6 +17,47 @@ const TITLE: Record<DealType, string> = { listings: 'Листинги', purchase
 const PAGE_SIZE = 20;
 
 const CAT: Record<string, string> = { booster: 'Ускоритель', pack: 'Набор', component: 'Компонент', masterplan: 'Мастерплан' };
+// карты политик (не путать с "наборами"/"тайными политиками" — те обычные стакающиеся предметы,
+// есть в ITEMS_BY_ID) продаются через общий item_id-"бакет" на редкость, без своего катaложного
+// имени/иконки — см. web/routes/market.js POLICY_CARD_BUCKET_ITEM_ID. Показываем по item_rarity.
+const RARITY_RU: Record<string, string> = {
+  common: 'Обычная', uncommon: 'Необычная', rare: 'Редкая', epic: 'Эпическая',
+  legendary: 'Легендарная', mythic: 'Мифическая', eternal: 'Вечная',
+};
+function policyCardLabel(rarity: string): string { return `Политика (${RARITY_RU[rarity] ?? rarity})`; }
+// у карты политики свой def_id и название (разные политики одной редкости различаются, показываем
+// конкретное имя, а не общий "Политика (Редкость)" — по просьбе пользователя 31.07.2026)
+function policyItemLabel(it: { item_category: string; item_rarity: string; policy_name?: string }): string {
+  if (it.item_category !== 'policy') return '';
+  return it.policy_name ? `${it.policy_name} (${RARITY_RU[it.item_rarity] ?? it.item_rarity})` : policyCardLabel(it.item_rarity);
+}
+const MARKET_TYPE_RU: Record<string, string> = { direct: 'Прямая продажа', auction: 'Аукцион', negotiation: 'Предложение' };
+// Ключ «склада»: один и тот же физический запас предметов представлен НЕСКОЛЬКИМИ строками списка —
+// по строке на каждый тип рынка (direct/auction/negotiation). Выставив 1 шт. через прямую продажу,
+// надо уменьшить остаток и в строке аукциона того же предмета, иначе список соврёт.
+function stockKey(it: MarketSellableItem): string {
+  return it.item_category === 'policy' ? `p:${it.item_id}:${it.item_rarity}:${it.def_id ?? ''}` : `i:${it.item_id}`;
+}
+// характеристики выставляемой политики берём из общего каталога по def_id (как на странице лотов);
+// если политики там ещё нет — показываем хотя бы имя+редкость, без эффектов
+function sellablePolicyVariants(it: MarketSellableItem, catalog: PolicyDefEntry[]): PolicyDefEntry[] {
+  // ВАЖНО: искать по паре (def_id, rarity) — это первичный ключ каталога, одна и та же политика
+  // лежит там отдельной строкой на КАЖДУЮ редкость. Поиск только по def_id возвращал первую строку
+  // в порядке rarity ASC, то есть по клику на названии открывалась карточка чужой редкости
+  // (обычно 'common') вместо той, что реально выставляется. На странице лотов это уже было учтено,
+  // см. MarketLots.tsx — здесь осталась старая однополевая выборка.
+  const exact = it.def_id != null
+    ? (catalog.find(d => String(d.def_id) === String(it.def_id) && d.rarity === it.item_rarity)
+      ?? catalog.find(d => String(d.def_id) === String(it.def_id) && d.rarity === 'unknown'))
+    : null;
+  if (exact) return [exact];
+  return [{
+    def_id: String(it.def_id ?? ''), rarity: it.item_rarity,
+    name: it.policy_name ? { ru: it.policy_name, en: it.policy_name } : null,
+    description: null, icon_key: null, theme: null, badge: null, badge_n: null,
+    max_level: null, seen_account: null, updated_at: null, effects: [],
+  }];
+}
 
 function fmtDate(iso?: string | null) {
   if (!iso) return '—';
@@ -31,7 +74,9 @@ function timeLeft(iso?: string | null) {
 
 function ItemCell({ row }: { row: MarketDealRow }) {
   const meta = row.item_id != null ? ITEMS_BY_ID[row.item_id] : null;
-  const name = meta?.name ?? (row.item_category ? CAT[row.item_category] ?? row.item_category : `#${row.item_id}`);
+  const name = meta?.name
+    ?? (row.item_category === 'policy' && row.item_rarity ? policyCardLabel(row.item_rarity) : null)
+    ?? (row.item_category ? CAT[row.item_category] ?? row.item_category : `#${row.item_id}`);
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
       <Box sx={{ width: 28, height: 28, borderRadius: '6px', overflow: 'hidden', flexShrink: 0, bg: 'canvas.subtle', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -52,7 +97,9 @@ function PriceCell({ row }: { row: MarketDealRow }) {
 }
 
 // ── диалог выставления предмета ─────────────────────────────────────────────
-function SellDialog({ onClose, onListed, showFlash }: { onClose: () => void; onListed: () => void; showFlash: (m: string, ok: boolean) => void }) {
+// mode='items' — обычные предметы (как на странице "Предметы"), mode='special' — политики+осколки
+// (отдельная кнопка, всегда живой запрос к /policies/, см. web/routes/market.js SPECIAL_CATEGORIES)
+function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 'special'; onClose: () => void; onListed: () => void; showFlash: (m: string, ok: boolean) => void }) {
   const [items, setItems] = useState<MarketSellableItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [sel, setSel] = useState<MarketSellableItem | null>(null);
@@ -65,12 +112,21 @@ function SellDialog({ onClose, onListed, showFlash }: { onClose: () => void; onL
   const [itemAccounts, setItemAccounts] = useState<{ id: number; name: string; owned: number }[]>([]);
   const [loadingAccs, setLoadingAccs] = useState(false);
   const [selAccounts, setSelAccounts] = useState<Set<number>>(new Set());
+  // каталог политик (для карточки с характеристиками по клику на название — как на странице лотов)
+  const [policyDefs, setPolicyDefs] = useState<PolicyDefEntry[]>([]);
+  const [policyModal, setPolicyModal] = useState<MarketSellableItem | null>(null);
+  // Уже выставленное за эту сессию диалога, по аккаунтам: `${stockKey}|${имя аккаунта}` → сколько.
+  // Нужно, чтобы после выставления не перезапрашивать весь список с игры (долго — живые запросы на
+  // все аккаунты), а просто уменьшить остаток и вернуться к выбору (просьба пользователя 31.07.2026).
+  // Через ref, а не state: читается внутри эффекта по [sel], в deps его добавлять нельзя (перезапрос).
+  const listedRef = useRef<Record<string, number>>({});
 
   // список продаваемых предметов (агрегат по всем аккаунтам) — при открытии
   useEffect(() => {
     setLoadingItems(true);
-    api.marketSellableAll().then(d => { if (d.ok) setItems(d.items); }).finally(() => setLoadingItems(false));
-  }, []);
+    api.marketSellableAll(undefined, mode).then(d => { if (d.ok) setItems(d.items); }).finally(() => setLoadingItems(false));
+    if (mode === 'special') api.policyDefs().then(d => { if (d.ok) setPolicyDefs(d.defs); }).catch(() => {});
+  }, [mode]);
 
   // при выборе предмета подтягиваем аккаунты с этим предметом; по умолчанию никто не выбран
   useEffect(() => {
@@ -78,7 +134,17 @@ function SellDialog({ onClose, onListed, showFlash }: { onClose: () => void; onL
     setSelAccounts(new Set());
     setItemAccounts([]);
     setLoadingAccs(true);
-    api.marketItemAccounts(sel.item_id).then(d => { if (d.ok) setItemAccounts(d.accounts); }).finally(() => setLoadingAccs(false));
+    const key = stockKey(sel);
+    api.marketItemAccounts(sel.item_id, sel.item_category === 'policy' ? sel.item_rarity : undefined, sel.item_category === 'policy' ? sel.def_id : undefined)
+      .then(d => {
+        if (!d.ok) return;
+        // вычитаем то, что уже выставили с этих аккаунтов в этой же сессии диалога (снапшот
+        // инвентаря в БД обновляется не сразу, сам бы он ещё показывал старое количество)
+        setItemAccounts(d.accounts
+          .map(a => ({ ...a, owned: a.owned - (listedRef.current[`${key}|${a.name}`] ?? 0) }))
+          .filter(a => a.owned > 0));
+      })
+      .finally(() => setLoadingAccs(false));
   }, [sel]);
 
   const toggleAcc = (id: number, on: boolean) => setSelAccounts(prev => { const s = new Set(prev); if (on) s.add(id); else s.delete(id); return s; });
@@ -86,20 +152,40 @@ function SellDialog({ onClose, onListed, showFlash }: { onClose: () => void; onL
   const maxQty = Math.max(1, selOwned || (sel?.owned ?? 1));
 
   const curIcon = (c: string) => c === 'ton' ? '▽' : '💎';
+  // «Предложение» (negotiation): игра не принимает ни цену, ни срок — покупатель сам предлагает
+  // сумму, продавец потом принимает/отклоняет (реверс бандла 31.07.2026)
+  const selType = sel?.market_type ?? 'direct';
+  const needsPrice = selType !== 'negotiation';
   const list = async () => {
     if (!sel) return;
     if (selAccounts.size === 0) { showFlash('Выберите аккаунты', false); return; }
     const p = Number(price);
-    if (!price || p < sel.floor_price || p > sel.ceiling_price) { showFlash(`Цена должна быть ${fmt(sel.floor_price)}–${fmt(sel.ceiling_price)}`, false); return; }
+    if (needsPrice) {
+      const lo = sel.floor_price, hi = sel.ceiling_price;
+      if (!price || (lo != null && p < lo) || (hi != null && p > hi)) { showFlash(`Цена должна быть ${fmt(lo ?? 0)}–${hi != null ? fmt(hi) : '∞'}`, false); return; }
+    }
     const n = Math.max(1, Math.min(Math.floor(qty) || 1, maxQty));
     setBusy(true);
     try {
-      const d = await api.marketListSpread({ market_id: sel.market_id, item_id: sel.item_id, price: p, currency: sel.currency, anonymous: anon, quantity: n, account_ids: [...selAccounts], listing_days: days });
+      const d = await api.marketListSpread({ market_id: sel.market_id, item_id: sel.item_id, item_rarity: sel.item_rarity, def_id: sel.def_id, market_type: selType, price: needsPrice ? p : undefined, currency: sel.currency, anonymous: anon, quantity: n, account_ids: [...selAccounts], listing_days: days });
       if (d.ok) {
-        const accs = (d.results ?? []).filter(r => r.listed > 0).length;
-        showFlash(`Выставлено ${d.listed ?? 0} из ${n} (с ${accs} аккаунтов)`, (d.listed ?? 0) > 0);
+        const results = d.results ?? [];
+        const done = d.listed ?? 0;
+        const accs = results.filter(r => r.listed > 0).length;
+        showFlash(`Выставлено ${done} из ${n} (с ${accs} аккаунтов)`, done > 0);
         onListed();
-        if ((d.listed ?? 0) >= n) onClose();
+        if (done > 0) {
+          // не закрываем диалог и НЕ перезапрашиваем весь список с игры — просто списываем остаток
+          // локально и возвращаемся к выбору (по просьбе пользователя 31.07.2026)
+          const key = stockKey(sel);
+          for (const r of results) if (r.listed > 0) listedRef.current[`${key}|${r.name}`] = (listedRef.current[`${key}|${r.name}`] ?? 0) + r.listed;
+          setItems(prev => prev
+            .map(it => stockKey(it) === key
+              ? { ...it, owned: it.owned - done, free_slots: it.free_slots != null ? Math.max(0, it.free_slots - done) : it.free_slots }
+              : it)
+            .filter(it => it.owned > 0));
+          setSel(null);
+        }
       } else showFlash(d.error || 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); } finally { setBusy(false); }
   };
@@ -108,9 +194,21 @@ function SellDialog({ onClose, onListed, showFlash }: { onClose: () => void; onL
   const meta = sel ? ITEMS_BY_ID[sel.item_id] : null;
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="sell-title" sx={{ maxWidth: 520, width: '95vw' }}>
-      <Dialog.Header id="sell-title">{sel ? 'Выставить предмет' : 'Выберите предмет'}</Dialog.Header>
-      <Box sx={{ p: 2 }}>
+    <Dialog
+      title={sel ? 'Выставить предмет' : (mode === 'special' ? 'Выберите политику/осколок' : 'Выберите предмет')}
+      onClose={onClose}
+      width="xlarge"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      /* кнопка появляется только на 2-м шаге (когда предмет уже выбран) */
+      footerButtons={sel ? [{
+        content: busy ? 'Выставляю…' : `Выставить ×${Math.min(qty, maxQty)}`,
+        buttonType: 'primary',
+        loading: busy,
+        disabled: busy || selAccounts.size === 0,
+        onClick: list,
+      }] : undefined}
+    >
+      <Box>
         {!sel ? (
           // ── ШАГ 1: список продаваемых предметов ──
           loadingItems ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><Spinner /></Box>
@@ -119,13 +217,25 @@ function SellDialog({ onClose, onListed, showFlash }: { onClose: () => void; onL
                 <Scrollable style={{ maxHeight: '60vh' }}>
                   {items.map(it => {
                     const m = ITEMS_BY_ID[it.item_id];
+                    const mt = it.market_type ?? 'direct';
+                    const isPolicy = it.item_category === 'policy';
                     return (
-                      <Box key={it.market_id} onClick={() => { setSel(it); setPrice(String(it.floor_price)); setQty(1); }}
+                      <Box key={`${it.market_id}:${mt}:${it.def_id ?? ''}`} onClick={() => { setSel(it); setPrice(String(it.floor_price ?? '')); setQty(1); }}
                         sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2, py: '8px', cursor: 'pointer', borderBottom: '1px solid', borderColor: 'border.muted', '&:hover': { bg: 'canvas.subtle' } }}>
                         {m && <img src={itemImgSrc(m.tag)} alt="" style={{ width: 28, height: 28, objectFit: 'contain' }} />}
                         <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Text sx={{ fontSize: 1 }}>{m?.name ?? `#${it.item_id}`} {curIcon(it.currency)}</Text>
-                          <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>есть {it.owned} (на {it.accounts ?? '?'} акк.) · {fmt(it.floor_price)}–{fmt(it.ceiling_price)}</Text>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                            {/* клик по названию политики открывает карточку с характеристиками (как на странице лотов) */}
+                            <Text sx={{ fontSize: 1, ...(isPolicy ? { textDecoration: 'underline dotted', cursor: 'help' } : {}) }}
+                              title={isPolicy ? 'Показать характеристики политики' : undefined}
+                              onClick={isPolicy ? (e => { e.stopPropagation(); setPolicyModal(it); }) : undefined}>
+                              {m?.name ?? (isPolicy ? policyItemLabel(it) : `#${it.item_id}`)} {curIcon(it.currency)}
+                            </Text>
+                            <Label variant={mt === 'auction' ? 'attention' : mt === 'negotiation' ? 'accent' : 'default'} sx={{ fontSize: 0 }}>{MARKET_TYPE_RU[mt] ?? mt}</Label>
+                          </Box>
+                          <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>
+                            есть {it.owned} (на {it.accounts ?? '?'} акк.){mt === 'negotiation' ? ' · цену предлагает покупатель' : ` · ${fmt(it.floor_price ?? 0)}–${it.ceiling_price != null ? fmt(it.ceiling_price) : '∞'}`}
+                          </Text>
                         </Box>
                         <Text sx={{ color: 'fg.muted', fontSize: 2 }}>›</Text>
                       </Box>
@@ -137,27 +247,38 @@ function SellDialog({ onClose, onListed, showFlash }: { onClose: () => void; onL
           // ── ШАГ 2: цена, количество, выбор аккаунтов ──
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <Button variant="invisible" sx={{ alignSelf: 'flex-start', px: 0 }} onClick={() => setSel(null)}>← К списку предметов</Button>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
               {meta && <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 32, height: 32, objectFit: 'contain' }} />}
-              <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{meta?.name ?? `#${sel.item_id}`} {curIcon(sel.currency)}</Text>
+              <Text sx={{ fontWeight: 'bold', fontSize: 1, ...(sel.item_category === 'policy' ? { textDecoration: 'underline dotted', cursor: 'help' } : {}) }}
+                title={sel.item_category === 'policy' ? 'Показать характеристики политики' : undefined}
+                onClick={sel.item_category === 'policy' ? () => setPolicyModal(sel) : undefined}>
+                {meta?.name ?? (sel.item_category === 'policy' ? policyItemLabel(sel) : `#${sel.item_id}`)} {curIcon(sel.currency)}
+              </Text>
+              <Label variant={selType === 'auction' ? 'attention' : selType === 'negotiation' ? 'accent' : 'default'} sx={{ fontSize: 0 }}>{MARKET_TYPE_RU[selType] ?? selType}</Label>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Text sx={{ fontSize: 1 }}>Цена ({curIcon(sel.currency)} {fmt(sel.floor_price)}–{fmt(sel.ceiling_price)}):</Text>
-              <input type="number" value={price} onChange={e => setPrice(e.target.value)} style={inputStyle} />
-            </Box>
+            {needsPrice ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Text sx={{ fontSize: 1 }}>{selType === 'auction' ? 'Стартовая ставка' : 'Цена'} ({curIcon(sel.currency)} {fmt(sel.floor_price ?? 0)}–{sel.ceiling_price != null ? fmt(sel.ceiling_price) : '∞'}):</Text>
+                <input type="number" value={price} onChange={e => setPrice(e.target.value)} style={inputStyle} />
+              </Box>
+            ) : (
+              <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Цена не задаётся: покупатели сами присылают предложения, вы их принимаете или отклоняете.</Text>
+            )}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Text sx={{ fontSize: 1 }}>Количество:</Text>
               <input type="number" min={1} max={maxQty} value={qty}
                 onChange={e => setQty(Math.max(1, Math.min(maxQty, Math.floor(Number(e.target.value)) || 1)))} style={inputStyle} />
               <Button onClick={() => setQty(maxQty)}>Макс {maxQty}</Button>
             </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Text sx={{ fontSize: 1 }}>Срок:</Text>
-              {[1, 3, 7].map(d => (
-                <Button key={d} variant={days === d ? 'primary' : 'default'} onClick={() => setDays(d)}>{d} дн.</Button>
-              ))}
-            </Box>
+            {needsPrice && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Text sx={{ fontSize: 1 }}>Срок:</Text>
+                {[1, 3, 7].map(d => (
+                  <Button key={d} variant={days === d ? 'primary' : 'default'} onClick={() => setDays(d)}>{d} дн.</Button>
+                ))}
+              </Box>
+            )}
 
             {/* выбор аккаунтов, с которых выставлять */}
             <Box>
@@ -192,13 +313,7 @@ function SellDialog({ onClose, onListed, showFlash }: { onClose: () => void; onL
           </Box>
         )}
       </Box>
-      {sel && (
-        <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', justifyContent: 'flex-end' }}>
-          <Button variant="primary" loading={busy} disabled={busy || selAccounts.size === 0} onClick={list}>
-            {busy ? 'Выставляю…' : `Выставить ×${Math.min(qty, maxQty)}`}
-          </Button>
-        </Box>
-      )}
+      {policyModal && <PolicyCardModal variants={sellablePolicyVariants(policyModal, policyDefs)} onClose={() => setPolicyModal(null)} />}
     </Dialog>
   );
 }
@@ -213,6 +328,16 @@ export function MarketDeals({ type }: { type: DealType }) {
     { field: type === 'listings' ? 'created_at' : 'sold_at', dir: 'desc' }
   );
   const [sellOpen, setSellOpen] = useState(false);
+  const [sellSpecialOpen, setSellSpecialOpen] = useState(false);
+  // Выставили лот, пока открыт диалог → таблица устарела, но обновлять её ПРЯМО СЕЙЧАС нельзя:
+  // refresh() перетряхивает все аккаунты (долго), а его завершение перерисовывает страницу и сбивает
+  // открытый диалог — тот заново тянет свой долгий список продаваемого. Копим флаг, обновляем при закрытии.
+  // Именно ref, а не state: setState здесь сам вызвал бы перерисовку родителя (то, чего избегаем).
+  const pendingRefreshRef = useRef(false);
+  const closeSell = (setOpen: (v: boolean) => void) => () => {
+    setOpen(false);
+    if (pendingRefreshRef.current) { pendingRefreshRef.current = false; refresh(); }
+  };
   const [canceling, setCanceling] = useState<Set<number>>(new Set());
   const [cancelingAll, setCancelingAll] = useState(false);
   const { flash, showFlash } = useFlash();
@@ -325,12 +450,14 @@ export function MarketDeals({ type }: { type: DealType }) {
           { header: SortHeader('status', 'Статус'), field: 'status', renderCell: r => <Label variant={r.status === 'active' ? 'success' : 'default'}>{r.status ?? '—'}</Label> },
           { header: SortHeader('created_at', 'Создан'), field: 'created_at', renderCell: r => <span className="mono" style={{ fontSize: 11 }}>{fmtDate(r.created_at)}</span> },
           { header: SortHeader('ends_at', 'Осталось'), field: 'ends_at', renderCell: r => <span className="mono" style={{ fontSize: 11 }}>{timeLeft(r.ends_at)}</span> },
-          { header: () => <></>, field: 'listing_id', renderCell: r => (
-            r.status === 'active' && r.listing_id != null
-              ? <Button variant="danger" disabled={canceling.has(r.listing_id)} loading={canceling.has(r.listing_id)} onClick={() => cancelOne(r)}>
+          { header: () => <></>, field: 'listing_id', align: 'end', renderCell: r => (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              {r.status === 'active' && r.listing_id != null && (
+                <Button variant="danger" disabled={canceling.has(r.listing_id)} loading={canceling.has(r.listing_id)} onClick={() => cancelOne(r)}>
                   Отменить
                 </Button>
-              : null
+              )}
+            </Box>
           ) },
         ] as Col[])
       : ([
@@ -347,6 +474,7 @@ export function MarketDeals({ type }: { type: DealType }) {
       <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>Обновить</Button>
         {type === 'listings' && <Button variant="primary" leadingVisual={PlusIcon} onClick={() => setSellOpen(true)}>Выставить предмет</Button>}
+        {type === 'listings' && <Button leadingVisual={PlusIcon} onClick={() => setSellSpecialOpen(true)}>Выставить политику/осколок</Button>}
         {type === 'listings' && sorted.length > 0 && (
           <Button variant="danger" loading={cancelingAll} disabled={cancelingAll} onClick={cancelAll}>
             {account === 'all' ? 'Отменить все лоты' : `Отменить лоты ${account}`}
@@ -371,7 +499,8 @@ export function MarketDeals({ type }: { type: DealType }) {
             />
           </Table.Container>
       }
-      {sellOpen && <SellDialog onClose={() => setSellOpen(false)} onListed={() => refresh()} showFlash={showFlash} />}
+      {sellOpen && <SellDialog mode="items" onClose={closeSell(setSellOpen)} onListed={() => { pendingRefreshRef.current = true; }} showFlash={showFlash} />}
+      {sellSpecialOpen && <SellDialog mode="special" onClose={closeSell(setSellSpecialOpen)} onListed={() => { pendingRefreshRef.current = true; }} showFlash={showFlash} />}
     </Box>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Label, Dialog, Spinner, Text } from '@primer/react';
+import { Box, Button, Flash, Heading, Label, Spinner, Text } from '@primer/react';
+import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, PencilIcon } from '@primer/octicons-react';
 import { api, type WordleRow } from '../api';
@@ -29,9 +30,17 @@ function ManualWordDialog({ onClose, onDone, showFlash }: { onClose: () => void;
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="manual-word-title" sx={{ maxWidth: 460, width: '95vw' }}>
-      <Dialog.Header id="manual-word-title">Ввести слово на все аккаунты</Dialog.Header>
-      <Box sx={{ p: 2 }}>
+    <Dialog
+      title="Ввести слово на все аккаунты"
+      onClose={onClose}
+      width="large"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[
+        { content: results ? 'Закрыть' : 'Отмена', onClick: onClose },
+        { content: 'Подать на все', buttonType: 'primary', disabled: !valid || busy, loading: busy, onClick: submit },
+      ]}
+    >
+      <Box>
         <Text sx={{ fontSize: 1, color: 'fg.muted', display: 'block', mb: 2 }}>
           Слово (6-я попытка) будет подано на все аккаунты, которые ещё не выиграли и не исчерпали попытки.
         </Text>
@@ -56,12 +65,6 @@ function ManualWordDialog({ onClose, onDone, showFlash }: { onClose: () => void;
             ))}
           </Scrollable>
         )}
-      </Box>
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-        <Button onClick={onClose}>{results ? 'Закрыть' : 'Отмена'}</Button>
-        <Button variant="primary" disabled={!valid || busy} loading={busy} onClick={submit}>
-          Подать на все
-        </Button>
       </Box>
     </Dialog>
   );

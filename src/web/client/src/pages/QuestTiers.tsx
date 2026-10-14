@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Checkbox, Flash, Heading, Spinner, Text, Label, ProgressBar, TextInput, Dialog, Select } from '@primer/react';
+import { Box, Button, Checkbox, Flash, Heading, Spinner, Text, Label, ProgressBar, TextInput, Select } from '@primer/react';
+import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table, type Column } from '@primer/react/experimental';
 import { api, type GuildMembership, type QuestTierGuild, type QuestTierData } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { fmtDate } from '../utils';
-import { Scrollable } from '../components/Scrollable';
 
 // Уровни гильдейских квестов (guild-quests/tiers) — новая система обновления 06.07.2026.
 // GET подтверждён живым запросом (DevTools, 09.07.2026). Тело POST contribute — нет (пробуем
@@ -60,9 +60,21 @@ function ContributeModal({ guildId, title, accounts, data, onClose, onRefreshed 
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} sx={{ maxWidth: 460, width: '95vw' }}>
-      <Dialog.Header>Взнос Почёта · {title}</Dialog.Header>
-      <Scrollable style={{ maxHeight: '75vh', padding: 8 }}>
+    <Dialog
+      title={`Взнос Почёта · ${title}`}
+      onClose={onClose}
+      width="large"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[{
+        content: `Внести с выбранных (${selected.size})`,
+        buttonType: 'primary',
+        block: true,
+        loading: busy,
+        disabled: busy || !data || tierId == null || selected.size === 0,
+        onClick: submit,
+      }]}
+    >
+      <Box>
         {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{flash.msg}</Flash>}
 
         {!data ? (
@@ -117,11 +129,6 @@ function ContributeModal({ guildId, title, accounts, data, onClose, onRefreshed 
             </Box>
           </>
         )}
-      </Scrollable>
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default' }}>
-        <Button block variant="primary" loading={busy} disabled={busy || !data || tierId == null || selected.size === 0} onClick={submit}>
-          Внести с выбранных ({selected.size})
-        </Button>
       </Box>
     </Dialog>
   );
@@ -288,7 +295,7 @@ export function QuestTiers() {
         : <Text sx={{ color: 'fg.subtle' }}>—</Text>,
     },
     {
-      header: '', id: 'actions',
+      header: '', id: 'actions', align: 'end',
       renderCell: (r: Row) => (
         <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <Button loading={refreshingId === r.id} disabled={refreshingId != null} onClick={() => refresh(r.id)}>

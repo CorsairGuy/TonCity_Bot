@@ -317,6 +317,7 @@ export function Fortune() {
                 header: 'Действие',
                 field: 'name' as const,
                 id: 'action',
+                align: 'end' as const,
                 renderCell: (row: { id: number; name: string }) => {
                   const isSpinning = spinningId === row.id;
                   const canAct = (row.id ?? 0) > 0;

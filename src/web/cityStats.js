@@ -14,14 +14,24 @@
 //   старый уровень, а именно ноль (сверено с бандлом: actualProfit/actualPopulation = isUnderConstruction?0:...)
 const fs = require('fs'), path = require('path');
 
+// Каталог берём ЖИВОЙ (config/buildings-live.json, обновляется из игры — см.
+// utils/buildingCatalog.js), а config/buildings.txt держим фолбэком. Это важно на время событий:
+// «Летний карнавал» даёт −75% на постройку/улучшение города, и эта скидка приходит именно в
+// каталоге — по старому файлу бот планировал бы по ценам вчетверо выше реальных.
 let _map = null;
 function buildingsMap() {
   if (_map) return _map;
-  const fp = path.join(process.cwd(), 'config', 'buildings.txt');
-  const list = fs.existsSync(fp) ? JSON.parse(fs.readFileSync(fp, 'utf8')) : [];
+  const live = path.join(process.cwd(), 'config', 'buildings-live.json');
+  const fallback = path.join(process.cwd(), 'config', 'buildings.txt');
+  const fp = fs.existsSync(live) ? live : fallback;
+  let list = [];
+  try { list = JSON.parse(fs.readFileSync(fp, 'utf8')); }
+  catch (e) { try { list = JSON.parse(fs.readFileSync(fallback, 'utf8')); } catch (_) { list = []; } }
   _map = new Map(list.map(b => [b.id, b]));
   return _map;
 }
+// сбрасывается после обновления каталога с игры
+function invalidateBuildingsMap() { _map = null; }
 
 const isStar = info => info.star_lvl !== null && info.star_lvl !== undefined;
 const familyId = id => id.replace(/_\d+_star\.png$/i, '.png');
@@ -108,14 +118,34 @@ function upgradeCostTo(info, target) {
 }
 
 // время улучшения с уровня s на s+1, в секундах — сверено с бандлом game.toncity.io
-// (getBaseUpgradeDuration городского здания): длительность растёт вдвое с каждым уровнем от
-// construction_increment (тот же множитель для всех городских зданий), с потолком 24ч
-const UPGRADE_TIME_CAP_SEC = 86400;
-function upgradeDuration(info, s) {
+// (getBaseUpgradeDuration ГОРОДСКОГО здания): длительность растёт вдвое с каждым уровнем от
+// construction_increment (тот же множитель для всех городских зданий), с потолком.
+//
+// ПОТОЛОК НЕ ПОСТОЯНЕН. В бандле это Duration-константа (`vk`), и на время «Летнего карнавала»
+// (событие 10-23.08.2026) игра выкатила её равной 12 часам вместо обычных 24 — проверено прямо в
+// живом бандле 12.08.2026: `const vk=Ht.fromObject({hours:12}),bk=Ht.fromObject({days:7}),
+// _k=Ht.fromObject({days:2})`. Столицы не тронуты: bk/_k — это потолки СТОЛИЧНЫХ зданий (7 дней,
+// у commercial 2 дня), они считаются в capitalStats и здесь ни при чём.
+// Пока потолок урезан, прогноз со старыми 24ч завышал время каждой стройки выше уровня отсечки
+// ВДВОЕ. Окно задано датами события; после него игра возвращает 24ч. Если игра поменяет потолок
+// внепланово — переопределяется переменной окружения CITY_UPGRADE_CAP_SEC без правки кода.
+const UPGRADE_TIME_CAP_SEC = 86400;              // обычный потолок города
+const EVENT_UPGRADE_TIME_CAP_SEC = 43200;        // «Летний карнавал»: 12ч
+const EVENT_CAP_FROM_MS = Date.UTC(2026, 7, 10); // 10.08.2026 00:00 UTC — старт события
+const EVENT_CAP_TO_MS = Date.UTC(2026, 7, 24);   // 24.08.2026 00:00 UTC — сутки после последнего дня
+function upgradeTimeCapSec(nowMs = Date.now()) {
+  const override = Number(process.env.CITY_UPGRADE_CAP_SEC);
+  if (Number.isFinite(override) && override > 0) return override;
+  return (nowMs >= EVENT_CAP_FROM_MS && nowMs < EVENT_CAP_TO_MS)
+    ? EVENT_UPGRADE_TIME_CAP_SEC
+    : UPGRADE_TIME_CAP_SEC;
+}
+function upgradeDuration(info, s, nowMs = Date.now()) {
   const inc = info.construction_increment || 0;
   if (!inc) return 0;
-  const capLevel = Math.floor(Math.log2(UPGRADE_TIME_CAP_SEC / inc)) + 2;
-  return s > capLevel ? UPGRADE_TIME_CAP_SEC : inc * Math.pow(2, s - 2);
+  const cap = upgradeTimeCapSec(nowMs);
+  const capLevel = Math.floor(Math.log2(cap / inc)) + 2;
+  return s > capLevel ? cap : inc * Math.pow(2, s - 2);
 }
 
 // реальное время улучшения с учётом гильдийского бонуса/политики/активного ускорителя — сверено с
@@ -127,18 +157,57 @@ function upgradeDuration(info, s) {
 // множитель ЦЕЛИКОМ, если ускорителя хватает на всю стройку (endsAt после расчётного финиша), либо
 // расщепляется на "ускоренный" + "обычный" отрезок, если он истечёт раньше (см. formula ниже —
 // 1:1 математика из бандла, только в секундах вместо Luxon Duration).
+// mods.boosterTimeline — ПОСЛЕДОВАТЕЛЬНОСТЬ окон ускорителей [{fromMs,toMs,multiplier}], а не один
+// текущий буст: сейчас активна лега, следом по очереди активации пойдёт эпик, потом два мифика — у каждого
+// свой множитель и своя длительность (см. modules/progress.js loadBoosterTimeline). Старое поле
+// mods.booster {multiplier,endsAt} продолжает работать — оно просто превращается в одно окно.
+//
+// Считаем «работой» базовые секунды стройки a: за Δt реального времени внутри окна с множителем h
+// делается Δt*h работы. Идём по окнам от startMs, списывая работу, и возвращаем РЕАЛЬНОЕ время.
+function boosterWindows(mods, startMs) {
+  const raw = Array.isArray(mods?.boosterTimeline) && mods.boosterTimeline.length
+    ? mods.boosterTimeline
+    : (mods?.booster?.multiplier > 1 && mods?.booster?.endsAt
+      ? [{ fromMs: startMs, toMs: mods.booster.endsAt, multiplier: mods.booster.multiplier }]
+      : []);
+  return raw
+    .filter(w => w && w.multiplier > 1 && w.toMs > startMs && w.toMs > w.fromMs)
+    .map(w => ({ fromMs: Math.max(Number(w.fromMs) || 0, startMs), toMs: Number(w.toMs) || 0, multiplier: Number(w.multiplier) || 1 }))
+    .sort((x, y) => x.fromMs - y.fromMs);
+}
+
 function effectiveUpgradeDuration(info, s, mods, startMs = Date.now()) {
-  let a = upgradeDuration(info, s);
+  // потолок берём НА МОМЕНТ СТАРТА этой стройки, а не «сейчас»: прогноз уходит на дни вперёд и
+  // легко пересекает конец события, когда игра вернёт обычные 24ч (см. upgradeTimeCapSec)
+  let a = upgradeDuration(info, s, startMs);
   if (mods?.reducedUpgradeTimes) a *= (1 - mods.reducedUpgradeTimes);
   if (mods?.constructionTimeMultiplier && mods.constructionTimeMultiplier !== 1) a *= mods.constructionTimeMultiplier;
-  const booster = mods?.booster;
-  if (!booster?.multiplier || booster.multiplier === 1 || !booster.endsAt) return a;
-  const h = booster.multiplier;
-  const finishIfFullyBoostedMs = startMs + (a * 1000) / h;
-  if (booster.endsAt >= finishIfFullyBoostedMs) return a / h;
-  const boostedSec = Math.max(0, (booster.endsAt - startMs) / 1000);
-  const remainingSec = Math.max(0, a - boostedSec * h);
-  return boostedSec + remainingSec;
+  // серверный множитель (ивенты) — в формуле клиента игры его НЕТ, он выводится ПО ФАКТУ из
+  // start/end уже идущих строек, см. modules/progress.js loadServerTimeFactor
+  if (mods?.serverTimeFactor && mods.serverTimeFactor !== 1) a *= mods.serverTimeFactor;
+  const windows = boosterWindows(mods, startMs);
+  if (!windows.length) return a;
+
+  let remaining = a;   // сколько «работы» осталось, в базовых секундах
+  let elapsed = 0;     // реально прошедшее время, в секундах
+  let t = startMs;     // текущий момент
+  for (const w of windows) {
+    if (remaining <= 0) break;
+    if (w.toMs <= t) continue;
+    if (w.fromMs > t) { // дырка между окнами — идём с обычной скоростью
+      const gapSec = (w.fromMs - t) / 1000;
+      const use = Math.min(remaining, gapSec);
+      elapsed += use; remaining -= use; t += use * 1000;
+      if (remaining <= 0) break;
+      if (t < w.fromMs) break; // работа кончилась раньше начала окна
+    }
+    const segSec = (w.toMs - t) / 1000;
+    const workInSeg = segSec * w.multiplier;
+    if (workInSeg >= remaining) { elapsed += remaining / w.multiplier; remaining = 0; break; }
+    elapsed += segSec; remaining -= workInSeg; t = w.toMs;
+  }
+  if (remaining > 0) elapsed += remaining; // хвост уже без ускорителей
+  return elapsed;
 }
 
 // mods — необязательные живые модификаторы от гильдии/политик/разнообразия аккаунта (см.
@@ -283,4 +352,4 @@ function buildPriceAt(info, k) {
   return Math.round((info.base_price || 0) * Math.pow(info.base_price_factor ?? 1, k));
 }
 
-module.exports = { computeCityStats, buildingsMap, popAtLevel, profitAtLevel, coverageAtLevel, upgradeCostTo, upgradeStep, upgradeDuration, effectiveUpgradeDuration, buildPriceAt, familyId };
+module.exports = { computeCityStats, boosterWindows, buildingsMap, invalidateBuildingsMap, popAtLevel, profitAtLevel, coverageAtLevel, upgradeCostTo, upgradeStep, upgradeDuration, upgradeTimeCapSec, effectiveUpgradeDuration, buildPriceAt, familyId };

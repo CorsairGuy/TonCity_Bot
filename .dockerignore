@@ -28,3 +28,10 @@ config/bot-state.json
 .idea
 .DS_Store
 Thumbs.db
+
+# данные БД, кэш из игры и локальные настройки — не должны попадать в образ
+db_data
+items-live
+config/items-live.json
+config/buildings-live.json
+.claude

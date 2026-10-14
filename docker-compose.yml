@@ -1,14 +1,19 @@
 services:
   db:
     image: mariadb:10.11
-    container_name: toncity_db
+    # Имя контейнера параметризовано, чтобы на одном хосте можно было поднять НЕСКОЛЬКО
+    # экземпляров бота. container_name — глобально уникальное имя на весь демон Docker, его не
+    # спасает даже отдельный проект compose (в отличие от volume/network, которым compose сам
+    # приписывает префикс проекта) — отсюда «Conflict. The container name is already in use».
+    # Второй экземпляр: свой каталог, свой .env со STACK_NAME/WEB_PORT/DB_EXPOSED_PORT.
+    container_name: ${STACK_NAME:-toncity}_db
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
       MYSQL_DATABASE: ${DB_NAME:-db_main}
     ports:
       - "${DB_EXPOSED_PORT:-3377}:3306"
     volumes:
-      - db_data:/var/lib/mysql
+      - ./db_data:/var/lib/mysql
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
@@ -18,7 +23,7 @@ services:
       retries: 10
   bot:
     build: .
-    container_name: toncity_bot
+    container_name: ${STACK_NAME:-toncity}_bot
     depends_on:
       db:
         condition: service_healthy
@@ -42,16 +47,20 @@ services:
       - ./logs:/app/logs
       - ./config:/app/config
       - ./src:/app/src
-      # именованный volume ПОВЕРХ ./src:/app/src — иначе bind-mount всего src/ с хоста подменяет
-      # собранный в образе фронтенд (Dockerfile: npm run build → src/web/dist) пустой/отсутствующей
-      # директорией с хоста, и панель отвечает "Frontend не собран". Docker при первом запуске сам
-      # копирует содержимое этого пути ИЗ ОБРАЗА в новый именованный volume — дальше он живёт
-      # независимо от bind-mount'а хоста.
-      - web_dist:/app/src/web/dist
+      # РАНЬШЕ здесь был отдельный именованный volume поверх ./src/web/dist — специально чтобы
+      # пустой bind-mount с хоста (если фронтенд там ещё ни разу не собирали) не затирал собранный
+      # В ОБРАЗЕ фронтенд пустой директорией. Убрано (31.07.2026): раз фронтенд теперь регулярно
+      # пересобирается ПРЯМО НА ХОСТЕ (npm run build в src/web/client → src/web/dist), тот volume
+      # только мешал — держал СТАРУЮ копию, никогда не обновлявшуюся сам по себе, и каждое
+      # обновление фронта требовало ручного docker cp внутрь контейнера. Теперь dist читается
+      # НАПРЯМУЮ из хоста через bind-mount ./src — простой пересборки на хосте (npm run build)
+      # достаточно, контейнер видит файлы сразу же, без docker cp/restart, PWA-автообновление
+      # (registerSW.ts) само подхватывает новый бандл при обновлении страницы.
+      # ВАЖНО для НОВОГО/чистого разворачивания: перед первым запуском обязательно собрать фронтенд
+      # на хосте (cd src/web/client && npm install && npm run build), иначе dist/ будет пуст.
       - ./nodemon.json:/app/nodemon.json
     restart: unless-stopped
     mem_limit: 4g
     memswap_limit: 4g
 volumes:
   db_data:
-  web_dist:

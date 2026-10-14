@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Dialog, Flash, Heading, Label, Spinner, Text, Select, Checkbox, TextInput } from '@primer/react';
+import { Box, Button, Flash, Heading, Label, Spinner, Text, Select, Checkbox, TextInput } from '@primer/react';
+import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, ZapIcon } from '@primer/octicons-react';
 import { api, type MarketOffer, type Account, type MarketAutobuyRule, type MarketSnipeRow, type PolicyDefEntry } from '../api';
@@ -16,8 +17,11 @@ import { Scrollable } from '../components/Scrollable';
 function offerPolicyVariants(o: MarketOffer, catalog: PolicyDefEntry[]): PolicyDefEntry[] {
   const p = o.policy;
   if (!p) return [];
-  const exact = catalog.find(d => d.def_id === p.def_id);
-  if (exact) return [exact];
+  // ищем по ПАРЕ def_id+редкость лота: у одной политики один def_id на несколько редкостей, и поиск
+  // только по def_id открывал карточку чужого варианта (эпический лот → карточка обычной политики)
+  const exact = catalog.find(d => d.def_id === p.def_id && d.rarity === o.item_rarity)
+    ?? catalog.find(d => d.def_id === p.def_id && d.rarity === 'unknown');
+  if (exact) return [{ ...exact, rarity: o.item_rarity }];
   return [{
     def_id: p.def_id, rarity: o.item_rarity, name: p.name ?? null, description: null,
     icon_key: p.icon_key ?? null, theme: p.theme ?? null, badge: null, badge_n: null,
@@ -53,11 +57,23 @@ const ITEM_FILTERS: { id: number; category: string; rarity: string }[] = [
 ];
 const PAGE_SIZE = 20;
 
-// Полный фильтр как в игре (обновление рынка). Значения — как в бандле игры.
+// Полный фильтр как в игре (обновление рынка). Значения — РЕАЛЬНЫЕ query-параметры API, проверены
+// 13.10.2026 живыми запросами к /market/offers с каждым кандидатом (см. историю правки): объект
+// market.categories в бандле (entry.js) — это таблица ПЕРЕВОДОВ (i18n-ключи во множественном числе:
+// policies/shards/consumables), а не значения фильтра — попытка взять значения оттуда была ошибкой
+// (игра на незнакомое значение молча отдаёт вообще все офферы, что и выглядело как «не фильтрует»).
+// Настоящий API принимает ТОЛЬКО единственное число: policy/shard/booster/pack/consumable — что и
+// подтвердил прямой перебор (booster→106, pack→165, policy→80, shard→55, consumable→6 из 508; любая
+// форма множественного числа возвращала все 508 без фильтрации).
+// В игре "Материал" — это группа из трёх категорий разом (masterplan+component+consumable, см.
+// chunks/market_utils-*.js, массив W: {key:Masterplan,categories:[Masterplan,Component,Consumable]}).
+// В панели сделано ПО-ДРУГОМУ, осознанно: три отдельных пункта вместо одного общего — для бота
+// точечный фильтр полезнее, чем повторение группировки игры.
 const CATEGORIES: { value: string; label: string }[] = [
   { value: 'booster', label: 'Ускоритель' }, { value: 'pack', label: 'Набор' },
   { value: 'policy', label: 'Политика' }, { value: 'shard', label: 'Осколок' },
-  { value: 'material', label: 'Материал' },
+  { value: 'component', label: 'Компонент' }, { value: 'masterplan', label: 'Мастерплан' },
+  { value: 'consumable', label: 'Материал' },
 ];
 const RARITIES: { value: string; label: string }[] = [
   { value: 'common', label: 'Обычный' }, { value: 'uncommon', label: 'Необычный' },
@@ -135,9 +151,13 @@ function BuyDialog({ offer, accounts, onClose, showFlash, onBought }: {
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="buy-title" sx={{ maxWidth: 480, width: '95vw' }}>
-      <Dialog.Header id="buy-title">{isEscrow ? 'Автопокупка эскроу-лота' : 'Купить лот'}</Dialog.Header>
-      <Box sx={{ p: 2 }}>
+    <Dialog
+      title={isEscrow ? 'Автопокупка эскроу-лота' : 'Купить лот'}
+      onClose={onClose}
+      width="large"
+      position={{ narrow: 'bottom', regular: 'center' }}
+    >
+      <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
           {meta && <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 40, height: 40, objectFit: 'contain' }} />}
           <Box>
@@ -204,9 +224,8 @@ function OfferActionDialog({ offer, accounts, title, actionLabel, defaultAmount,
   };
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="offact-title" sx={{ maxWidth: 480, width: '95vw' }}>
-      <Dialog.Header id="offact-title">{title}</Dialog.Header>
-      <Box sx={{ p: 2 }}>
+    <Dialog title={title} onClose={onClose} width="large" position={{ narrow: 'bottom', regular: 'center' }}>
+      <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
           {meta && <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 40, height: 40, objectFit: 'contain' }} />}
           <Box>
@@ -312,9 +331,15 @@ function AutoBuyManager({ accounts, onClose, showFlash }: {
   const inputStyle = { padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, width: 120 };
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="abm-title" sx={{ maxWidth: 720, width: '95vw' }}>
-      <Dialog.Header id="abm-title">Автопокупка — правила</Dialog.Header>
-      <Scrollable style={{ maxHeight: '72vh', padding: 8 }}>
+    // 720px шире пресета xlarge (640) — дожимаем через sx
+    <Dialog
+      title="Автопокупка — правила"
+      onClose={onClose}
+      width="xlarge"
+      sx={{ '@media (min-width: 768px)': { width: 720 } }}
+      position={{ narrow: 'bottom', regular: 'center' }}
+    >
+      <Box>
         {/* форма создания/редактирования */}
         <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 2, mb: 3 }}>
           <Text sx={{ fontWeight: 'bold', display: 'block', mb: 2 }}>{editId ? 'Редактировать правило' : 'Новое правило'}</Text>
@@ -372,7 +397,7 @@ function AutoBuyManager({ accounts, onClose, showFlash }: {
             </Box>
           ))
         }
-      </Scrollable>
+      </Box>
     </Dialog>
   );
 }
@@ -395,9 +420,8 @@ function SnipeManager({ accounts, onClose }: { accounts: Account[]; onClose: () 
   });
 
   return (
-    <Dialog isOpen onDismiss={onClose} aria-labelledby="snipe-title" sx={{ maxWidth: 640, width: '95vw' }}>
-      <Dialog.Header id="snipe-title">Снайпы</Dialog.Header>
-      <Scrollable style={{ maxHeight: '72vh', padding: 8 }}>
+    <Dialog title="Снайпы" onClose={onClose} width="xlarge" position={{ narrow: 'bottom', regular: 'center' }}>
+      <Box>
         {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
           : sorted.length === 0 ? <Text sx={{ color: 'fg.muted' }}>Снайпов нет</Text>
           : sorted.map(s => {
@@ -420,7 +444,7 @@ function SnipeManager({ accounts, onClose }: { accounts: Account[]; onClose: () 
             );
           })
         }
-      </Scrollable>
+      </Box>
     </Dialog>
   );
 }
@@ -612,17 +636,19 @@ export function MarketLots() {
               },
             },
             {
-              header: () => <></>, field: 'id',
+              header: () => <></>, field: 'id', align: 'end',
               renderCell: o => {
                 const sold = o.status === 'sold' || !!o.sold_at;
                 const mine = o.mine_account != null;
                 const escrow = !sold && !!o.available_at && new Date(o.available_at).getTime() > Date.now();
                 const mt = o.market_type ?? 'direct';
-                if (mine) return <Button variant="default" disabled>Свой</Button>;
-                if (sold) return <Button variant="default" disabled>Продано</Button>;
-                if (mt === 'auction') return <Button variant="primary" onClick={() => setBidOffer(o)}>Ставка</Button>;
-                if (mt === 'negotiation') return <Button variant="primary" onClick={() => setNegOffer(o)}>Оффер</Button>;
-                return <Button variant="primary" onClick={() => setBuyOffer(o)}>{escrow ? 'Снайп' : 'Купить'}</Button>;
+                // Аукционы: своим тоже можно ставить ставки (боты набивают друг другу цену) — блок "Свой" их не касается
+                const btn = (mine && mt !== 'auction') ? <Button variant="default" disabled>Свой</Button>
+                  : sold ? <Button variant="default" disabled>Продано</Button>
+                  : mt === 'auction' ? <Button variant="primary" onClick={() => setBidOffer(o)}>Ставка</Button>
+                  : mt === 'negotiation' ? <Button variant="primary" onClick={() => setNegOffer(o)}>Оффер</Button>
+                  : <Button variant="primary" onClick={() => setBuyOffer(o)}>{escrow ? 'Снайп' : 'Купить'}</Button>;
+                return <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>{btn}</Box>;
               },
             },
           ]}

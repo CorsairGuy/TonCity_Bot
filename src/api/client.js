@@ -67,6 +67,42 @@ function formatAxiosError(method,path,e){
   if(status===403&&/direct api access is not allowed/i.test(String(errText)))err.directDenied=true;
   return err;
 }
+// «Игра не ответила» — соединение оборвалось/вышел таймаут, HTTP-ответа НЕТ вообще. Это НЕ то же
+// самое, что ответ 4xx/5xx: там игра запрос обработала и высказалась, повторять нечего.
+// Сюда же таймаут общей очереди (apiLock): запрос столько ждал слот, что мы отменили ожидание —
+// ответа игры мы опять-таки не видели. Для чтения это повод повторить, для действий — нет.
+const isNoAnswer = e => /apiLock: задача не завершилась/i.test(String(e?.message || '')) || (!e?.response && (
+  ['ECONNABORTED','ETIMEDOUT','ECONNRESET','EAI_AGAIN','ENOTFOUND','EPIPE'].includes(e?.code) ||
+  /timeout|socket hang up|network error/i.test(String(e?.message||''))));
+
+// Сколько раз перечитывать. Только для ЧТЕНИЯ (GET): читать безопасно сколько угодно, ответа мы
+// всё равно ещё не получили. Для изменяющих запросов (POST/PATCH: улучшение, взнос в казну,
+// реконструкция, ход в игре) повтор ЗАПРЕЩЁН: молчание сервера не значит, что он не обработал —
+// по опыту обрабатывает, и повтор сделал бы действие дважды.
+// Повторов немного и намеренно: сверху ретраит ещё и проход по аккаунтам (web/lib/accountSweep.js),
+// и десять попыток на каждом уровне умножались друг на друга — 57 аккаунтов молотили игру сотнями
+// запросов, из-за чего она молчала ЕЩЁ больше, а страница получала данные не по всем аккаунтам
+// (жалоба 21.08.2026 про магазин). Три попытки закрывают одиночный сбой, а массовый решается
+// снижением темпа — см. датчик давления ниже.
+const READ_RETRIES = 3;
+// Плюс общий потолок по времени: сам запрос ждёт ответа до 30 с, и без ограничения десять попыток
+// держали бы один вызов больше пяти минут — а его ждёт цикл прокачки или страница панели.
+const READ_BUDGET_MS = 30000;
+// Сколько раз пробуем поднять сессию (WS/seed) перед тем, как сдаться. Это НЕ повтор запроса к
+// игре: такие ошибки помечены skipped, запрос не отправлялся — повтор безопасен и для действий.
+const SESSION_RETRIES = 3;
+// Давление = сколько ответов подряд игра не дала (по всему процессу, не по одному аккаунту).
+// Растёт на каждом молчании, обнуляется первым же успешным ответом. Пауза перед повтором
+// умножается на него: при массовом сбое стадо из полусотни аккаунтов расходится по времени
+// вместо того, чтобы синхронно долбить игру.
+let noAnswerPressure = 0;
+const bumpPressure = () => { noAnswerPressure = Math.min(noAnswerPressure + 1, 20); };
+const easePressure = () => { noAnswerPressure = 0; };
+const readBackoffMs = attempt => {
+  const base = Math.min(1000 * attempt, 5000);
+  const crowd = 1 + Math.min(noAnswerPressure, 10) / 2;      // до ×6 при массовом молчании
+  return Math.round(base * crowd * (0.5 + Math.random()));   // + разброс, чтобы не ходить строем
+};
 class ApiClient{
   constructor(t){
     this.token=t;
@@ -104,6 +140,50 @@ class ApiClient{
     // («любые действия внутри здания только при его наличии»).
     const missing=buildingReg.shouldBlock(this._accountId,p);
     if(missing)throw noBuildingError(method,p,missing);
+    // Повтор ТОЛЬКО для чтения и ТОЛЬКО когда игра вообще не ответила (см. isNoAnswer). Пауза между
+    // попытками — снаружи apiLock, иначе ожидание держало бы общий лимитер и тормозило весь бот.
+    const readable = method === 'GET';
+    const started = Date.now();
+    const deadline = started + READ_BUDGET_MS;
+    const readAttempts = readable ? READ_RETRIES : 1;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= Math.max(readAttempts, SESSION_RETRIES); attempt++) {
+      try {
+        return await this._send(method, p, fn);
+      } catch (e) {
+        lastErr = e;
+        // Запрос НЕ УХОДИЛ в игру (нет seed / WS не поднялся — такие ошибки помечены skipped).
+        // Это можно повторять даже для ИЗМЕНЯЮЩИХ запросов: игра ничего не получила и ничего не
+        // выполнила. Между попытками подталкиваем сессию к реальному переподключению, иначе
+        // ждать бесполезно — сокет сам себя не поднимет.
+        if (e && e.skipped && attempt < SESSION_RETRIES && Date.now() < deadline) {
+          if (this._accountId != null) { try { wsSession.forceReconnect(this._accountId); } catch (_) {} }
+          const wait = 2000 * attempt;
+          require('../utils/logger').warn(`[api] ${method} ${p}: сессия не готова (попытка ${attempt}) — поднимаю WS, повтор через ${wait / 1000}с`);
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        const noAnswer = isNoAnswer(e?.cause || e);
+        if (noAnswer) bumpPressure();      // датчик общего давления: игра молчит
+        if (!readable || !noAnswer || attempt >= readAttempts || Date.now() >= deadline) {
+          // дописываем в текст, сколько раз пробовали — иначе строка в логе модуля выглядит так,
+          // будто повтора не было вовсе (вопрос 21.08: «а вторая строка тоже делает новый запрос?»)
+          if (attempt > 1 && e && typeof e.message === 'string' && !/попыт/i.test(e.message)) {
+            e.message += ` — сдался после ${attempt} попыток за ${Math.round((Date.now() - started) / 1000)}с`;
+          }
+          throw e;
+        }
+        const wait = readBackoffMs(attempt);
+        if (attempt === 1 || attempt % 4 === 0) {
+          require('../utils/logger').warn(`[api] [acc ${this._accountId ?? '—'}] ${method} ${p}: игра не ответила (попытка ${attempt}, давление ${noAnswerPressure}) — повтор через ${Math.round(wait/1000)}с`);
+        }
+        await new Promise(r => setTimeout(r, wait));
+      }
+    }
+    throw lastErr;
+  }
+
+  async _send(method,p,fn){
     const runner=this._noLock?(task)=>task():(task)=>apiLock.run(task);
     return runner(async()=>{
       const gate=maintenance.acquire(); // бросит MaintenanceError, если игра на технических работах
@@ -123,6 +203,7 @@ class ApiClient{
       try{
         const data=(await fn()).data;
         maintenance.report(200,null,gate);
+        easePressure();          // игра ответила — давление снимаем
         return data;
       }catch(e){
         maintenance.report(e?.response?.status,e?.response?.data,gate);
@@ -146,7 +227,10 @@ class ApiClient{
       }
     });
   }
-  async get(p,params={}){return this._request('GET',p,()=>this._ax.get(p,{params,headers:this._sign('GET',p)}));}
+  // opts.timeout — разовое укорочение таймаута для конкретной ручки. Нужно там, где игра
+  // регулярно висит до общего axios timeout:30000, а ждать столько дорого: запрос всё это время
+  // держит общий apiLock (2 rps на все аккаунты), т.е. одна залипшая ручка тормозит весь бот.
+  async get(p,params={},opts={}){return this._request('GET',p,()=>this._ax.get(p,{params,headers:this._sign('GET',p),...(opts.timeout?{timeout:opts.timeout}:{})}));}
   async post(p,d={}){return this._request('POST',p,()=>this._ax.post(p,d,{headers:{'content-type':'application/json',...this._sign('POST',p)}}));}
   async patch(p,d={}){return this._request('PATCH',p,()=>this._ax.patch(p,d,{headers:{'content-type':'application/json',...this._sign('PATCH',p)}}));}
 }

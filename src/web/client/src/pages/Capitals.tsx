@@ -166,12 +166,17 @@ export function Capitals() {
                   {
                     header: '',
                     field: '_hasMap',
-                    renderCell: row => row._hasMap
-                      ? <Button variant="primary"
-                          onClick={() => navigate(`/city-map?account=${encodeURIComponent(row.guild_title)}&type=capital`)}>
-                          Карта
-                        </Button>
-                      : <Text sx={{ fontSize: 0, color: 'fg.muted' }}>—</Text>,
+                    align: 'end',
+                    renderCell: row => (
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        {row._hasMap
+                          ? <Button variant="primary"
+                              onClick={() => navigate(`/city-map?account=${encodeURIComponent(row.guild_title)}&type=capital`)}>
+                              Карта
+                            </Button>
+                          : <Text sx={{ fontSize: 0, color: 'fg.muted' }}>—</Text>}
+                      </Box>
+                    ),
                   },
                 ]}
               />
