@@ -124,8 +124,10 @@ export const api = {
   auditoriumAccounts: () => req<{ ok: boolean; accounts: BuildingAccount[] }>('/api/timeless-auditorium/accounts'),
   auditoriumStatus: (accountId: number) =>
     req<{ ok: boolean; error?: string } & Partial<AuditoriumStatus>>(`/api/timeless-auditorium/${accountId}/status`),
-  auditoriumEnter: (accountId: number) =>
-    req<{ ok: boolean; error?: string }>(`/api/timeless-auditorium/${accountId}/enter`, post({})),
+  // обмен Почёта на предмет — POST /timeless-auditorium/buy {sku} (эндпоинта /enter у игры нет)
+  auditoriumBuy: (accountId: number, sku: string) =>
+    req<{ ok: boolean; error?: string; data?: { balance: number; limits: AuditoriumSkuLimits | null; purchasable: boolean } }>(
+      `/api/timeless-auditorium/${accountId}/buy`, post({ sku })),
 
   // guilds — server: {account, guild_id, guild_title, role, benefits, updated_at}
   guilds: () => req<{ ok: boolean; rows: GuildMembership[] }>('/api/guilds'),
@@ -905,11 +907,42 @@ export interface AuditoriumGate {
   required: number;
   met: boolean;
 }
+// Витрина (GET /timeless-auditorium/catalog, 14.10.2026, chunks/timeless_auditorium-*.js).
+// tiers — уровни престижа (foyer/gallery/vault) по Почёту за всё время; товар доступен, когда
+// tier_met, хватает баланса и не исчерпан лимит (purchasable — вердикт сервера).
+export interface AuditoriumSkuLimits {
+  used: number;
+  limit: number;
+  remaining: number;
+  limit_days: number;
+  resets_at: string | null;
+}
+export interface AuditoriumSku {
+  code: string;
+  item_id: number;
+  quantity: number;
+  renown: number;
+  rarity: string;
+  min_lifetime_renown: number;
+  tier_met: boolean;
+  purchasable: boolean;
+  limits: AuditoriumSkuLimits | null;
+}
+export interface AuditoriumTier { tier: string; threshold: number; reached: boolean }
+export interface AuditoriumCatalog {
+  balance: number;
+  lifetime_earned: number;
+  tiers: AuditoriumTier[];
+  sections: { key: string; skus: AuditoriumSku[] }[];
+}
 export interface AuditoriumStatus {
   renown: AuditoriumGate | null;
   loyalty: AuditoriumGate | null;
   population: AuditoriumGate | null;
   unlocked: boolean;
+  in_guild: boolean | null;
+  has_auditorium: boolean | null;
+  catalog: AuditoriumCatalog | null;
   updated_at: string | null;
 }
 

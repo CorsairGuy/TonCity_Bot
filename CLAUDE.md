@@ -121,7 +121,7 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 | `capitalProgress` | `runCapitalProgress` | прокачка столицы по стратегии (§6) |
 | `policies` | `runPolicies` | политики города: `/policies/*` (библиотека, кабинет мэра, стаж/осколки/редкость) |
 | `satoshi`, `satoshiAutoClose`, `satoshiPendingOrders` | | Башня Сатоши: трейдинг GRAM, бот-side TP/SL и лимитки; стартуют из `web/server.js`, не из `index.js` |
-| `guildBuildings` | `runAuditorium`, `runTechFactory`, `runTechFactoryLoop` | Вечный аудиториум и Технофабрика: `/timeless-auditorium/*`, `/tech-factory/*`; очередь крафта per-account (`TechFactoryQueue`) |
+| `guildBuildings` | `runAuditorium`, `runTechFactory`, `runTechFactoryLoop` | Вечный аудиториум (`/timeless-auditorium/status`, `/catalog`, `POST /buy {sku}` — обмен Почёта на предметы) и Технофабрика `/tech-factory/*`; очередь крафта per-account (`TechFactoryQueue`) |
 | `questAutomation` | | автовыполнение гильдейских квестов только под живой квест нужного типа (`config.questAutomation`) |
 | `boosterAutomation` | `runBoosterAutomationLoop` | автоактивация ускорителей города, свой `noLock`-клиент |
 

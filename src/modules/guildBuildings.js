@@ -133,21 +133,37 @@ async function runTechFactoryLoop(api,name,accountId){
   }
 }
 
+// Вечный аудиториум. Эндпоинты сверены с бандлом игры (chunks/timeless_auditorium-*.js, 14.10.2026):
+//   GET  /timeless-auditorium/status  → {unlocked,in_guild,has_auditorium,renown,loyalty,population}
+//        (условия входа, gate={current,required,met}; доступен любому, даже без гильдии)
+//   GET  /timeless-auditorium/catalog → {balance,lifetime_earned,tiers[],sections[{key,skus[]}]}
+//        (витрина; закрытому аккаунту — ошибка, поэтому зовём только при unlocked)
+//   POST /timeless-auditorium/buy {sku:code} → {balance,limits,purchasable}
+// Эндпоинта /enter у игры НЕТ — «войти» означает просто выполнить условия.
+// 14.10.2026: gate hasBuilding('auditorium_level') убран по той же причине, что у технофабрики:
+// guild_special_buildings видит только лидер/офицер, а /status сам говорит has_auditorium.
 async function runAuditorium(api,name){
   try{
-    if(!(await hasBuilding(name,'auditorium_level'))){logger.info(`[${name}] [auditorium] гильдия не строила (или уровень не синхронизирован) — пропуск`);return;}
     const{AuditoriumStatus}=require('../db/index');
     const d=await api.get('/timeless-auditorium/status');
     if(!d)return;
+    let catalog=null;
+    if(d.unlocked){
+      try{catalog=await api.get('/timeless-auditorium/catalog');}
+      catch(e){logger.warn(`[${name}] [auditorium] catalog: ${e.message}`);}
+    }
     await AuditoriumStatus.upsert({
       account:name,
       renown:d.renown?JSON.stringify(d.renown):null,
       loyalty:d.loyalty?JSON.stringify(d.loyalty):null,
       population:d.population?JSON.stringify(d.population):null,
       unlocked:!!d.unlocked,
+      in_guild:d.in_guild==null?null:!!d.in_guild,
+      has_auditorium:d.has_auditorium==null?null:!!d.has_auditorium,
+      catalog:catalog?JSON.stringify(catalog):null,
       updated_at:new Date(),
     },{conflictFields:['account']});
-    logger.info(`[${name}] [auditorium] synced, unlocked: ${!!d.unlocked}`);
+    logger.info(`[${name}] [auditorium] synced, unlocked: ${!!d.unlocked}${catalog?`, renown: ${catalog.balance??'?'}`:''}`);
   }catch(e){logger.warn(`[${name}] [auditorium]: ${e.message}`);}
 }
 

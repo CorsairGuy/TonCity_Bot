@@ -556,6 +556,12 @@ const AuditoriumStatus=seq.define('AuditoriumStatus',{
   loyalty:T,    // JSON: {current,required,met}
   population:T, // JSON: {current,required,met}
   unlocked:{type:DataTypes.BOOLEAN,defaultValue:false},
+  // 14.10.2026: реверс chunks/timeless_auditorium-*.js — /status отдаёт ещё in_guild/has_auditorium
+  // (доступен ЛЮБОМУ члену гильдии, в отличие от guild_special_buildings), а открытым аккаунтам
+  // /catalog отдаёт витрину обмена Почёта: {balance,lifetime_earned,tiers[],sections[{key,skus[]}]}
+  in_guild:{type:DataTypes.BOOLEAN,allowNull:true},
+  has_auditorium:{type:DataTypes.BOOLEAN,allowNull:true},
+  catalog:LT,  // JSON ответа /timeless-auditorium/catalog (null — вход закрыт)
   updated_at:{type:DataTypes.DATE,defaultValue:DataTypes.NOW},
 },{tableName:'auditorium_status',timestamps:false});
 const PolicySnapshot=seq.define('PolicySnapshot',{
@@ -776,6 +782,10 @@ async function init(){
     // 13.10.2026: has_factory теперь из САМОГО /tech-factory/overview (доступен ЛЮБОМУ члену
     // гильдии), а не из guild_special_buildings (видна только лидеру/офицеру) — см. модель выше
     `ALTER TABLE tech_factory_status ADD COLUMN has_factory TINYINT(1) DEFAULT NULL`,
+    // 14.10.2026: витрина Вечного аудиториума (обмен Почёта на предметы) + флаги из /status
+    `ALTER TABLE auditorium_status ADD COLUMN in_guild TINYINT(1) DEFAULT NULL`,
+    `ALTER TABLE auditorium_status ADD COLUMN has_auditorium TINYINT(1) DEFAULT NULL`,
+    `ALTER TABLE auditorium_status ADD COLUMN catalog LONGTEXT`,
     `CREATE TABLE IF NOT EXISTS daily_reward_snapshot (id INT AUTO_INCREMENT PRIMARY KEY, account VARCHAR(255), streak INT DEFAULT NULL, last_login VARCHAR(40), rewards TEXT, updated_at DATETIME DEFAULT NULL, UNIQUE KEY uniq_daily_reward_account (account))`,
     // 13.10.2026: last_login — полный ISO-таймстамп от игры, VARCHAR(20) обрезал (1406/22001 в
     // логе, снимок не сохранялся вообще ни разу)

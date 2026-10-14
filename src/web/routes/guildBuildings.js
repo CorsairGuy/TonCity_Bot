@@ -180,34 +180,58 @@ module.exports=function(app,ctx){
   });
 
   // ── Вечный аудиториум ─────────────────────────────────────────────────────
+  // 14.10.2026: список — по снимку /status (has_auditorium виден любому члену гильдии). Старый путь
+  // через guild_special_buildings оставлен для строк, у которых флага ещё нет (до первой синхронизации).
   app.get('/api/timeless-auditorium/accounts',async(req,res)=>{
     try{
-      const accs=await eligibleAccounts('auditorium_level');
-      res.json({ok:true,accounts:accs.map(a=>({id:a.id,name:a.name}))});
+      const{AuditoriumStatus}=require('../../db/index');
+      const[accs,rows,legacy]=await Promise.all([
+        require('../../db/index').Account.findAll({order:[['id','ASC']]}),
+        AuditoriumStatus.findAll(),
+        eligibleAccounts('auditorium_level'),
+      ]);
+      const flag=new Map(rows.map(r=>[r.account,r.has_auditorium]));
+      const legacyNames=new Set(legacy.map(a=>a.name));
+      const result=accs.filter(a=>{
+        if(!a.access_token)return false;
+        const f=flag.get(a.name);
+        return f===true||(f==null&&legacyNames.has(a.name));
+      });
+      res.json({ok:true,accounts:result.map(a=>({id:a.id,name:a.name}))});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  // снимок из БД — без обращения к игре
   app.get('/api/timeless-auditorium/:accountId/status',async(req,res)=>{
     try{
       const acc=await findAccount(req.params.accountId);
       const{AuditoriumStatus}=require('../../db/index');
       const row=await AuditoriumStatus.findOne({where:{account:acc.name}});
-      if(!row)return res.json({ok:true,renown:null,loyalty:null,population:null,unlocked:false,updated_at:null});
+      if(!row)return res.json({ok:true,renown:null,loyalty:null,population:null,unlocked:false,in_guild:null,has_auditorium:null,catalog:null,updated_at:null});
       res.json({
         ok:true,
         renown:row.renown?JSON.parse(row.renown):null,
         loyalty:row.loyalty?JSON.parse(row.loyalty):null,
         population:row.population?JSON.parse(row.population):null,
         unlocked:!!row.unlocked,
+        in_guild:row.in_guild==null?null:!!row.in_guild,
+        has_auditorium:row.has_auditorium==null?null:!!row.has_auditorium,
+        catalog:row.catalog?JSON.parse(row.catalog):null,
         updated_at:row.updated_at,
       });
     }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
 
-  app.post('/api/timeless-auditorium/:accountId/enter',async(req,res)=>{
+  // обмен Почёта на предмет: POST /timeless-auditorium/buy {sku:<code товара>} (как в игре).
+  // Мутация — не повторяется; после ответа перечитываем status+catalog, чтобы баланс, лимиты и
+  // purchasable на странице были с сервера, а не вычислены локально.
+  app.post('/api/timeless-auditorium/:accountId/buy',async(req,res)=>{
     try{
       const acc=await findAccount(req.params.accountId);
-      const data=await apiForAcc(acc).post('/timeless-auditorium/enter');
+      const sku=String(req.body?.sku||'').trim();
+      if(!sku)return res.status(400).json({ok:false,error:'sku обязателен'});
+      const data=await apiForAcc(acc).post('/timeless-auditorium/buy',{sku});
+      logger.info(`[${acc.name}] [auditorium] куплено ${sku}, баланс Почёта: ${data?.balance??'?'}`);
       await require('../../modules/guildBuildings').runAuditorium(apiForAcc(acc),acc.name).catch(()=>{});
       res.json({ok:true,data});
     }catch(e){res.status(e.status||500).json({ok:false,error:midErr(e)});}

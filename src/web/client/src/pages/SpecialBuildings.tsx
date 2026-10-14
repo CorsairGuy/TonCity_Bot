@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Label, TextInput, ProgressBar, Tooltip, Select } from '@primer/react';
+import { Box, Button, Flash, Heading, Spinner, Text, Label, TextInput, ProgressBar, Tooltip, Select, UnderlineNav, ConfirmationDialog } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
-import { SyncIcon, CheckIcon, LockIcon, UnlockIcon, XIcon, TriangleUpIcon, TriangleDownIcon } from '@primer/octicons-react';
+import { SyncIcon, CheckIcon, LockIcon, UnlockIcon, XIcon, TriangleUpIcon, TriangleDownIcon, ClockIcon, AlertIcon } from '@primer/octicons-react';
 import {
   api, type SpecialBuildingRow, type BuildingAccount,
   type TechFactoryOverview, type TechFactoryCategory, type TechFactoryMachine, type TechFactoryTier,
-  type AuditoriumStatus, type AuditoriumGate, type LocText,
+  type AuditoriumStatus, type AuditoriumGate, type AuditoriumCatalog, type AuditoriumSku, type AuditoriumTier, type LocText,
 } from '../api';
-import { ITEMS_BY_ID, itemImgSrc, fmt } from '../utils';
+import { ITEMS_BY_ID, itemImgSrc, fmt, fmtInt } from '../utils';
+import { ItemThumb } from '../components/ItemThumb';
+import { RARITY_COLOR } from '../components/PolicyCardModal';
+import { useItemCatalog, catalogItemName, type CatalogItem } from '../hooks/useItemCatalog';
 import { RenownValue } from '../components/Icons';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
@@ -450,12 +453,20 @@ function FactoryLive() {
 }
 
 // ── Вечный аудиториум: интерактивная часть ────────────────────────────────────
+// Повторяет страницу игры (chunks/timeless_auditorium-*.js): пока вход закрыт — условия входа,
+// когда открыт — баланс Почёта, уровни престижа и витрина по разделам с обменом Почёта на предметы.
 
 const GATE_LABEL: Record<string, string> = {
   renown: 'Заработанный Почёт (за всё время в гильдии)',
-  loyalty: 'Верность гильдии (дней подряд)',
-  population: 'Население города',
+  loyalty: 'Верность гильдии (дней в текущей гильдии)',
+  population: 'Население города (до Квантовой лиги)',
 };
+const TIER_NAME: Record<string, string> = { foyer: 'Фойе', gallery: 'Галерея', vault: 'Хранилище' };
+const SECTION_NAME: Record<string, string> = {
+  shards: 'Осколки', mysteries: 'Тайные политики', packs: 'Наборы политик',
+  boosters: 'Ускорители', consumables: 'Уникальные артефакты',
+};
+const PERIOD_NAME: Record<number, string> = { 1: 'день', 7: 'неделю', 30: 'месяц' };
 
 function GateRow({ gateKey, gate }: { gateKey: string; gate: AuditoriumGate | null }) {
   if (!gate) return null;
@@ -471,14 +482,181 @@ function GateRow({ gateKey, gate }: { gateKey: string; gate: AuditoriumGate | nu
   );
 }
 
+function TierLadder({ tiers, lifetime }: { tiers: AuditoriumTier[]; lifetime: number }) {
+  const next = tiers.find(t => !t.reached);
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 3, mb: 3 }}>
+      <Text sx={{ fontWeight: 'bold', display: 'block', mb: 2 }}>Уровни престижа</Text>
+      {tiers.map(t => (
+        <Box key={t.tier} sx={{ mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+            <Box sx={{ color: t.reached ? 'success.fg' : 'fg.muted', display: 'flex' }}>{t.reached ? <CheckIcon size={16} /> : <LockIcon size={16} />}</Box>
+            <Text sx={{ fontSize: 1, fontWeight: 'semibold' }}>{TIER_NAME[t.tier] ?? t.tier}</Text>
+            <Text sx={{ fontSize: 0, color: 'fg.muted', ml: 'auto' }}>{fmt(t.threshold)} Почёта за всё время</Text>
+          </Box>
+          <ProgressBar progress={t.threshold > 0 ? Math.min(100, lifetime / t.threshold * 100) : 100}
+            bg={t.reached ? 'success.emphasis' : 'accent.emphasis'} sx={{ bg: 'canvas.subtle' }} />
+        </Box>
+      ))}
+      <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', textAlign: 'center' }}>
+        {next
+          ? `Ещё ${fmt(Math.max(0, next.threshold - lifetime))} Почёта за всё время до уровня «${TIER_NAME[next.tier] ?? next.tier}»`
+          : 'Открыты все уровни — весь аудиториум в вашем распоряжении.'}
+      </Text>
+    </Box>
+  );
+}
+
+function resetIn(iso: string | null): string {
+  if (!iso) return 'Скоро сбросится';
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'Скоро сбросится';
+  const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  return `Сброс через ${d > 0 ? `${d}д ${h}ч` : h > 0 ? `${h}ч ${m}м` : `${m}м`}`;
+}
+
+function skuName(sku: AuditoriumSku, catalog: Map<number, CatalogItem>): string {
+  return ITEMS_BY_ID[sku.item_id]?.name ?? catalogItemName(catalog.get(sku.item_id)) ?? `Предмет #${sku.item_id}`;
+}
+
+function SkuIcon({ sku, catalog, size }: { sku: AuditoriumSku; catalog: Map<number, CatalogItem>; size: number }) {
+  const meta = ITEMS_BY_ID[sku.item_id];
+  return meta
+    ? <img src={itemImgSrc(meta.tag)} alt="" style={{ width: size, height: size, objectFit: 'contain' }}
+        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+    : <ItemThumb itemId={sku.item_id} item={catalog.get(sku.item_id)} size={size} />;
+}
+
+function SkuCard({ sku, balance, tiers, catalog, onSelect }: {
+  sku: AuditoriumSku; balance: number; tiers: AuditoriumTier[]; catalog: Map<number, CatalogItem>; onSelect: () => void;
+}) {
+  const color = RARITY_COLOR[sku.rarity] ?? '#6e7681';
+  const lim = sku.limits;
+  const enough = balance >= sku.renown;
+  const canBuy = sku.purchasable && enough;
+  const tierName = TIER_NAME[tiers.find(t => t.threshold === sku.min_lifetime_renown)?.tier ?? ''];
+  let reason: string | null = null;
+  if (!canBuy) {
+    if (!sku.tier_met) reason = tierName ? `Сначала откройте «${tierName}»` : 'Нужен более высокий уровень престижа';
+    else if (lim && lim.remaining <= 0) reason = resetIn(lim.resets_at);
+    else if (!enough) reason = `Не хватает ${fmt(sku.renown - balance)} Почёта`;
+  }
+  return (
+    <Box sx={{ border: '1px solid', borderColor: color, borderRadius: 2, p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ width: 48, height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <SkuIcon sku={sku} catalog={catalog} size={44} />
+        </Box>
+        <Box sx={{ minWidth: 0, textAlign: 'left' }}>
+          <Text sx={{ fontSize: 1, fontWeight: 'semibold', display: 'block' }}>
+            {skuName(sku, catalog)}{sku.quantity > 1 && <Text sx={{ color: 'fg.muted', fontWeight: 'normal' }}> ×{sku.quantity}</Text>}
+          </Text>
+          <RenownValue value={fmt(sku.renown)} />
+        </Box>
+      </Box>
+      {lim && (
+        <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
+          {lim.used} из {lim.limit} за {PERIOD_NAME[lim.limit_days] ?? `${lim.limit_days} дн.`}
+        </Text>
+      )}
+      {reason && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'fg.muted' }}>
+          {!sku.tier_met ? <LockIcon size={12} /> : lim && lim.remaining <= 0 ? <ClockIcon size={12} /> : <AlertIcon size={12} />}
+          <Text sx={{ fontSize: 0 }}>{reason}</Text>
+        </Box>
+      )}
+      <Button size="small" block disabled={!canBuy} onClick={onSelect} sx={{ mt: 'auto' }}>Купить</Button>
+    </Box>
+  );
+}
+
+function AuditoriumShop({ account, data, onBought, onFlash }: {
+  account: BuildingAccount; data: AuditoriumCatalog; onBought: () => void; onFlash: (m: string, ok: boolean) => void;
+}) {
+  const sections = data.sections ?? [];
+  const [tab, setTab] = useState(sections[0]?.key ?? '');
+  const [selected, setSelected] = useState<AuditoriumSku | null>(null);
+  const [buying, setBuying] = useState(false);
+  const catalog = useItemCatalog(sections.flatMap(s => s.skus.map(k => k.item_id)).filter(id => !ITEMS_BY_ID[id]));
+  const skus = sections.find(s => s.key === tab)?.skus ?? [];
+
+  const buy = async (sku: AuditoriumSku) => {
+    setBuying(true);
+    try {
+      const r = await api.auditoriumBuy(account.id, sku.code);
+      if (r.ok) { onFlash(`${account.name}: куплено «${skuName(sku, catalog)}»${sku.quantity > 1 ? ` ×${sku.quantity}` : ''}`, true); onBought(); }
+      else onFlash(`${account.name}: ${r.error ?? 'ошибка покупки'}`, false);
+    } catch (e) { onFlash(String(e), false); } finally { setBuying(false); }
+  };
+
+  return (
+    <>
+      <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 3, mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3, flexWrap: 'wrap' }}>
+        <Box>
+          <Text sx={{ fontSize: 3, fontWeight: 'bold', display: 'block' }}><RenownValue value={fmtInt(data.balance)} /></Text>
+          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Баланс Почёта</Text>
+        </Box>
+        <Box sx={{ textAlign: 'right' }}>
+          <Text sx={{ fontSize: 2, fontWeight: 'bold', display: 'block' }}>{fmtInt(data.lifetime_earned)}</Text>
+          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Заработано за всё время</Text>
+        </Box>
+      </Box>
+      {data.tiers?.length > 0 && <TierLadder tiers={data.tiers} lifetime={data.lifetime_earned} />}
+      {sections.length > 0 && (
+        <UnderlineNav aria-label="Разделы аудиториума" sx={{ mb: 3 }}>
+          {sections.map(s => (
+            <UnderlineNav.Item key={s.key} href="#" aria-current={s.key === tab ? 'page' : undefined}
+              counter={s.skus.length} onSelect={e => { e.preventDefault(); setTab(s.key); }}>
+              {SECTION_NAME[s.key] ?? s.key}
+            </UnderlineNav.Item>
+          ))}
+        </UnderlineNav>
+      )}
+      {skus.length === 0
+        ? <Text sx={{ color: 'fg.muted', display: 'block', textAlign: 'center', py: 3 }}>Здесь пока пусто.</Text>
+        : (
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 2 }}>
+            {skus.map(s => <SkuCard key={s.code} sku={s} balance={data.balance} tiers={data.tiers ?? []} catalog={catalog} onSelect={() => setSelected(s)} />)}
+          </Box>
+        )}
+      {selected && (
+        <ConfirmationDialog
+          title="Обменять Почёт на предмет?"
+          cancelButtonContent="Отмена"
+          confirmButtonContent="Подтвердить покупку"
+          onClose={gesture => {
+            const sku = selected;
+            setSelected(null);
+            if (gesture === 'confirm' && !buying) buy(sku);
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, mb: 3 }}>
+            <SkuIcon sku={selected} catalog={catalog} size={56} />
+            <Text sx={{ fontWeight: 'bold' }}>{skuName(selected, catalog)}{selected.quantity > 1 ? ` ×${selected.quantity}` : ''}</Text>
+          </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+            <Text sx={{ color: 'fg.muted' }}>Аккаунт</Text><Text>{account.name}</Text>
+          </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+            <Text sx={{ color: 'fg.muted' }}>Цена</Text><RenownValue value={fmtInt(selected.renown)} />
+          </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Text sx={{ color: 'fg.muted' }}>Останется</Text><RenownValue value={fmtInt(data.balance - selected.renown)} />
+          </Box>
+        </ConfirmationDialog>
+      )}
+    </>
+  );
+}
+
 function AuditoriumAccountBlock({ account, onFlash }: { account: BuildingAccount; onFlash: (m: string, ok: boolean) => void }) {
   const [data, setData] = useState<AuditoriumStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [entering, setEntering] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
-    setLoading(true); setError(null);
+  const load = async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    setError(null);
     try {
       const r = await api.auditoriumStatus(account.id);
       if (r.ok) setData(r as AuditoriumStatus); else setError(r.error ?? 'Ошибка загрузки');
@@ -486,22 +664,15 @@ function AuditoriumAccountBlock({ account, onFlash }: { account: BuildingAccount
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  const enter = async () => {
-    setEntering(true);
-    try {
-      const r = await api.auditoriumEnter(account.id);
-      if (r.ok) onFlash('Вход выполнен', true); else onFlash(r.error ?? 'Ошибка', false);
-    } catch (e) { onFlash(String(e), false); } finally { setEntering(false); }
-  };
-
   return (
     <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, mb: 3, overflow: 'hidden' }}>
       <Box sx={{ px: 3, py: 2, bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {data?.unlocked ? <UnlockIcon size={16} /> : <LockIcon size={16} />}
           <Text sx={{ fontWeight: 'bold' }}>{account.name}</Text>
+          {data?.catalog && <RenownValue value={fmtInt(data.catalog.balance)} />}
         </Box>
-        <Button leadingVisual={SyncIcon} onClick={load} disabled={loading}>Обновить</Button>
+        <Button leadingVisual={SyncIcon} onClick={() => load()} disabled={loading}>Обновить</Button>
       </Box>
       <Box sx={{ p: 3 }}>
         {loading
@@ -511,12 +682,20 @@ function AuditoriumAccountBlock({ account, onFlash }: { account: BuildingAccount
             : !data || !data.updated_at ? <Text sx={{ color: 'fg.muted' }}>Ещё не синхронизировано — нажмите «Обновить с игры» выше</Text> : (
               <>
                 <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 2 }}>Снимок от {new Date(data.updated_at).toLocaleString('ru')}</Text>
-                <GateRow gateKey="renown" gate={data.renown} />
-                <GateRow gateKey="loyalty" gate={data.loyalty} />
-                <GateRow gateKey="population" gate={data.population} />
-                <Button variant="primary" block disabled={!data.unlocked} loading={entering} onClick={enter}>
-                  {data.unlocked ? 'Войти в Аудиториум' : 'Условия ещё не выполнены'}
-                </Button>
+                {data.unlocked && data.catalog
+                  ? <AuditoriumShop account={account} data={data.catalog} onBought={() => load(true)} onFlash={onFlash} />
+                  : (
+                    <>
+                      {data.in_guild === false && <Flash sx={{ mb: 2 }}>Аккаунт не в гильдии — вступите, чтобы открыть путь в Аудиториум.</Flash>}
+                      {data.in_guild !== false && data.has_auditorium === false && <Flash sx={{ mb: 2 }}>Гильдия ещё не построила Вечный аудиториум.</Flash>}
+                      {data.unlocked && !data.catalog && <Flash variant="warning" sx={{ mb: 2 }}>Вход открыт, но витрину загрузить не удалось — нажмите «Обновить с игры».</Flash>}
+                      <Text sx={{ fontWeight: 'bold', display: 'block', mb: 2 }}>Условия входа</Text>
+                      <GateRow gateKey="renown" gate={data.renown} />
+                      <GateRow gateKey="loyalty" gate={data.loyalty} />
+                      <GateRow gateKey="population" gate={data.population} />
+                      {!data.unlocked && <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', textAlign: 'center' }}>Выполните все условия, чтобы войти.</Text>}
+                    </>
+                  )}
               </>
             )}
       </Box>

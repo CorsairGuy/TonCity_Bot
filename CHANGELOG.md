@@ -14,6 +14,14 @@
 
 ---
 
+## 2026-10-14 — Вечный аудиториум: витрина и обмен Почёта на предметы
+- Реверс свежего бандла (`entry-*.js` → `timelessAuditorium`, `chunks/timeless_auditorium-*.js`): у игры три эндпоинта — `GET /timeless-auditorium/status` (условия входа + `in_guild`/`has_auditorium`), `GET /timeless-auditorium/catalog` (`{balance,lifetime_earned,tiers[],sections[{key,skus[]}]}`, только открытым аккаунтам), `POST /timeless-auditorium/buy {sku:code}` → `{balance,limits,purchasable}`. Эндпоинта `/enter`, который звала панель, у игры нет — роут и кнопка «Войти» удалены.
+- `modules/guildBuildings.js runAuditorium`: гейт `hasBuilding('auditorium_level')` убран (как у технофабрики: `guild_special_buildings` видит только лидер/офицер), `/status` зовётся всем, `/catalog` — только при `unlocked`. В `auditorium_status` новые колонки `in_guild`, `has_auditorium`, `catalog LONGTEXT` (миграции `ALTER TABLE`).
+- `web/routes/guildBuildings.js`: список аккаунтов по `has_auditorium` из снимка (старый путь — для строк без флага), статус отдаёт витрину, новый `POST /api/timeless-auditorium/:id/buy {sku}` — покупка без повторов, затем ресинк status+catalog.
+- Страница «Аудиториум» повторяет игру: баланс Почёта и «за всё время», уровни престижа (Фойе/Галерея/Хранилище), вкладки разделов (осколки, тайные политики, наборы, ускорители, артефакты), карточки товаров с ценой, лимитом «N из M за период», причиной недоступности и временем сброса; покупка через Primer `ConfirmationDialog` с ценой и остатком.
+- Попутно: таблица предметов в `chunks/storage-*.js` подтверждает id 35–38 (`blueprint_tome`, `reform_stone_epic/legendary/mythic`), догадка в `ITEMS_BY_ID` верна.
+- **Не проверено на живой игре:** покупка по коду бандла, реальных запросов не отправлялось. Имена полей ответа взяты из кода страницы игры.
+
 ## 2026-10-14 — Отмена стейкинга: путь сверен буквально по бандлу
 - Появился сетевой доступ из окружения Claude к `game.toncity.io`. Скачан живой `entry-*.js`, в таблице путей найден `federalReserve.staking`: `cancel:"/federal-reserve/staking/cancel"` — совпадает с `CANCEL_PATH` в `modules/staking.js`. Пометку «взято по аналогии» из комментария убрал, путь подтверждён буквально (тело `{entry_id}` этим куском бандла не видно, по-прежнему проверяется по факту исчезновения вклада из живого списка).
 
