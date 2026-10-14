@@ -104,7 +104,7 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 | `quiz` | `solveQuiz`, `cleanupWrongAnswers` | викторина: `GET /quiz/state`, `POST /quiz/start`, `POST /quiz/answer`; учит ответы (`QuizAnswer`) |
 | `inventory` | `runInventory` | склад: `GET /storage/allitemdata`, открытие паков; пишет `Inventory` |
 | `builders` | `runBuilders` | строители: `GET /builders/`, `POST /builders/purchase` |
-| `staking` | `runStaking`, `collectReady`, `saveEntriesToDb` | Федрезерв: `GET /federal-reserve/staking`, `POST /federal-reserve/staking`, `POST /federal-reserve/staking/collect`; ведёт `StakingEntry` |
+| `staking` | `runStaking`, `collectReady`, `saveEntriesToDb` | Федрезерв: `GET /federal-reserve/staking`, `POST /federal-reserve/staking`, `POST /federal-reserve/staking/collect`, отмена вклада `cancelEntry` (путь `CANCEL_PATH`, не сверен с бандлом); ведёт `StakingEntry` |
 | `market` | `runMarket` | рынок: `/market/direct*`, продажа предметов из настроек |
 | `marketPrices` | `runMarketPriceLoop` | постоянный опрос цен рынка |
 | `promocodes` | `runPromocodes` | `POST /promocodes/activate` (коды из настроек), пишет `PromoLog` |
