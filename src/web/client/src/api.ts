@@ -330,6 +330,8 @@ export const api = {
     ),
   stakingStake: (accountId: number, currency: 'coins' | 'crystals', amount: number, duration: number) =>
     req<{ ok: boolean; error?: string }>('/api/staking/stake', post({ account_id: accountId, currency, amount, duration })),
+  stakingCancel: (entryId: number) =>
+    req<{ ok: boolean; error?: string }>('/api/staking/cancel', post({ entry_id: entryId })),
 
   // МИД live
   midOverview: (guildId: string) =>

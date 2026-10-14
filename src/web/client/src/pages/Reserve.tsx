@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Button, Flash, Heading, Spinner, Text, ToggleSwitch, Label,
-  TabNav, ButtonGroup, CounterLabel,
+  TabNav, ButtonGroup, CounterLabel, ConfirmationDialog,
 } from '@primer/react';
 import { DataTable, Table, Dialog } from '@primer/react/experimental';
 import {
-  SyncIcon, CheckIcon, ClockIcon, AlertIcon, PlusCircleIcon, ZapIcon, StackAddIcon,
+  SyncIcon, CheckIcon, ClockIcon, AlertIcon, PlusCircleIcon, ZapIcon, StackAddIcon, XCircleIcon,
 } from '@primer/octicons-react';
 import { api, type StakingEntryRow, type StakingAccountInfo } from '../api';
 import { fmt, fmtDate } from '../utils';
@@ -310,6 +310,9 @@ export function Reserve() {
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:staking', () => load());
   const [showCollected, setShowCollected] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  // отмена вклада: сначала окно подтверждения (как расформирование политик), потом запрос
+  const [confirmCancel, setConfirmCancel] = useState<StakingEntryRow | null>(null);
+  const [cancelling, setCancelling] = useState<Record<number, boolean>>({});
   const { flash, showFlash }      = useFlash();
   const openBtnRef = useRef<HTMLButtonElement | null>(null);
 
@@ -329,6 +332,19 @@ export function Reserve() {
   };
 
   useEffect(() => { load(); }, [load]);
+
+  const cancelOne = async (e: StakingEntryRow) => {
+    setCancelling(s => ({ ...s, [e.entry_id]: true }));
+    try {
+      const r = await api.stakingCancel(e.entry_id);
+      if (r.ok) { showFlash(`Вклад ${e.account} отменён`, true); await load(true); }
+      else showFlash(`Вклад ${e.account} не отменён: ${r.error ?? 'ошибка'}`, false);
+    } catch (err) {
+      showFlash(`Вклад ${e.account} не отменён: ${(err as Error).message}`, false);
+    } finally {
+      setCancelling(s => ({ ...s, [e.entry_id]: false }));
+    }
+  };
 
   const active  = entries.filter(e => !e.collected);
   const coins   = active.filter(e => e.currency === 'coins');
@@ -507,11 +523,57 @@ export function Reserve() {
                       <StatusBadge canCollectAt={row.can_collect_at} collected={row.collected} />
                     ),
                   },
+                  {
+                    header: '',
+                    id: 'actions',
+                    // отменять можно только идущий вклад: созревший забирается, собранного уже нет
+                    renderCell: row => (!row.collected && !row._ready) ? (
+                      <Button
+                        size="small"
+                        variant="danger"
+                        leadingVisual={XCircleIcon}
+                        loading={!!cancelling[row.entry_id]}
+                        disabled={!!cancelling[row.entry_id]}
+                        onClick={() => setConfirmCancel(row)}
+                      >
+                        Отменить
+                      </Button>
+                    ) : null,
+                  },
                 ]}
               />
             )}
           </Table.Container>
         </>
+
+      {confirmCancel && (
+        <ConfirmationDialog
+          title="Отменить вклад?"
+          cancelButtonContent="Не отменять"
+          confirmButtonContent="Отменить вклад"
+          confirmButtonType="danger"
+          onClose={(gesture) => {
+            const e = confirmCancel;
+            setConfirmCancel(null);
+            if (gesture === 'confirm') cancelOne(e);
+          }}
+        >
+          <Text as="p" sx={{ mt: 0 }}>
+            Аккаунт <strong>{confirmCancel.account}</strong>: вклад{' '}
+            {confirmCancel.currency === 'coins'
+              ? <CoinValue value={fmt(confirmCancel.amount_staked)} />
+              : <CrystalValue value={fmt(confirmCancel.amount_staked)} />}
+            {' '}до {fmtDate(confirmCancel.can_collect_at)}.
+          </Text>
+          <Text as="p" sx={{ mb: 0, color: 'danger.fg' }}>
+            Вклад будет закрыт досрочно, обещанная прибыль{' '}
+            {confirmCancel.currency === 'coins'
+              ? <CoinValue value={fmt(confirmCancel.amount_to_collect - confirmCancel.amount_staked)} />
+              : <CrystalValue value={fmt(confirmCancel.amount_to_collect - confirmCancel.amount_staked)} />}
+            {' '}не будет получена. Действие необратимо.
+          </Text>
+        </ConfirmationDialog>
+      )}
 
       {modalOpen && (
         <StakeModal

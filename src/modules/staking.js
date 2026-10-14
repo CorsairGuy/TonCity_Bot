@@ -132,4 +132,39 @@ async function runStaking(api,name,account){
   }
 }
 
-module.exports={runStaking,collectReady,saveEntriesToDb};
+// Досрочная отмена вклада (кнопка на странице «Стейкинг»).
+// ВНИМАНИЕ: путь и тело запроса НЕ сверены с бандлом игры (14.10.2026 бандл был недоступен) —
+// взяты по аналогии с /staking/collect. Перед первым боевым использованием сверить с клиентом
+// игры (кнопка отмены вклада в Федрезерве) и поправить здесь, больше нигде менять не нужно.
+const CANCEL_PATH='/federal-reserve/staking/cancel';
+const cancelBody=e=>({entry_id:e.id});
+
+// Вердикт по состоянию после ресинка, а не по коду ответа (игра на что угодно отвечает 400):
+// вклад отменён, если его больше нет в живом списке. Изменяющий запрос не повторяем.
+async function cancelEntry(api,name,e){
+  let postErr=null,resp=null;
+  await globalLock.run(async()=>{
+    try{resp=await api.post(CANCEL_PATH,cancelBody(e));}catch(err){postErr=err;}
+  });
+  if(postErr?.noBuilding)throw postErr;
+  let sd=null;
+  try{sd=await api.get('/federal-reserve/staking',{},{timeout:15000});}catch(_){}
+  if(!sd?.entries){
+    if(postErr)throw postErr;
+    throw new Error('запрос отправлен, но список вкладов не получен — нажмите «Обновить»');
+  }
+  const still=sd.entries.some(x=>String(x.id)===String(e.id));
+  if(!still){
+    try{await StakingEntry.destroy({where:{entry_id:e.id}});}catch(_){}
+    logger.info(`[${name}] [staking] вклад ${e.id} (${e.amount_staked??'?'} ${e.currency??''}) отменён`);
+  }
+  await saveEntriesToDb(name,sd.entries);
+  if(still){
+    const msg=postErr?postErr.message:`игра не отменила вклад: ${JSON.stringify(resp)}`;
+    logger.warn(`[${name}] [staking] отмена вклада ${e.id} не прошла: ${msg}`);
+    throw new Error(msg);
+  }
+  return resp;
+}
+
+module.exports={runStaking,collectReady,saveEntriesToDb,cancelEntry};

@@ -400,6 +400,34 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  // Досрочная отмена вклада. Аккаунт берём из записи вклада в БД — с фронта приходит только entry_id.
+  app.post('/api/staking/cancel',async(req,res)=>{
+    try{
+      const entry_id=Number(req.body?.entry_id);
+      if(!entry_id)return res.status(400).json({ok:false,error:'missing entry_id'});
+      const{StakingEntry,Account}=require('../../db/index');
+      const row=await StakingEntry.findOne({where:{entry_id}});
+      if(!row)return res.status(404).json({ok:false,error:'вклад не найден — нажмите «Обновить»'});
+      if(row.collected)return res.json({ok:false,error:'вклад уже собран'});
+      if(row.can_collect_at&&new Date(row.can_collect_at).getTime()<=Date.now())return res.json({ok:false,error:'вклад уже созрел — его нужно забрать, а не отменять'});
+      const acc=await Account.findOne({where:{name:row.account}});
+      if(!acc?.access_token)return res.status(404).json({ok:false,error:'account not found'});
+      const api=await makeApiForAccount(acc.id);
+      const{cancelEntry}=require('../../modules/staking');
+      const r=await cancelEntry(api,acc.name,{id:row.entry_id,currency:row.currency,amount_staked:row.amount_staked});
+      // баланс — из /progress/, не вычитанием: монеты параллельно капают с города
+      const prog=await api.get('/progress/').catch(()=>null);
+      if(prog?.progress?.data){
+        const d=prog.progress.data;
+        const upd={};
+        if(d.coins!=null)upd.balance=d.coins;
+        if(d.crystals!=null)upd.crystals=d.crystals;
+        if(Object.keys(upd).length)await acc.update(upd).catch(()=>{});
+      }
+      res.json({ok:true,result:r});
+    }catch(e){res.json({ok:false,error:e.message});}
+  });
+
   app.get('/api/daily-ads/status',async(req,res)=>{
     try{
       const{Account,DailyAdsSnapshot}=require('../../db/index');
