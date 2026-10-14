@@ -35,7 +35,13 @@ services:
       # В контейнере слушаем на всех интерфейсах, иначе публикация порта (ports) не достучится
       # до приложения. Доступ снаружи защищён паролем веб-панели (задаётся в Настройках).
       WEB_BIND: 0.0.0.0
-    command: npx nodemon
+    # Без nodemon (14.10.2026): разработка идёт в git-репозитории, а не правкой файлов на сервере,
+    # поэтому автоперезапуск на каждое изменение src/ больше не нужен и только мешал (бот сам кладёт
+    # иконки предметов в src/items). Обновление кода: git pull → docker compose restart bot.
+    # Фронт по-прежнему читается из примонтированного ./src/web/dist — его пересборка рестарта не требует.
+    # init: tini пробрасывает SIGTERM процессу node → срабатывает graceful shutdown (src/index.js).
+    init: true
+    command: ["node", "--max-old-space-size=3072", "src/index.js"]
     ports:
       # ОБЕ стороны берём из WEB_PORT — приложение внутри контейнера слушает именно этот порт
       # (src/config.js: webPort=process.env.WEB_PORT), а не захардкоженный 3000. Раньше правая
@@ -58,7 +64,6 @@ services:
       # (registerSW.ts) само подхватывает новый бандл при обновлении страницы.
       # ВАЖНО для НОВОГО/чистого разворачивания: перед первым запуском обязательно собрать фронтенд
       # на хосте (cd src/web/client && npm install && npm run build), иначе dist/ будет пуст.
-      - ./nodemon.json:/app/nodemon.json
     restart: unless-stopped
     mem_limit: 4g
     memswap_limit: 4g

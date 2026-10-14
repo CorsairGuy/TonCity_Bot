@@ -371,7 +371,7 @@ export const api = {
 
   // каталог предметов игры (id → тип/имя/редкость), см. src/utils/itemCatalog.js
   items: (ids?: number[]) =>
-    req<{ ok: boolean; items: { item_id: number; type: string | null; name: string | null; rarity: string | null }[] }>(
+    req<{ ok: boolean; items: { item_id: number; type: string | null; name: string | null; rarity: string | null; title?: string | null; tag?: string | null }[] }>(
       `/api/items${ids?.length ? `?ids=${ids.join(',')}` : ''}`),
 
   // generic refresh

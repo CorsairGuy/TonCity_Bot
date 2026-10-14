@@ -14,6 +14,8 @@ import {
 import { ITEMS_BY_ID, fmt, itemImgSrc } from '../utils';
 import { CoinValue, CrystalValue } from './Icons';
 import { Dialog } from '@primer/react/experimental';
+import { useItemCatalog, itemName } from '../hooks/useItemCatalog';
+import { ItemThumb } from './ItemThumb';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,6 +71,7 @@ export function RewardRow({ rw, i, total, children, right }: {
 }) {
   const rarity = rw.rarity?.valid ? rw.rarity.booster_rarity : null;
   const meta = ITEMS_BY_ID[rw.reward_id] ?? null;
+  const catalog = useItemCatalog();
   const isCrystals = rw.reward_type === 'crystals';
   return (
     <Box sx={{ px: 2, py: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < total - 1 ? '1px solid' : 'none', borderColor: 'border.muted' }}>
@@ -88,7 +91,10 @@ export function RewardRow({ rw, i, total, children, right }: {
           </>
         ) : (
           <>
-            <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Предмет #{rw.reward_id}</Text>
+            <Box sx={{ width: 28, height: 28, borderRadius: '6px', overflow: 'hidden', flexShrink: 0, bg: 'canvas.subtle', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ItemThumb itemId={rw.reward_id} item={catalog.get(rw.reward_id)} size={22} style={{ fontSize: 8, padding: 0 }} />
+            </Box>
+            <Text sx={{ fontSize: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemName(rw.reward_id, catalog)}</Text>
           </>
         )}
         {children}
@@ -280,6 +286,7 @@ function BoosterModal({
 // ── Выпавшие из паков награды (живут в родителе, чтобы не пропадать при опустошении) ──
 export type OpenReward = { reward_type?: string; reward_id?: number; crystals_amount?: number; rarity?: { booster_rarity?: string } };
 export function OpenedRewards({ rewards }: { rewards: OpenReward[] }) {
+  const catalog = useItemCatalog();
   const agg = useMemo(() => {
     const map = new Map<string, { type: string; reward_id?: number; count: number; crystals: number }>();
     for (const r of rewards) {
@@ -308,10 +315,10 @@ export function OpenedRewards({ rewards }: { rewards: OpenReward[] }) {
           );
           const m = rr.reward_id != null ? ITEMS_BY_ID[rr.reward_id] : null;
           return (
-            <div key={i} className={`item-card__box${m ? ` ic-${m.tag}` : ' ic-common'}`} style={{ width: 56, height: 56 }} title={m?.name ?? `#${rr.reward_id}`}>
+            <div key={i} className={`item-card__box${m ? ` ic-${m.tag}` : ' ic-common'}`} style={{ width: 56, height: 56 }} title={m?.name ?? itemName(rr.reward_id, catalog)}>
               {m
                 ? <img className="item-card__img" src={itemImgSrc(m.tag)} alt="" style={{ height: 56, scale: String(m.scale) }} onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
-                : <span style={{ fontSize: 9 }}>#{rr.reward_id}</span>}
+                : rr.reward_id != null ? <ItemThumb itemId={rr.reward_id} item={catalog.get(rr.reward_id)} size={44} style={{ fontSize: 9 }} /> : null}
               {rr.count > 1 && <span className="item-card__count">{rr.count}</span>}
             </div>
           );
@@ -333,6 +340,7 @@ function PackModal({
   onFooter: (node: React.ReactNode) => void;
   onOpened: (rewards: OpenReward[]) => void;
 }) {
+  const catalog = useItemCatalog();
   const [tab, setTab] = useState<'open' | 'target' | 'sell'>('open');
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -457,7 +465,7 @@ function PackModal({
                 const rarity = targetRw?.rarity?.valid ? targetRw.rarity.booster_rarity : null;
                 return (
                   <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Text sx={{ fontSize: 1 }}>{targetMeta?.name ?? `Предмет #${p.target_item_id}`}</Text>
+                    <Text sx={{ fontSize: 1 }}>{targetMeta?.name ?? itemName(p.target_item_id, catalog)}</Text>
                     <Text sx={{ fontSize: 1 }}>— открыто {p.current_streak ?? 0} из {attemptsFor(packMeta, p.target_item_id) ?? '?'}</Text>
                   </Box>
                 );
@@ -631,8 +639,8 @@ export function StorageModal({ accountName, accountId, itemId, onClose }: Storag
     await loadData();
   }, [accountId, loadData]);
 
-  const meta = ITEMS_BY_ID[itemId] ?? null;
-  const title = meta?.name ?? `Предмет #${itemId}`;
+  const catalog = useItemCatalog();
+  const title = itemName(itemId, catalog);
 
   return (
     <Dialog

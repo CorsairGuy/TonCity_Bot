@@ -10,6 +10,7 @@ import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CrystalValue } from '../components/Icons';
 import { Scrollable } from '../components/Scrollable';
 import { PolicyCardModal } from '../components/PolicyCardModal';
+import { useItemCatalog, knownItemName } from '../hooks/useItemCatalog';
 
 type DealType = 'listings' | 'purchases' | 'sales';
 
@@ -74,9 +75,9 @@ function timeLeft(iso?: string | null) {
 
 function ItemCell({ row }: { row: MarketDealRow }) {
   const meta = row.item_id != null ? ITEMS_BY_ID[row.item_id] : null;
-  const name = meta?.name
+  const name = (row.item_category !== 'policy' ? knownItemName(row.item_id) : null)
     ?? (row.item_category === 'policy' && row.item_rarity ? policyCardLabel(row.item_rarity) : null)
-    ?? (row.item_category ? CAT[row.item_category] ?? row.item_category : `#${row.item_id}`);
+    ?? (row.item_category ? CAT[row.item_category] ?? row.item_category : `Предмет #${row.item_id}`);
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
       <Box sx={{ width: 28, height: 28, borderRadius: '6px', overflow: 'hidden', flexShrink: 0, bg: 'canvas.subtle', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -229,7 +230,7 @@ function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 's
                             <Text sx={{ fontSize: 1, ...(isPolicy ? { textDecoration: 'underline dotted', cursor: 'help' } : {}) }}
                               title={isPolicy ? 'Показать характеристики политики' : undefined}
                               onClick={isPolicy ? (e => { e.stopPropagation(); setPolicyModal(it); }) : undefined}>
-                              {m?.name ?? (isPolicy ? policyItemLabel(it) : `#${it.item_id}`)} {curIcon(it.currency)}
+                              {isPolicy ? (m?.name ?? policyItemLabel(it)) : (knownItemName(it.item_id) ?? `Предмет #${it.item_id}`)} {curIcon(it.currency)}
                             </Text>
                             <Label variant={mt === 'auction' ? 'attention' : mt === 'negotiation' ? 'accent' : 'default'} sx={{ fontSize: 0 }}>{MARKET_TYPE_RU[mt] ?? mt}</Label>
                           </Box>
@@ -252,7 +253,7 @@ function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 's
               <Text sx={{ fontWeight: 'bold', fontSize: 1, ...(sel.item_category === 'policy' ? { textDecoration: 'underline dotted', cursor: 'help' } : {}) }}
                 title={sel.item_category === 'policy' ? 'Показать характеристики политики' : undefined}
                 onClick={sel.item_category === 'policy' ? () => setPolicyModal(sel) : undefined}>
-                {meta?.name ?? (sel.item_category === 'policy' ? policyItemLabel(sel) : `#${sel.item_id}`)} {curIcon(sel.currency)}
+                {sel.item_category === 'policy' ? (meta?.name ?? policyItemLabel(sel)) : (knownItemName(sel.item_id) ?? `Предмет #${sel.item_id}`)} {curIcon(sel.currency)}
               </Text>
               <Label variant={selType === 'auction' ? 'attention' : selType === 'negotiation' ? 'accent' : 'default'} sx={{ fontSize: 0 }}>{MARKET_TYPE_RU[selType] ?? selType}</Label>
             </Box>
@@ -319,6 +320,7 @@ function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 's
 }
 
 export function MarketDeals({ type }: { type: DealType }) {
+  useItemCatalog(); // перерисовать таблицу, когда подгрузятся названия предметов из каталога игры
   const [rows, setRows] = useState<MarketDealRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useResumableRefresh(`marketDealsRefresh:${type}`, () => load());
@@ -395,8 +397,8 @@ export function MarketDeals({ type }: { type: DealType }) {
   const accounts = useMemo(() => [...new Set(rows.map(r => r.account))].sort((a, b) => a.localeCompare(b, 'ru', { numeric: true })), [rows]);
 
   const itemName = (r: MarketDealRow) => {
-    const m = r.item_id != null ? ITEMS_BY_ID[r.item_id] : null;
-    return (m?.name ?? (r.item_category ? CAT[r.item_category] ?? r.item_category : '') ?? '').toString();
+    const known = r.item_category !== 'policy' ? knownItemName(r.item_id) : null;
+    return (known ?? (r.item_category ? CAT[r.item_category] ?? r.item_category : '') ?? '').toString();
   };
   const sortValue = (r: MarketDealRow, field: string): number | string => {
     switch (field) {

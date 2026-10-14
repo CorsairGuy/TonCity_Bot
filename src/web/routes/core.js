@@ -44,7 +44,21 @@ module.exports=function(app,ctx){
       // Параметр ?ids= клиент всё ещё присылает, но ничего поштучно мы больше НЕ спрашиваем:
       // такого эндпоинта у игры нет (см. utils/itemCatalog.js). Отдаём то, что собрано из
       // /storage/allitemdata; неизвестные id клиент подписывает из своей статической таблицы.
-      res.json({ok:true,items:itemCatalog.read()});
+      // Название — из локализации игры (бандл game.toncity.io, utils/itemLocale.js): так новые предметы
+      // события подписываются сразу, без правки таблиц в клиенте. Первый раз ждём загрузку, дальше
+      // обновляем раз в сутки в фоне.
+      const itemLocale=require('../../utils/itemLocale');
+      if(itemLocale.ageMs()===Infinity)await itemLocale.ensureFresh();
+      else itemLocale.ensureFresh();
+      // Каталог аккаунтов знает только предметы, что лежат у кого-то на складе; остальные (награды
+      // событий, витрины) добираем из справочника клиента игры. Живые данные аккаунтов главнее.
+      const byId=new Map(itemLocale.bundleItems().map(it=>[it.item_id,it]));
+      for(const it of itemCatalog.read()){
+        const b=byId.get(it.item_id);
+        byId.set(it.item_id,b?{...b,...Object.fromEntries(Object.entries(it).filter(([,v])=>v!=null))}:it);
+      }
+      const items=[...byId.values()].sort((a,b)=>a.item_id-b.item_id).map(it=>({...it,title:itemLocale.titleOf(it),tag:itemCatalog.tagOf(it)}));
+      res.json({ok:true,items});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 

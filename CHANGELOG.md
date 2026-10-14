@@ -14,6 +14,14 @@
 
 ---
 
+## 2026-10-14 — Названия предметов из игры, иконки в src/items, бот без nodemon
+- Бот в контейнере запускается обычным `node` (`docker-compose.yml`: `command` + `init: true`, монтирование `nodemon.json` убрано). Код теперь приходит через git, обновление — `git pull` и `docker compose restart bot`. Изменение compose применяется только `docker compose down && docker compose up -d`. `npm run dev` по-прежнему nodemon, `src/items` у него в игноре.
+- Иконки предметов: `src/items/<тег>.png` с тем же тегом, что в `ITEMS_BY_ID` (`itemCatalog.tagOf`: `rare`, `shard_rare`, `mystery_rare`, `policy_pack_rare`, `eternal_booster`…). Недостающие бот докачивает туда из ассетов игры (по каталогу аккаунтов и по справочнику из бандла). Маршрут `/items/live` и папки `src/items/live/`, `items-live/` больше не используются; `items-live/` на сервере можно удалить.
+- Новый `utils/itemLocale.js`: раз в сутки берёт с `game.toncity.io` свежий `entry-*.js` и вынимает из ru-локали разделы `boosters`, `booster_packs`, `policy_shards`, `mystery_policies`, `consumables`, `masterplans/components/snowflakes/tickets`, а из `chunks/storage-*.js` — полный справочник id→{name,type} (сейчас 0–42, без 30). Кэш — `config/items-locale.json`. `/api/items` склеивает справочник с каталогом аккаунтов и отдаёт каждому предмету готовое `title` (название собирается как в игре: «Редкий ускоритель», «Летний набор», «Редкий набор политик»…).
+- `itemCatalog.normalize`: у осколков/тайных политик/расходников слаг ищется во вложенном объекте (как в `normalizeSingle`).
+- Панель: `itemName`/`knownItemName` в `hooks/useItemCatalog.ts`, вместо «#id»/«Предмет #id» теперь название из игры в складской модалке (выпавшие награды, цель набора), массовых действиях, магазине политик, лотах/сделках рынка, снайпах, технофабрике и аудиториуме. «Предмет #id» остаётся, только если предмета нет нигде.
+- На проде первая загрузка `/api/items` после деплоя ждёт скачивания бандла (≈2 МБ), дальше обновление в фоне.
+
 ## 2026-10-14 — Вечный аудиториум: витрина и обмен Почёта на предметы
 - Реверс свежего бандла (`entry-*.js` → `timelessAuditorium`, `chunks/timeless_auditorium-*.js`): у игры три эндпоинта — `GET /timeless-auditorium/status` (условия входа + `in_guild`/`has_auditorium`), `GET /timeless-auditorium/catalog` (`{balance,lifetime_earned,tiers[],sections[{key,skus[]}]}`, только открытым аккаунтам), `POST /timeless-auditorium/buy {sku:code}` → `{balance,limits,purchasable}`. Эндпоинта `/enter`, который звала панель, у игры нет — роут и кнопка «Войти» удалены.
 - `modules/guildBuildings.js runAuditorium`: гейт `hasBuilding('auditorium_level')` убран (как у технофабрики: `guild_special_buildings` видит только лидер/офицер), `/status` зовётся всем, `/catalog` — только при `unlocked`. В `auditorium_status` новые колонки `in_guild`, `has_auditorium`, `catalog LONGTEXT` (миграции `ALTER TABLE`).

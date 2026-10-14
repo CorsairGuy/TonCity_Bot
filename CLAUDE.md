@@ -23,11 +23,11 @@ npm start                              # node --max-old-space-size=3072 src/inde
 cd src/web/client && npm run build     # фронт → src/web/dist/ (сервер отдаёт статику отсюда)
 cd src/web/client && npm run dev       # vite dev-сервер, проксирует /api, /sprites, /items на :3000
 node --check src/web/server.js         # быстрая проверка синтаксиса
-docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
+docker compose up -d                   # db (MariaDB) + bot (node, без nodemon)
 ```
 
-- **Docker**: `docker-compose.yml` поднимает `db` и `bot`. В `bot` примонтированы с хоста `./src`, `./config`, `./logs`, `nodemon.json`, поэтому правки кода и пересборка фронта на хосте видны контейнеру сразу, без пересборки образа. На чистой установке фронт нужно собрать на хосте **до** первого запуска, иначе `dist/` пуст. В контейнере `WEB_BIND=0.0.0.0`, порт пробрасывается `${WEB_PORT}:${WEB_PORT}`. Имена контейнеров — `${STACK_NAME}_db`/`${STACK_NAME}_bot` (несколько копий на хосте — разные `STACK_NAME`/порты).
-- **Машина пользователя: Windows**, основная оболочка PowerShell. Рабочая папка `Z:\DOCKER\toncity_bot` (до 13.10.2026 — `X:\toncity_bot`) — это **сетевой диск, смонтированная папка `/DOCKER/toncity_bot` на боевом сервере** (Debian, Docker). Правка файлов там = правка прода: nodemon в контейнере сразу перезапускает бота на ~60 аккаунтах. Логи `logs/bot*.log` там же, боевые. С 14.10.2026 проект в git: https://github.com/CorsairGuy/TonCity_Bot.
+- **Docker**: `docker-compose.yml` поднимает `db` и `bot`. В `bot` примонтированы с хоста `./src`, `./config`, `./logs`. С 14.10.2026 бот в контейнере запускается обычным `node` (без nodemon, `init: true` для сигналов): правка кода вступает в силу после `docker compose restart bot`, пересборка фронта видна сразу. На чистой установке фронт нужно собрать на хосте **до** первого запуска, иначе `dist/` пуст. В контейнере `WEB_BIND=0.0.0.0`, порт пробрасывается `${WEB_PORT}:${WEB_PORT}`. Имена контейнеров — `${STACK_NAME}_db`/`${STACK_NAME}_bot` (несколько копий на хосте — разные `STACK_NAME`/порты).
+- **Машина пользователя: Windows**, основная оболочка PowerShell. Рабочая папка `Z:\DOCKER\toncity_bot` (до 13.10.2026 — `X:\toncity_bot`) — это **сетевой диск, смонтированная папка `/DOCKER/toncity_bot` на боевом сервере** (Debian, Docker). Правка файлов там = правка прода (~60 аккаунтов), код применяется рестартом контейнера. Логи `logs/bot*.log` там же, боевые. С 14.10.2026 проект в git: https://github.com/CorsairGuy/TonCity_Bot.
 - **Время в логах — UTC** (в контейнере нет TZ), пользователь называет местное время GMT+5.
 - Изменения `docker-compose.yml` применяются только `docker compose down && docker compose up -d` (не `restart`). Новые npm-зависимости бэкенда — только пересборкой образа: `docker compose build --no-cache bot && docker compose up -d` (`node_modules` берётся из образа, не с хоста).
 - Панель по умолчанию слушает `127.0.0.1:3000` (`WEB_BIND`/`WEB_PORT`). Наружу — только с паролем (§7).
@@ -86,7 +86,7 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 - **Панель:** статус `GET /api/maintenance` (`{active,since,retryInMs}`), баннер `components/MaintenanceBanner.tsx` лишь ОТОБРАЖАЕТ состояние (опрос раз в 5 минут), детект от него не зависит.
 
 ### Утилиты `src/utils/`
-`logger.js` (winston, `logs/bot*.log`), `helpers.js` (`sleep`, `sleepUntilUtcMidnight`), `lock.js` (`apiLock`), `botState.js` (`bot-state.json`: `isCityPaused/setCityPaused`), `maintenance.js` (автопауза техработ, см. выше), `itemCache.js`, `dailyStatus` (в модулях), `reqSign.js`/`wsSession.js` (подпись и WS, см. выше), `telegram.js` (`sendToMainThread`), `accountLoops.js` (живой реестр `clients` для общих циклов и запуск циклов для аккаунта, добавленного на работающем боте; удаление аккаунта вычищает его из реестра), `satoshi*.js`/`gramPrice.js`/`candleAggregator.js` (Башня Сатоши), решатели мини-игр карнавала (`connectFour`, `battleship`, `dotsAndBoxes`, `pentago`, `quoridor`).
+`logger.js` (winston, `logs/bot*.log`), `helpers.js` (`sleep`, `sleepUntilUtcMidnight`), `lock.js` (`apiLock`), `botState.js` (`bot-state.json`: `isCityPaused/setCityPaused`), `maintenance.js` (автопауза техработ, см. выше), `itemCache.js`, `dailyStatus` (в модулях), `reqSign.js`/`wsSession.js` (подпись и WS, см. выше), `telegram.js` (`sendToMainThread`), `itemCatalog.js` (каталог предметов из `/storage/allitemdata` → `config/items-live.json`, недостающие иконки → `src/items/<тег>.png` по тегу как в `ITEMS_BY_ID`, `tagOf`), `itemLocale.js` (русские названия предметов и справочник id→{name,type} прямо из бандла игры → `config/items-locale.json`, раз в сутки; `/api/items` отдаёт готовые `title` и `tag`), `accountLoops.js` (живой реестр `clients` для общих циклов и запуск циклов для аккаунта, добавленного на работающем боте; удаление аккаунта вычищает его из реестра), `satoshi*.js`/`gramPrice.js`/`candleAggregator.js` (Башня Сатоши), решатели мини-игр карнавала (`connectFour`, `battleship`, `dotsAndBoxes`, `pentago`, `quoridor`).
 
 ---
 
@@ -168,6 +168,8 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 
 Ключевые страницы: `Accounts`, `Inventory`+`StorageModal` (склад live: продажа/актив/комбо/открытие паков с показом выпавшего), `Reserve` (стейкинг), `Fortune`, мини-игры, `Plans` (референсы города/столицы), `CityMapEditor`+`MapEditor` (canvas-редактор карты), `City`/`CityMap`, `Capitals`, `Mid`, `Guilds`, `MarketStats/MarketLots/MarketDeals`, `DailyAds`, `Loyalty`, `Quests`, `Settings`, `Logs`.
 
+Название предмета по id на любой странице — `itemName(id, catalog)`/`knownItemName` из `hooks/useItemCatalog.ts` (локализация игры → `ITEMS_BY_ID` → слаг → «Предмет #id»), страница вызывает `useItemCatalog()`, чтобы перерисоваться после загрузки каталога.
+
 Утилиты формата `src/web/client/src/utils.ts`: `fmt` (сокращения K/M/B/T), `fmtInt` (точное целое, разделение тысяч — баланс алмазов), `fmtCr` (дробное до 1 знака — прибыль в алмазах), `fmtDate`, `fmtPop`, `sortByName`. API-обёртка — `src/web/client/src/api.ts`.
 
 ---
@@ -231,7 +233,7 @@ Config-файлы: `buildings.txt`/`capital_buildings.txt`, `city-coords.json`/`
 Собрано из прежней памяти Claude (июль–октябрь 2026). Подробности по датам — в `CHANGELOG.md`.
 
 **Токены и сессии**
-- Никогда не запускать вторую сессию к игре против боевой базы (тестовый скрипт, второй экземпляр бота): игра ротирует `refresh_token` и тут же убивает старый, `session_seed` новый на каждый refresh и живёт только в памяти процесса. Два процесса = вылет аккаунтов. Защита: `main()` ждёт успешного bind порта до прогрева сессий (порт-singleton), `nodemon` `delay:3000`, graceful shutdown.
+- Никогда не запускать вторую сессию к игре против боевой базы (тестовый скрипт, второй экземпляр бота): игра ротирует `refresh_token` и тут же убивает старый, `session_seed` новый на каждый refresh и живёт только в памяти процесса. Два процесса = вылет аккаунтов. Защита: `main()` ждёт успешного bind порта до прогрева сессий (порт-singleton), graceful shutdown.
 - В JWT `access_token` только `{exp,iat,tg_uid}`, имени нет. Дедуп аккаунтов — по `tg_uid`. Имя — из `GET /users/me/` (нужна подписанная сессия).
 - Ответ 403 «нет здания» (`err.noBuilding`) — нормальная ситуация: `utils/buildingReg.js` гейтит запросы по особым зданиям аккаунта (рынок, фортуна, Оплот Мудрости, Федрезерв), модули тихо пропускают.
 
@@ -249,7 +251,7 @@ Config-файлы: `buildings.txt`/`capital_buildings.txt`, `city-coords.json`/`
 **Данные и панель**
 - После покупок и действий баланс перечитывать из `/progress/` (`saveStats`/`refreshBalance`), а не вычитать локально: монеты параллельно капают с города.
 - Каждый `EventSource` на странице закрывать в cleanup `useEffect`: браузер держит максимум 6 соединений на origin, утёкшие SSE «вешают» всю панель.
-- Не класть в `src/` файлы, которые бот создаёт сам: nodemon следит за `src/` (`legacyWatch` из-за сетевого диска) и перезапустится. Кэш из игры — в `items-live/` в корне.
+- Не класть в `src/` файлы, которые бот создаёт сам, кроме иконок предметов в `src/items/<тег>.png` (их докачивает `itemCatalog.fetchIcons`, для `npm run dev` папка в игноре `nodemon.json`). Прочий кэш из игры — в `config/`.
 - Иконки монет/кристаллов — `<img>` с data-URI SVG, не инлайновый JSX-`<svg>` (сильно тормозило таблицы). Страницы в `App.tsx` грузятся через `lazy()`.
 - Графики `lightweight-charts` ставят свои z-index 49/50 — у контейнера графика `isolation:isolate`, иначе он перекрывает модалки Primer (у портала z-index 1).
 - Настройки интерфейса, которые должны переживать простой PWA на iOS (localStorage чистится), хранить на сервере в `config.ui` (пример — `navOpenGroups`).

@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api';
+import { ITEMS_BY_ID } from '../utils';
 
 // Каталог предметов игры (id → тип/имя/редкость), который бот забирает из /storage/allitemdata и
 // кэширует на сервере (см. src/utils/itemCatalog.js). Нужен, чтобы новые предметы — билеты,
 // летний/алмазный набор, камни реформ, чертёж — показывались названием и картинкой, а не «#40»:
 // их id заранее не известны и меняются от события к событию.
-export interface CatalogItem { item_id: number; type: string | null; name: string | null; rarity: string | null }
+// title — готовое русское название из локализации игры (бот достаёт её из бандла, utils/itemLocale.js).
+// tag — имя файла иконки в src/items (/items/<tag>.png), тот же тег, что и в ITEMS_BY_ID.
+export interface CatalogItem { item_id: number; type: string | null; name: string | null; rarity: string | null; title?: string | null; tag?: string | null }
 
 let cache: Map<number, CatalogItem> | null = null;
 let pending: Promise<Map<number, CatalogItem>> | null = null;
@@ -66,6 +69,7 @@ const TYPE_RU: Record<string, string> = {
 
 export function catalogItemName(it: CatalogItem | undefined): string | null {
   if (!it) return null;
+  if (it.title) return it.title;
   const slug = it.name ?? '';
   if (!slug) return it.type ? (TYPE_RU[it.type] ?? it.type) : null;
   if (SIMPLE_RU[slug]) return SIMPLE_RU[slug];
@@ -81,31 +85,30 @@ export function catalogItemName(it: CatalogItem | undefined): string | null {
   }
 }
 
-// Иконку для неизвестного предмета отдаёт сам бот: он скачал её из ассетов игры при обновлении
-// каталога (src/items/live/<id>.png раздаётся как /items/live/<id>.png).
-export function catalogItemImg(itemId: number): string {
-  return `/items/live/${itemId}.png`;
+// Название предмета по id для любой страницы: сначала название из локализации игры (каталог бота),
+// затем статическая таблица клиента, затем имя, собранное из слага; «Предмет #id» — только если
+// предмет неизвестен вообще. Читает уже загруженный каталог — страница, которой нужны свежие
+// названия, вызывает useItemCatalog(), чтобы перерисоваться после его загрузки.
+export function knownItemName(itemId: number | null | undefined, catalog?: Map<number, CatalogItem>): string | null {
+  if (itemId == null) return null;
+  const it = (catalog ?? cache)?.get(Number(itemId));
+  return it?.title ?? ITEMS_BY_ID[Number(itemId)]?.name ?? catalogItemName(it);
+}
+export function itemName(itemId: number | null | undefined, catalog?: Map<number, CatalogItem>): string {
+  if (itemId == null) return 'Предмет';
+  return knownItemName(itemId, catalog) ?? `Предмет #${itemId}`;
 }
 
-// Часть картинок новых предметов уже лежит в src/items под слагом игры (скачаны заранее:
-// crystal/summer наборы, blueprint_tome, reform_stone_*, eternal ускоритель) — используем их как
-// запасной вариант, если бот ещё не успел обновить каталог и докачать иконку по id.
-export function catalogItemImgBySlug(it: CatalogItem | undefined): string | null {
-  const slug = it?.name;
-  if (!slug) return null;
-  if (it?.type === 'booster' && slug === 'eternal') return '/items/eternal_booster.png';
-  return `/items/${slug}.png`;
+// Иконка предмета — /items/<тег>.png. Тег отдаёт бот в каталоге (utils/itemCatalog.js tagOf), он же
+// докачивает туда недостающие картинки из ассетов игры; для известных предметов тег есть и в ITEMS_BY_ID.
+export function catalogItemImg(itemId: number, it?: CatalogItem): string | null {
+  const tag = it?.tag ?? cache?.get(itemId)?.tag ?? ITEMS_BY_ID[itemId]?.tag;
+  return tag ? `/items/${tag}.png` : null;
 }
 
-// <img> с цепочкой запасных адресов: сначала иконка по id, затем по слагу, иначе прячемся.
 export function itemImgProps(itemId: number, it: CatalogItem | undefined) {
-  const fallback = catalogItemImgBySlug(it);
   return {
-    src: catalogItemImg(itemId),
-    onError: (e: React.SyntheticEvent<HTMLImageElement>) => {
-      const img = e.target as HTMLImageElement;
-      if (fallback && !img.dataset.fallbackTried) { img.dataset.fallbackTried = '1'; img.src = fallback; return; }
-      img.style.display = 'none';
-    },
+    src: catalogItemImg(itemId, it) ?? '',
+    onError: (e: React.SyntheticEvent<HTMLImageElement>) => { (e.target as HTMLImageElement).style.display = 'none'; },
   };
 }
