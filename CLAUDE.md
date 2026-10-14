@@ -27,7 +27,9 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 ```
 
 - **Docker**: `docker-compose.yml` поднимает `db` и `bot`. В `bot` примонтированы с хоста `./src`, `./config`, `./logs`, `nodemon.json`, поэтому правки кода и пересборка фронта на хосте видны контейнеру сразу, без пересборки образа. На чистой установке фронт нужно собрать на хосте **до** первого запуска, иначе `dist/` пуст. В контейнере `WEB_BIND=0.0.0.0`, порт пробрасывается `${WEB_PORT}:${WEB_PORT}`. Имена контейнеров — `${STACK_NAME}_db`/`${STACK_NAME}_bot` (несколько копий на хосте — разные `STACK_NAME`/порты).
-- **Машина пользователя: Windows**, основная оболочка PowerShell. Рабочая папка проекта раньше была на диске X, с 13.10.2026 — на диске Z (`Z:\DOCKER\toncity_bot`). С 14.10.2026 проект в git: https://github.com/CorsairGuy/TonCity_Bot.
+- **Машина пользователя: Windows**, основная оболочка PowerShell. Рабочая папка `Z:\DOCKER\toncity_bot` (до 13.10.2026 — `X:\toncity_bot`) — это **сетевой диск, смонтированная папка `/DOCKER/toncity_bot` на боевом сервере** (Debian, Docker). Правка файлов там = правка прода: nodemon в контейнере сразу перезапускает бота на ~60 аккаунтах. Логи `logs/bot*.log` там же, боевые. С 14.10.2026 проект в git: https://github.com/CorsairGuy/TonCity_Bot.
+- **Время в логах — UTC** (в контейнере нет TZ), пользователь называет местное время GMT+5.
+- Изменения `docker-compose.yml` применяются только `docker compose down && docker compose up -d` (не `restart`). Новые npm-зависимости бэкенда — только пересборкой образа: `docker compose build --no-cache bot && docker compose up -d` (`node_modules` берётся из образа, не с хоста).
 - Панель по умолчанию слушает `127.0.0.1:3000` (`WEB_BIND`/`WEB_PORT`). Наружу — только с паролем (§7).
 
 ### ENV (`.env`, см. `.env.example`)
@@ -116,6 +118,12 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 | `progress` | `runProgress` | **прокачка города**: строит/двигает/улучшает здания и **разблокирует секции** по референсу фазы (см. §6) |
 | `dailyads` | `getDailyAdsStatus`, `runDailyAds` | ежедневная реклама: `GET/POST /daily-ads/` |
 | `dailyStatus` | `isDone`, `markDone` | пометки «сделано сегодня» (UTC) |
+| `capitalProgress` | `runCapitalProgress` | прокачка столицы по стратегии (§6) |
+| `policies` | `runPolicies` | политики города: `/policies/*` (библиотека, кабинет мэра, стаж/осколки/редкость) |
+| `satoshi`, `satoshiAutoClose`, `satoshiPendingOrders` | | Башня Сатоши: трейдинг GRAM, бот-side TP/SL и лимитки; стартуют из `web/server.js`, не из `index.js` |
+| `guildBuildings` | `runAuditorium`, `runTechFactory`, `runTechFactoryLoop` | Вечный аудиториум и Технофабрика: `/timeless-auditorium/*`, `/tech-factory/*`; очередь крафта per-account (`TechFactoryQueue`) |
+| `questAutomation` | | автовыполнение гильдейских квестов только под живой квест нужного типа (`config.questAutomation`) |
+| `boosterAutomation` | `runBoosterAutomationLoop` | автоактивация ускорителей города, свой `noLock`-клиент |
 
 ---
 
@@ -126,8 +134,8 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 Профиль/гильдия: `GET /users/me/guild`, `GET /guilds/{id}`, `GET /guilds/benefits`, `GET /guilds/management/{id}` (+ `/applications`, approve/reject), `PATCH /guilds/management/{id}`, `GET /guilds/{id}/members`.
 Столица: `GET/POST /capitals/progress/{gid}`, `POST /capitals/progress/{gid}/collect/coins`, `/collect/crystals`.
 Квесты гильдии: `GET /guild-quests/guild/{gid}`, `POST /guild-quests/create/{gid}`, `POST /guild-quests/collect/{id}`.
-МИД (foreign-ministry): `GET /foreign-ministry/overview?guild_id=`, `POST /foreign-ministry/{sub}?guild_id=` (alliances request/accept/reject/cancel/break/upgrade, enemies, scouting start/unlock/confirm, invitations).
-Рынок: `GET/POST /market/direct`, `GET /market/direct/{id}`, `POST /market/direct/buy`, `POST /market/direct/cancel`, `GET /market/user/listing-limits`, `GET /market/user/stats`, `GET /market/toncoin/balance`, `POST /market/unwarn`.
+МИД (foreign-ministry): `GET /foreign-ministry/overview?guild_id=`, `POST /foreign-ministry/{sub}?guild_id=` (alliances request/accept/reject/cancel/break/upgrade, enemies, invitations; `scouting` удалён игрой 06.07, заменён Кампаниями гильдий `/guild-campaigns/*`).
+Рынок: `GET/POST /market/direct` (создание лота: `{market_id,price,currency,anonymous_sale,listing_days}`, `listing_days` из `[1,3,7]` обязателен; фильтр `categories` — единственное число: `policy/shard/booster/pack/consumable/component/masterplan`), `GET /market/direct/{id}`, `POST /market/direct/buy`, `POST /market/direct/cancel`, `GET /market/user/listing-rules` (бывший `listing-limits`, отдаёт `{rules:[...]}`), `GET /market/user/stats`, `GET /market/toncoin/balance`, `POST /market/unwarn`.
 Склад/бусты: `GET /storage/allitemdata`, `POST /storage/items/sell`, `POST /boosters/activate`, `POST /boosters/combine`, `GET /boosters/active`, `GET /boosters/combination-rules`, `POST /booster-packs/open`, `POST /booster-packs/set-target`.
 Мини-игры: `wordle/*`, `minesweeper/*`, `sudoku/*`, `quiz/*`, `game2048/*`.
 Прочее: `daily-login/`, `daily-ads/`, `mjourney/`, `loyalty-road/`, `fortune-pavilion/*`, `federal-reserve/staking*`, `achievements/unlocked`, `airdrop/`, `promocodes/activate`, `shop/offers/*`.
@@ -164,17 +172,32 @@ docker compose up -d                   # db (MariaDB) + bot (npx nodemon)
 
 ---
 
-## 6. Референсы города/столицы и прокачка
+## 6. Прокачка города и столицы
 
-**Референс города** = целевая раскладка зданий на фазу. Один референс на фазу в `config/city-refplans.json` (`{phase, popThreshold, profitThreshold, unlockedSections, buildings:[{x,y,id,level}]}`). Фазы 0–6 в `config/phases.json`.
+**С 20.07.2026 прокачкой управляют стратегии пользователя.** Старая автоматика «строить по эталонному плану фазы» (`config/city-refplans.json`, `capital-refplans.json`, `src/web/cityGen.js`) из цикла бота убрана: позиция здания в формулах ни на что не влияет. `cityGen.js` вызывается только legacy-эндпоинтом в `web/routes/plans.js`.
 
-- **Показатели** считаются строго по формулам игры в `src/web/cityStats.js` (`computeCityStats`): население, прибыль, покрытие сервисами, счастье, стоимость постройки (**накопительная**: `base_price·factor^k` по семейству) + улучшений (`e^0.5·s`). Позиция здания на показатели НЕ влияет.
-- **Генератор** `src/web/cityGen.js` (`generateCityRefplan(phase)`): выбирает **связный** набор секций по смежности (как бот), заполняет клетки жадным стоимостно-осознанным подбором с лимитом на семейство (`FACTOR_CAP`), сервисы — фикс. бюджет клеток + мин. уровень покрытия. Цель: макс. прибыль при населении ≥ порога, счастье ~100%, разумная стоимость.
-- **Бот-прокачка** `src/modules/progress.js` `runProgress`: выбирает фазу по **реальным** населению/прибыли аккаунта (`max(фаза_pop, фаза_profit)`), двигает/строит/улучшает здания к референсу и **разблокирует секции** `POST /progress/unlock-section` — только **смежные** с открытыми и **за монеты** (кристальные секции бот не открывает). Пауза: `bot-state.json` (`cityPaused`).
+**Источники целей** (одинаково для города и столицы, по приоритету):
+1. **Ручная очередь** — клетки «улучшить следующими». Забирает столько свободных строителей, сколько может занять сейчас, остальные идут по планам. Одна клетка может стоять в очереди несколько раз подряд (серия уровней). Выполненная запись вычёркивается.
+2. **Личный план** — целевой уровень для конкретной клетки.
+3. **Общий план** (`GlobalUpgradePlan`/`GlobalCapitalUpgradePlan`) — целевой уровень по точному `id` здания для всех городов/столиц. Звёздные тиры («Городской банк» и «Городской банк ★2») — разные правила.
 
-**Столица**: секций НЕ имеет — вся карта всегда открыта (редактор для `type='capital'` не грузит секции). Референсы столицы — `config/capital-refplans.json`.
+**Хранение.** Планы города построчно (с 19.08): `city_upgrade_target`, `city_upgrade_queue` (ключ `account,pos`, не по клетке), `city_reconstruct_plan`. Единственная точка доступа — `src/db/cityPlans.js`, сохранение явным diff, **без `upsert`**. Старые JSON-блобы `city_strategy.*` перенесены по отметке `city_plans_rows_v1` в `schema_marks`, больше не пишутся. Столица — `CapitalStrategy(guild_id, targets, queue)`.
 
-Config-файлы: `buildings.txt`/`capital_buildings.txt` (справочники зданий), `city-coords.json`/`capital-coords.json` (клетки), `city_sections.json` (секции+смежность+цены), `city-building-phases.json` (здание→мин.фаза), `phases.json` (пороги фаз), `items.json`.
+**Циклы.**
+- Город — `modules/progress.js runProgress` из `cityUpgradeLoop` (6 ч или по будильнику). Ограничен **строителями** (ответ игры + гильд-бонус `additional_builder` + политика кабинета `concurrent_builders`). Бюджет прохода — **80% монет**. Короткие апгрейды первыми; пачка запускается подряд с `sleep(500)` между POST, `refreshState()` один раз после пачки. **Стратегия перечитывается в начале каждого прохода** (цикл живёт часами внутри `waitOrWake`). Все внутренние ожидания — `waitOrWake`, не `sleep`. Сбой `/progress/` бросает `err.transient`, повтор через минуту.
+- Столица — `modules/capitalProgress.js` из `capital.js runCapUpgradeLoop`, только лидер гильдии. Строителей нет, только бюджет 80% монет. Формулы цены/длительности свои (`capitalHelpers.js`), бонусов гильдии/политик/ускорителей на время нет.
+- Будильник — `utils/cityWake.js` (`wake`/`waitOrWake`): ключ — имя аккаунта или `capital:${guildId}`. Сохранение целей в панели будит цикл сразу.
+- Реконструкция по плану (только город) — `runPendingReconstructions`, не занимает строителя, ждёт `required_lvl` и конца стройки.
+
+**Разовые действия** с карты: город — `web/routes/cityStrategy.js` (`build/move/demolish(destroy)/reconstruct/renovate`, `POST /progress/` **голым массивом** `[{type,...}]`); столица — `web/routes/capitalStrategy.js` (`build/move/demolish/skip-upgrade`, `POST /capitals/progress/{gid}` **объектом** `{actions:[...]}`). Столица в URL — по `guild_title`, действия от аккаунта-лидера. При `move` цели и очередь переезжают вместе со зданием. Реконструкция тратит «Компонент» (id 13), реновация — «Мастерплан» (id 12).
+
+**Карта и прогноз.** SSE без поллинга (`utils/cityLive.js`/`capitalLive.js`, `/api/city-strategy/:account/live-stream`) — рассылка при каждой записи снимка. Прогноз — чистая симуляция без лишних запросов на тех же функциях выбора целей (`pickStrategyTargets`), что и цикл. Игра увеличивает `level` **сразу при старте** стройки (`realLevel = level-1`, пока `end` в будущем). Лог действий — `CityActionLog`/`CapitalActionLog`, реальная длительность берётся из свежего `/progress/`.
+
+**Показатели** считаются по формулам игры в `src/web/cityStats.js`. Каталог зданий — `utils/buildingCatalog.js`, путь **`/buildings/` со слэшем** (без слэша 500), кэш `config/buildings-live.json`, обновляется кнопкой «Обновить», на событиях скидки приходят прямо в `base_price`.
+
+Разблокировка секций (только город, `POST /progress/unlock-section`): только смежные и за монеты, кристальные бот не открывает. **У столицы секций нет.**
+
+Config-файлы: `buildings.txt`/`capital_buildings.txt`, `city-coords.json`/`capital-coords.json`, `city_sections.json`, `city-building-phases.json`, `phases.json`, `items.json`, `wordle-words.txt`.
 
 ---
 
@@ -182,7 +205,7 @@ Config-файлы: `buildings.txt`/`capital_buildings.txt` (справочник
 
 - `features.*` (dailyLogin, fortune, journey, builders, inventory, upgrading, buying, capital, staking, wordle, game2048, market), `logLevel`, `growthModePopulation`, `staking{amount,currency,duration}`, `sellItems[]`, `promoCodes[]`, `telegram{...}`.
 - **Веб-пароль** (`src/web/auth.js`): один пароль без логина, scrypt-хэш в `settings.json:web.passwordHash`, сессия — HMAC-подписанная httpOnly-кука `tc_session` (30 дней), секрет `web.sessionSecret` автогенерится. `/api/config` вырезает `web.passwordHash`/`sessionSecret`.
-- **Новые таблицы БД** добавляются только через `CREATE TABLE IF NOT EXISTS` в массиве миграций `src/db/index.js` (init НЕ вызывает `seq.sync()`). Колонки существующих таблиц — добавляет пользователь вручную.
+- **Новые таблицы БД** добавляются только через `CREATE TABLE IF NOT EXISTS` в массиве миграций `src/db/index.js` (init НЕ вызывает `seq.sync()`). Новые колонки — `ALTER TABLE` в тех же миграциях. UNIQUE-ключи для `upsert` — `UPSERT_KEYS`/`ensureUpsertKeys()`, дубли склеивает `mergeDuplicates`. Любую правку схемы проверять `init()` на пустой базе + `scripts/schema-dump.js`: боевая база не эталон, в неё многое добавляли руками.
 
 ### Модели БД (`src/db/index.js`)
 `Account`, `CityPlan`, `CapitalPlan`, `Inventory`, `WordleLog`, `MinigameLog`, `QuizAnswer`, `FortuneLog`, `DailyLog`, `ShopSnapshot`, `TownhallAirdrop`, `TownhallDiversity`, `JourneyLevel`, `AchievementSnapshot`, `PromoLog`, `CitySnapshot`, `GuildSnapshot`, `GuildQuestSnapshot`, `GuildSpecialBuilding`, `FortuneStatus`, `CapitalSnapshot`, `BuilderSnapshot`, `LoyaltySnapshot`, `GuildMembersSnapshot`, `MidSnapshot`, `DailyAdsSnapshot`, `StakingEntry`, `MarketStatsSnapshot`, `MarketListing`, `MarketPurchase`, `MarketSale`, `MarketAutobuy`, `MarketSnipe`.
@@ -201,3 +224,32 @@ Config-файлы: `buildings.txt`/`capital_buildings.txt` (справочник
 - Живые данные игры не кэшировать в PWA (в `vite.config.ts` `/api/*` — `NetworkOnly`).
 - Тестов в проекте нет. Минимальная проверка: `node --check` изменённых файлов бэкенда и `npm run build` фронта.
 - В конце работы — запись в `CHANGELOG.md`.
+- Модалки — только новый `Dialog` из `@primer/react/experimental` (legacy `Dialog` из `@primer/react` больше нигде не используется). Мобильный bottom-sheet включается явно: `position={{narrow:'bottom',regular:'center'}}`.
+
+## 9. Уроки и подводные камни
+
+Собрано из прежней памяти Claude (июль–октябрь 2026). Подробности по датам — в `CHANGELOG.md`.
+
+**Токены и сессии**
+- Никогда не запускать вторую сессию к игре против боевой базы (тестовый скрипт, второй экземпляр бота): игра ротирует `refresh_token` и тут же убивает старый, `session_seed` новый на каждый refresh и живёт только в памяти процесса. Два процесса = вылет аккаунтов. Защита: `main()` ждёт успешного bind порта до прогрева сессий (порт-singleton), `nodemon` `delay:3000`, graceful shutdown.
+- В JWT `access_token` только `{exp,iat,tg_uid}`, имени нет. Дедуп аккаунтов — по `tg_uid`. Имя — из `GET /users/me/` (нужна подписанная сессия).
+- Ответ 403 «нет здания» (`err.noBuilding`) — нормальная ситуация: `utils/buildingReg.js` гейтит запросы по особым зданиям аккаунта (рынок, фортуна, Оплот Мудрости, Федрезерв), модули тихо пропускают.
+
+**Запросы к игре**
+- Повторяются **только GET и только когда игра вообще не ответила** (таймаут, обрыв): до 10 попыток, потолок 90 с, пауза вне `apiLock`. Изменяющие запросы не повторяются никогда: молчание не значит, что действие не выполнено. Для доменных ретраев вокруг мутаций — `withRetry(...,{skipOnNoAnswer:true})`, `sweepAccounts(...,{mutating:true})`.
+- Игра отвечает одним и тем же 400 «Предоставлены неверные входные данные» / «Невозможно обработать данные запроса» на любую проблему, в том числе «уже забрано». Вердикт выносить по состоянию после ресинка, а не по коду ответа.
+- Долгие или потенциально зависающие циклы (автоускорители, TP/SL Сатоши) работают на своём `noLock`-клиенте: общий `apiLock` один на процесс, `concurrency:1`, зависший запрос в нём останавливает весь бот.
+- Всё, что может зависнуть, — с таймаутом: SQL без таймаута однажды навсегда остановил TP/SL; `opRegistry` держит ключ до `finally`, поэтому ручные «Обновить» обёрнуты в `withTimeout` (90 с на аккаунт, 20 мин на проход).
+- `setTimeout` переполняется после ~24,8 суток (32 бита) и срабатывает сразу. `sleep()` в `utils/helpers.js` режет длинные паузы на куски; при расчёте задержки «до даты» помнить об этом.
+
+**Реверс API игры**
+- Путь эндпоинта и тело запроса надёжно берутся из JS-бандла игры (`entry-*.js` + `chunks/*.js`, отдаются без авторизации). Имена полей ответа и значения enum из бандла бывают неверны (легко спутать с i18n-таблицами): **живой ответ или точный текст ошибки важнее статики**. Для проверки — временный `logger.warn(JSON.stringify(...))` на реальном проходе.
+- Игра обновляется без предупреждения, хэш бандла меняется. Перед реверсом брать свежий `https://game.toncity.io/`. Если сменится WASM подписи — перевендорить `src/utils/reqChallenge.wasm`.
+
+**Данные и панель**
+- После покупок и действий баланс перечитывать из `/progress/` (`saveStats`/`refreshBalance`), а не вычитать локально: монеты параллельно капают с города.
+- Каждый `EventSource` на странице закрывать в cleanup `useEffect`: браузер держит максимум 6 соединений на origin, утёкшие SSE «вешают» всю панель.
+- Не класть в `src/` файлы, которые бот создаёт сам: nodemon следит за `src/` (`legacyWatch` из-за сетевого диска) и перезапустится. Кэш из игры — в `items-live/` в корне.
+- Иконки монет/кристаллов — `<img>` с data-URI SVG, не инлайновый JSX-`<svg>` (сильно тормозило таблицы). Страницы в `App.tsx` грузятся через `lazy()`.
+- Графики `lightweight-charts` ставят свои z-index 49/50 — у контейнера графика `isolation:isolate`, иначе он перекрывает модалки Primer (у портала z-index 1).
+- Настройки интерфейса, которые должны переживать простой PWA на iOS (localStorage чистится), хранить на сервере в `config.ui` (пример — `navOpenGroups`).
