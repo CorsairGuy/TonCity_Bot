@@ -106,9 +106,3 @@ export function catalogItemImg(itemId: number, it?: CatalogItem): string | null 
   return tag ? `/items/${tag}.png` : null;
 }
 
-export function itemImgProps(itemId: number, it: CatalogItem | undefined) {
-  return {
-    src: catalogItemImg(itemId, it) ?? '',
-    onError: (e: React.SyntheticEvent<HTMLImageElement>) => { (e.target as HTMLImageElement).style.display = 'none'; },
-  };
-}

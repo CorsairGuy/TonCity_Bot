@@ -18,8 +18,6 @@ const Account=seq.define('Account',{id:{type:I,primaryKey:true,autoIncrement:tru
   profit_final:S(50),population_final:S(50),happiness_final:S(20),
   balance:S(50),crystals:S(50),staked_coins:S(50),staked_crystals:S(50),access_token:T,refresh_token:T,init_token:T,
   special_buildings:T},{tableName:'accs',timestamps:false});
-const CityPlan=seq.define('CityPlan',{id:{type:I,primaryKey:true,autoIncrement:true},x:S(10),y:S(10),building:S(255)},{tableName:'city',timestamps:false});
-const CapitalPlan=seq.define('CapitalPlan',{id:{type:I,primaryKey:true,autoIncrement:true},x:S(10),y:S(10),building:S(255)},{tableName:'capital',timestamps:false});
 const Inventory=seq.define('Inventory',{id:{type:I,primaryKey:true,autoIncrement:true},account:S(255),name:S(255),type:{type:S(40),defaultValue:null},marketable:{type:I,defaultValue:0},locked:{type:I,defaultValue:0},sell_price:{type:DataTypes.DOUBLE,defaultValue:null},sell_currency:{type:S(20),defaultValue:null},booster_active_limit:{type:I,defaultValue:null},booster_currently_active:{type:I,defaultValue:null},
   // время окончания ПОСЛЕДНЕГО активного инстанса этого типа — записывается сами при активации
   // (см. modules/boosterAutomation.js/web/routes/cityStrategy.js), из end_time ответа игры на
@@ -1011,5 +1009,5 @@ async function ensureUpsertKeys(){
     }
   }
 }
-module.exports={seq,Account,CityPlan,CapitalPlan,Inventory,FortuneLog,WordleLog,MinigameLog,QuizAnswer,JourneyLevel,DailyLog,DailyRewardSnapshot,TownhallAirdrop,TownhallDiversity,ShopSnapshot,AchievementSnapshot,PromoLog,CitySnapshot,GuildSnapshot,GuildQuestSnapshot,GuildSpecialBuilding,FortuneStatus,CapitalSnapshot,BuilderSnapshot,LoyaltySnapshot,GuildMembersSnapshot,MidSnapshot,DailyAdsSnapshot,StakingEntry,MarketStatsSnapshot,MarketListing,MarketPurchase,MarketSale,MarketAutobuy,MarketSnipe,PolicySnapshot,CivicDrawStatus,PolicyDefCatalog,SatoshiPosition,SatoshiPositionHistory,SatoshiPendingOrder,QuestTierSnapshot,TechFactoryStatus,TechFactoryQueue,AuditoriumStatus,MarketAccess,CityStrategy,CityUpgradeTarget,CityUpgradeQueue,CityReconstructPlan,SchemaMark,GlobalUpgradePlan,BoosterAutomation,BoosterQueue,CityActionLog,
+module.exports={seq,Account,Inventory,FortuneLog,WordleLog,MinigameLog,QuizAnswer,JourneyLevel,DailyLog,DailyRewardSnapshot,TownhallAirdrop,TownhallDiversity,ShopSnapshot,AchievementSnapshot,PromoLog,CitySnapshot,GuildSnapshot,GuildQuestSnapshot,GuildSpecialBuilding,FortuneStatus,CapitalSnapshot,BuilderSnapshot,LoyaltySnapshot,GuildMembersSnapshot,MidSnapshot,DailyAdsSnapshot,StakingEntry,MarketStatsSnapshot,MarketListing,MarketPurchase,MarketSale,MarketAutobuy,MarketSnipe,PolicySnapshot,CivicDrawStatus,PolicyDefCatalog,SatoshiPosition,SatoshiPositionHistory,SatoshiPendingOrder,QuestTierSnapshot,TechFactoryStatus,TechFactoryQueue,AuditoriumStatus,MarketAccess,CityStrategy,CityUpgradeTarget,CityUpgradeQueue,CityReconstructPlan,SchemaMark,GlobalUpgradePlan,BoosterAutomation,BoosterQueue,CityActionLog,
 CapitalStrategy,GlobalCapitalUpgradePlan,CapitalActionLog,JourneyLevelDef,LoyaltyLevelDef,init};

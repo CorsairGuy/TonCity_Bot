@@ -10,8 +10,8 @@
 // тегом, что и в ITEMS_BY_ID клиента (rare, shard_rare, mystery_rare, policy_pack_rare,
 // eternal_booster…), и раздаются как /items/<тег>.png. Раньше докачка шла в src/items/live/<id>.png,
 // затем (13.10) в items-live/ в корне — из-за nodemon, который перезапускал бота на любой новый файл
-// под src/. В контейнере бот теперь запускается без nodemon (docker-compose.yml), а для
-// npm run dev папка src/items в nodemon.json игнорируется.
+// под src/. nodemon убран: и в контейнере, и в `npm run dev` (`node --watch`) бот перезапускается
+// только от правок подключённых модулей, новые картинки его не трогают.
 //
 // Правила путей к картинкам сверены с бандлом (компонент иконки предмета):
 //   masterplan → /assets/masterplans/masterplan.png      component  → /assets/components/component.png

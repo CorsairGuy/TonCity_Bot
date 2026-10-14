@@ -1,9 +1,0 @@
-{
-  "watch": ["src", ".env"],
-  "ignore": ["src/web/dist", "src/web/client", "src/items"],
-  "ext": "js,json,env",
-  "exec": "node --max-old-space-size=3072 src/index.js",
-  "legacyWatch": true,
-  "delay": 3000,
-  "signal": "SIGINT"
-}

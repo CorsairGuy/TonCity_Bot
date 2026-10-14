@@ -53,7 +53,6 @@ export const api = {
     req<{ ok: boolean; spins?: number; crystals_spent?: number; results?: unknown[]; can_draw?: FortuneCanDrawResult; crystals_remaining?: number; error?: string }>('/api/fortune/spin', post({ account_id: accountId })),
 
   // daily
-  dailyLog: () => req<{ ok: boolean; accounts: DailyAccount[] }>('/api/daily-log'),
   dailyRewards: () => req<{ ok: boolean; accounts: DailyRewardAccount[] }>('/api/daily'),
   // живой статус прямо из игры (снимок в БД мог остаться со вчерашнего дня)
   dailyAdsLiveStatus: () =>
@@ -176,12 +175,6 @@ export const api = {
       `/api/quest-tiers/${encodeURIComponent(guildId)}/contribute-all`, post({ tier_id: tierId, amount, accounts })),
   specialBuildings: () => req<{ ok: boolean; rows: SpecialBuildingRow[] }>('/api/special-buildings'),
   specialBuildingsRefresh: () => req<{ ok: boolean; results: { guild: string; ok: boolean; error?: string }[] }>('/api/special-buildings/refresh', post({})),
-
-  // guild info + mid (needs guildId)
-  guildInfo: (guildId: string) =>
-    req<{ ok: boolean; guild: unknown; leaderboard: unknown[] }>(`/api/guild-info/${encodeURIComponent(guildId)}`),
-  guildMid: (guildId: string) =>
-    req<{ ok: boolean } & GuildMidData>(`/api/guild-mid/${encodeURIComponent(guildId)}`),
 
   // управление гильдией: заявки
   guildApplications: (guildId: string) =>
@@ -323,12 +316,6 @@ export const api = {
   civicDrawClaimAll: () =>
     req<{ ok: boolean; results?: { account: string; ok: boolean; result?: unknown; error?: string }[]; succeeded?: number; total?: number; error?: string }>(
       '/api/civic-draw/claim-all', post({})),
-
-  // ref plans — need ?type=
-  refPlans: (type: 'city' | 'capital' = 'city') =>
-    req<{ ok: boolean; plans: RefPlan[] }>(`/api/refplans?type=${type}`),
-  refPlanDetail: (id: number, type: 'city' | 'capital' = 'city') =>
-    req<{ ok: boolean; plan: RefPlanDetail }>(`/api/refplans/${id}?type=${type}`),
 
   // staking
   staking: (includeCollected = false) =>
@@ -698,11 +685,6 @@ export interface FortuneRow {
   };
 }
 
-export interface DailyAccount {
-  name: string;
-  entries: { logged_at: string; day: number; reward: unknown }[];
-}
-
 // 13.10.2026: карточки на весь 28-дневный цикл (GET /api/daily) — чисто из БД, см.
 // web/routes/dashboards.js. source: 'actual' — наша запись о реальной выдаче (DailyLog),
 // 'estimated' — прошедший день без нашей записи (забрали руками в игре, calculated_reward —
@@ -1033,16 +1015,6 @@ export interface GuildMember {
   rank_profit?: number;
   rank_population?: number;
   small_url?: string | null;
-}
-
-export interface GuildMidData {
-  has_foreign_ministry?: boolean;
-  alliance_count?: number;
-  enemy_count?: number;
-  scouting_slots?: number;
-  invitations_count?: number;
-  pending_requests_count?: number;
-  error?: string;
 }
 
 export interface MidOverview {
@@ -1436,28 +1408,6 @@ export interface CityStats {
   buildCost: number;
   upgradeCost: number;
   totalCost: number;
-}
-
-export interface RefPlan {
-  id: number;
-  name: string;
-  threshold?: number;
-  phase?: number;
-  popThreshold?: number;
-  profitThreshold?: number;
-  type?: string;
-  stats?: CityStats;
-}
-
-export interface Phase {
-  phase: number;
-  name: string;
-  popThreshold: number;
-  profitThreshold: number;
-}
-
-export interface RefPlanDetail extends RefPlan {
-  buildings?: MapBuilding[];
 }
 
 export interface StorageItemFull {

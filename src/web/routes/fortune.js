@@ -7,14 +7,6 @@ const opRegistry=require('../lib/opRegistry');
 module.exports=function(app,ctx){
   const{apiForAcc,midErr}=ctx;
 
-  app.get('/api/fortune-raw',async(req,res)=>{
-    try{
-      const{FortuneLog}=require('../../db/index');
-      const rows=await FortuneLog.findAll({limit:3,order:[['id','DESC']]});
-      res.json(rows.map(r=>({id:r.id,account:r.account,reward_raw:r.reward})));
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
-
   app.get('/api/fortune-log',async(req,res)=>{
     try{
       const{FortuneLog}=require('../../db/index');
@@ -29,27 +21,6 @@ module.exports=function(app,ctx){
       const end=new Date(`${day}T23:59:59.999Z`);
       const rows=await FortuneLog.findAll({where:{spun_at:{[Op.between]:[start,end]}},order:[['spun_at','ASC']]});
       res.json({ok:true,rows:rows.map(r=>({id:r.id,account:r.account,spun_at:r.spun_at,reward:r.reward?JSON.parse(r.reward):null}))});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
-
-  app.get('/api/fortune-items-summary',async(req,res)=>{
-    try{
-      const{FortuneLog}=require('../../db/index');
-      const rows=await FortuneLog.findAll({order:[['spun_at','ASC']]});
-      const totals={};// item_id -> {item_id, amount}
-      for(const row of rows){
-        let r=row.reward?JSON.parse(row.reward):null;
-        if(r?.reward&&typeof r.reward==='object')r=r.reward;
-        if(!r)continue;
-        const t=r.reward_type||r.type||'';
-        if(t!=='item'&&r.item_id==null&&r.reward_id==null)continue;
-        const id=r.item_id??r.reward_id;
-        if(id==null)continue;
-        const qty=parseInt(r.amount)||1;
-        if(!totals[id])totals[id]={item_id:id,amount:0};
-        totals[id].amount+=qty;
-      }
-      res.json({ok:true,items:Object.values(totals).sort((a,b)=>a.item_id-b.item_id)});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 

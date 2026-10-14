@@ -37,21 +37,6 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
-  app.get('/api/daily-log',async(req,res)=>{
-    try{
-      const{DailyLog}=require('../../db/index');
-      const rows=await DailyLog.findAll({order:[['account','ASC'],['logged_at','DESC']]});
-      // группируем по аккаунту
-      const map=new Map();
-      for(const r of rows){
-        if(!map.has(r.account))map.set(r.account,[]);
-        map.get(r.account).push({logged_at:r.logged_at,day:r.day,reward:r.reward?JSON.parse(r.reward):null});
-      }
-      const accounts=[...map.entries()].map(([name,entries])=>({name,entries}));
-      res.json({ok:true,accounts});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
-
   // Весь 28-дневный график наград (карточки на странице "Ежедневная награда") — чисто из БД,
   // никаких живых запросов: снимок (DailyRewardSnapshot.rewards) пишет суточный цикл бота и кнопка
   // "Обновить" (см. modules/tasks.js saveRewardSnapshot), а он и так уже ходит в игру каждый день.

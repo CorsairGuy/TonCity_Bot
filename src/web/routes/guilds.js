@@ -7,25 +7,6 @@ const opRegistry=require('../lib/opRegistry');
 module.exports=function(app,ctx){
   const{apiForAcc,makeApiForAccount}=ctx;
 
-  app.get('/api/guild-info/:guildId',async(req,res)=>{
-    try{
-      const{GuildMembersSnapshot}=require('../../db/index');
-      const row=await GuildMembersSnapshot.findOne({where:{guild_id:req.params.guildId}});
-      if(!row)return res.status(404).json({ok:false,error:'Нет данных'});
-      const data=JSON.parse(row.members||'{}');
-      res.json({ok:true,guild:data?.guild||null,leaderboard:data?.leaderboard||[]});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
-
-  app.get('/api/guild-mid/:guildId',async(req,res)=>{
-    try{
-      const{MidSnapshot}=require('../../db/index');
-      const row=await MidSnapshot.findOne({where:{guild_id:req.params.guildId}});
-      if(!row)return res.status(404).json({ok:false,error:'Нет данных'});
-      res.json({ok:true,...JSON.parse(row.data||'{}')});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
-
   // ── МИД live endpoints ───────────────────────────────────────────────────
   async function midApi(guildId){
     const{GuildSnapshot,Account}=require('../../db/index');
@@ -219,21 +200,6 @@ module.exports=function(app,ctx){
       const data=await fmPost(api,req.params.guildId,'invitations/buy',{package_index:Number(package_index)});
       res.json({ok:true,data});
     }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
-  });
-
-  app.get('/api/guild-settings/:guildId',async(req,res)=>{
-    try{
-      const{GuildSnapshot,Account}=require('../../db/index');
-      const ApiClient=require('../../api/client');
-      const guildId=req.params.guildId;
-      const row=await GuildSnapshot.findOne({where:{guild_id:guildId,role:'Leader'}});
-      if(!row)return res.status(404).json({ok:false,error:'Аккаунт-лидер не найден'});
-      const acc=await Account.findOne({where:{name:row.account}});
-      if(!acc?.access_token)return res.status(404).json({ok:false,error:'Токен не найден'});
-      const api=apiForAcc(acc);
-      const data=await api.get(`/guilds/management/${guildId}`);
-      res.json({ok:true,settings:data?.settings||{}});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
   // ── управление гильдией: аккаунт-менеджер (лидер/офицер) + заявки ────────────

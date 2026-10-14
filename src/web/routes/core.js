@@ -64,13 +64,6 @@ module.exports=function(app,ctx){
 
   const{makeApiForAccount}=ctx;
 
-  app.get('/api/items-meta',(req,res)=>{
-    try{
-      const items=require('../../../config/items.json');
-      res.json({ok:true,items});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
-
   // статус техработ игры (автопауза запросов) — для баннера в панели
   // проверка новой версии бота на GitHub (кэш 30 мин, ?force=1 — ручная проверка, не чаще раза в минуту)
   app.get('/api/version',async(req,res)=>{
@@ -417,64 +410,4 @@ module.exports=function(app,ctx){
     req.on('close',()=>{logStream.unsubscribe(res);});
   });
 
-  app.get('/api/item-info',(req,res)=>{
-    try{
-      const{account_id,item_id}=req.query;
-      if(!account_id||item_id==null)return res.status(400).json({ok:false,error:'account_id и item_id обязательны'});
-      const itemCache=require('../../utils/itemCache');
-      const cached=itemCache.get(account_id);
-      const slots=(cached?.listing_limits||[])
-        .filter(l=>String(l.item_id)===String(item_id))
-        .map(l=>({market_id:l.market_id,currency:l.currency,can_list:l.can_list,
-          floor_price:l.floor_price,ceiling_price:l.ceiling_price,
-          listings_limit:l.listings_limit,listings_limit_type:l.listings_limit_type,
-          current_listings:l.current_listings}));
-      const activeBoosters=(cached?.active_boosters||[])
-        .filter(b=>String(b.item_id)===String(item_id))
-        .map(b=>({id:b.id,item_id:b.item_id,rarity:b.rarity,multiplier:b.multiplier,
-          end_time:b.end_time,start_time:b.start_time}));
-      res.json({ok:true,market_slots:slots,active_boosters:activeBoosters,cached_at:cached?.ts||null});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
-
-  app.post('/api/item-action',async(req,res)=>{
-    try{
-      const{account_id,action,item_id,market_id,price,currency='crystals',qty=1}=req.body||{};
-      if(!account_id||!action)return res.status(400).json({ok:false,error:'account_id и action обязательны'});
-      const api=await makeApiForAccount(account_id);
-      let result;
-      switch(action){
-        case 'open':
-          result=await api.post('/booster-packs/open',{id:Number(item_id)});
-          break;
-        case 'activate':
-          result=await api.post('/boosters/activate',{id:Number(item_id)});
-          break;
-        case 'sell':
-          result=await api.post('/storage/items/sell',{item_id:Number(item_id),amount:Number(qty)});
-          break;
-        case 'market':
-          if(!market_id||!price)return res.status(400).json({ok:false,error:'market_id и price обязательны'});
-          result=await api.post('/market/direct',{market_id:Number(market_id),price:Number(price),currency,anonymous_sale:true});
-          break;
-        default:
-          return res.status(400).json({ok:false,error:'Неизвестное действие: '+action});
-      }
-      res.json({ok:true,result});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
-
-  app.post('/api/refresh-inventory',async(req,res)=>{
-    try{
-      const{account_id}=req.body||{};
-      if(!account_id)return res.status(400).json({ok:false,error:'account_id обязателен'});
-      const{runInventory}=require('../../modules/inventory');
-      const api=await makeApiForAccount(account_id);
-      const{Account}=require('../../db/index');
-      const acc=await Account.findByPk(account_id,{attributes:['name']});
-      if(!acc)return res.status(404).json({ok:false,error:'Аккаунт не найден'});
-      await runInventory(api,acc.name,false);
-      res.json({ok:true});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
-  });
 };
