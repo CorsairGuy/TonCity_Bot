@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Box, Text, Link, Label, IconButton, ConfirmationDialog, Spinner } from '@primer/react';
+import { Box, Text, Link, Label, ConfirmationDialog, Spinner } from '@primer/react';
 import { SyncIcon, PinIcon, GitBranchIcon, TagIcon, DownloadIcon } from '@primer/octicons-react';
 import { api, VersionInfo } from '../api';
 import { useSelfUpdate } from '../hooks/useSelfUpdate';
@@ -52,31 +52,36 @@ export function VersionBadge() {
   return (
     <>
       <div className="nav-separator" />
-      <Box sx={{ mx: 2, mb: 2, p: 2, borderRadius: 2, border: '1px solid', borderColor: 'border.muted', bg: 'canvas.subtle',
-        fontSize: 0, color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Text sx={{ fontWeight: 'semibold', color: 'fg.default' }}>Версия</Text>
-          <Box sx={{ ml: 'auto' }}>
-            <IconButton icon={SyncIcon} aria-label={`Проверить обновления (проверено в ${checked})`} size="small" variant="invisible"
-              disabled={busy || upd.updating} onClick={() => load(true)} />
+      {/* карточка ровно по ширине пунктов меню (nav-item): те же края, радиус 9px и внутренний
+          отступ 8px с рамкой (7+1), поэтому текст и иконки стоят на одной вертикали с «Логи»/«Настройки» */}
+      <Box sx={{ mb: 2, px: '7px', py: '8px', borderRadius: '9px', border: '1px solid', borderColor: 'border.muted', bg: 'canvas.subtle',
+        fontSize: '12px', lineHeight: '18px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', height: 20 }}>
+          <Text sx={{ fontSize: '14px', fontWeight: 'semibold', color: 'fg.default' }}>Версия</Text>
+          <Box as="button" type="button" title={`Проверить обновления (проверено в ${checked})`} aria-label="Проверить обновления"
+            disabled={busy || upd.updating} onClick={() => load(true)}
+            sx={{ ml: 'auto', width: 20, height: 20, p: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              border: 0, borderRadius: '6px', bg: 'transparent', color: 'fg.muted', cursor: 'pointer',
+              ':hover:not(:disabled)': { color: 'fg.default', bg: 'neutral.muted' }, ':disabled': { opacity: 0.5, cursor: 'default' } }}>
+            {busy ? <Spinner size="small" sx={{ width: 14, height: 14 }} /> : <SyncIcon size={14} />}
           </Box>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
           {ch && (
-            <RouterLink to="/settings#updates" style={{ textDecoration: 'none' }} title="Канал обновлений — Настройки">
-              <Label variant={pinned ? 'attention' : 'accent'} sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                <ChIcon size={12} />{chText}
+            <RouterLink to="/settings#updates" style={{ textDecoration: 'none', display: 'inline-flex', minWidth: 0 }} title="Канал обновлений — Настройки">
+              <Label variant={pinned ? 'attention' : 'accent'} sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, maxWidth: '100%' }}>
+                <ChIcon size={12} /><Box as="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chText}</Box>
               </Label>
             </RouterLink>
           )}
           {v.local
-            ? <Link href={`${v.repoUrl}/commit/${v.local.sha}`} target="_blank" rel="noreferrer" muted sx={{ fontFamily: 'mono' }}>{short(v.local.sha)}</Link>
-            : <Text>версия неизвестна</Text>}
+            ? <Link href={`${v.repoUrl}/commit/${v.local.sha}`} target="_blank" rel="noreferrer" muted sx={{ fontFamily: 'mono', ml: 'auto' }}>{short(v.local.sha)}</Link>
+            : <Text sx={{ ml: 'auto' }}>версия неизвестна</Text>}
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {upd.updating
-            ? <Spinner size="small" />
-            : <Box sx={{ width: 8, height: 8, borderRadius: '50%', bg: state.color, flexShrink: 0 }} />}
+            ? <Spinner size="small" sx={{ width: 12, height: 12 }} />
+            : <Box sx={{ width: 8, height: 8, mx: '2px', borderRadius: '50%', bg: state.color, flexShrink: 0 }} />}
           <Text sx={{ color: 'fg.default' }}>{state.text}</Text>
         </Box>
         {!upd.updating && (
@@ -87,8 +92,8 @@ export function VersionBadge() {
           </RouterLink>
         )}
         {!upd.updating && canClick && (
-          // как пункты меню (nav-item), а не primer-кнопка: блок живёт в сайдбаре
-          <button type="button" className="nav-item" style={{ margin: '-4px -8px', width: 'calc(100% + 16px)', color: 'var(--fg)' }}
+          // как пункты меню (nav-item); отрицательные поля — чтобы подсветка доходила до краёв карточки
+          <button type="button" className="nav-item" style={{ margin: '0 -4px', width: 'calc(100% + 8px)', padding: '6px 4px', color: 'var(--fg)' }}
             onClick={() => setConfirm(true)}>
             <DownloadIcon /><span>Обновить</span>
           </button>
