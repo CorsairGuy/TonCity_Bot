@@ -409,6 +409,8 @@ module.exports=function(app,ctx){
       const row=await StakingEntry.findOne({where:{entry_id}});
       if(!row)return res.status(404).json({ok:false,error:'вклад не найден — нажмите «Обновить»'});
       if(row.collected)return res.json({ok:false,error:'вклад уже собран'});
+      // игра отменяет только монетные вклады, кристальные — нет
+      if(row.currency!=='coins')return res.json({ok:false,error:'кристальный вклад игра отменить не даёт'});
       if(row.can_collect_at&&new Date(row.can_collect_at).getTime()<=Date.now())return res.json({ok:false,error:'вклад уже созрел — его нужно забрать, а не отменять'});
       const acc=await Account.findOne({where:{name:row.account}});
       if(!acc?.access_token)return res.status(404).json({ok:false,error:'account not found'});

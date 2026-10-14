@@ -526,8 +526,9 @@ export function Reserve() {
                   {
                     header: '',
                     id: 'actions',
-                    // отменять можно только идущий вклад: созревший забирается, собранного уже нет
-                    renderCell: row => (!row.collected && !row._ready) ? (
+                    // отменять можно только идущий МОНЕТНЫЙ вклад: созревший забирается, собранного уже
+                    // нет, кристальный игра отменить не даёт (в её клиенте кнопки нет)
+                    renderCell: row => (row.currency === 'coins' && !row.collected && !row._ready) ? (
                       <Button
                         size="small"
                         variant="danger"
