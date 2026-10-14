@@ -41,6 +41,8 @@ services:
       WEB_BIND: 0.0.0.0
       # Адрес Watchtower внутри сети compose — для кнопки «Обновить» в панели.
       WATCHTOWER_URL: http://watchtower:8080
+    # init: tini пробрасывает SIGTERM процессу node → срабатывает graceful shutdown (src/index.js).
+    init: true
     ports:
       # ОБЕ стороны берём из WEB_PORT — приложение внутри контейнера слушает именно этот порт
       # (src/config.js: webPort=process.env.WEB_PORT), а не захардкоженный 3000.
@@ -48,8 +50,6 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config
-      # иконки предметов из игры: иначе после каждого обновления контейнера качаются заново
-      - ./items-live:/app/items-live
     labels:
       # Watchtower обновляет только этот контейнер и только «свой» (scope = STACK_NAME), чтобы
       # несколько копий бота на одном хосте не трогали друг друга. База не обновляется никогда.

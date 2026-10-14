@@ -25,7 +25,7 @@ function Rewards({ rewards, catalog }: { rewards: { item_id: number; amount: num
         // новые предметы (билеты, летний/алмазный набор, камни реформ) знает только каталог игры
         const meta = ITEMS_BY_ID[r.item_id];
         const title = meta?.name ?? catalogItemName(catalog.get(r.item_id)) ?? `#${r.item_id}`;
-        const src = meta ? itemImgSrc(meta.tag) : catalogItemImg(r.item_id);
+        const src = meta ? itemImgSrc(meta.tag) : catalogItemImg(r.item_id, catalog.get(r.item_id)) ?? '';
         return (
           <Box key={r.item_id} sx={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }} title={title}>
             <img src={src} alt="" style={{ width: 26, height: 26, objectFit: 'contain' }}

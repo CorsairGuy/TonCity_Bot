@@ -18,6 +18,7 @@ db_data/
 # кэш, который бот сам скачивает из игры
 items-live/
 config/items-live.json
+config/items-locale.json
 config/buildings-live.json
 
 # сборка фронтенда

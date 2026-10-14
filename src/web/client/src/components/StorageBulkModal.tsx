@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { Box, Button, Flash, Spinner, TabNav, Text, Label } from '@primer/react';
 import { ZapIcon, ArrowUpIcon, ArrowDownIcon, PackageIcon, StarFillIcon, SyncIcon } from '@primer/octicons-react';
 import { api, type StorageItemFull, type BoosterPackMeta, type CombinationRule } from '../api';
-import { ITEMS_BY_ID, fmt, itemImgSrc } from '../utils';
+import { fmt, itemImgSrc } from '../utils';
 import { CoinValue, CrystalValue } from './Icons';
 import { OpenedRewards, RewardRow, RARITY_NAME, type OpenReward, PacksToGuarantee } from './StorageModal';
 import { Dialog } from '@primer/react/experimental';
+import { useItemCatalog, itemName } from '../hooks/useItemCatalog';
 
 export interface BulkHolder { id: number; name: string; qty: number }
 
@@ -30,8 +31,8 @@ export function StorageBulkModal({ itemId, holders, onClose }: { itemId: number;
   const [counting, setCounting] = useState(false);
   const [done, setDone] = useState(false); // действие выполнено — блокируем повтор до «Обновить»
 
-  const meta = ITEMS_BY_ID[itemId] ?? null;
-  const title = meta?.name ?? `Предмет #${itemId}`;
+  const catalog = useItemCatalog();
+  const title = itemName(itemId, catalog);
   // реально существующие держатели (qty>0) и суммарное живое количество
   const active = liveHolders.filter(h => h.qty > 0);
   const totalQty = active.reduce((s, h) => s + (h.qty || 0), 0);

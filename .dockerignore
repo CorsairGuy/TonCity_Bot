@@ -33,5 +33,6 @@ Thumbs.db
 db_data
 items-live
 config/items-live.json
+config/items-locale.json
 config/buildings-live.json
 .claude

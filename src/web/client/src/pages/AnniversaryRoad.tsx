@@ -37,7 +37,7 @@ function StageRewards({ st, ticketItemId, catalog }: { st: AnniversaryStage; tic
         // не известен) — из каталога, который бот забрал у самой игры (hooks/useItemCatalog)
         const meta = ITEMS_BY_ID[r.item_id];
         const title = meta?.name ?? catalogItemName(catalog.get(r.item_id)) ?? `#${r.item_id}`;
-        const src = meta ? itemImgSrc(meta.tag) : catalogItemImg(r.item_id);
+        const src = meta ? itemImgSrc(meta.tag) : catalogItemImg(r.item_id, catalog.get(r.item_id)) ?? '';
         return (
           <Box key={r.item_id} sx={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={title}>
             <img src={src} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }}

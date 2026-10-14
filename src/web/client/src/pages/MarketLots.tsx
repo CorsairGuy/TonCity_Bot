@@ -9,6 +9,8 @@ import { useFlash } from '../hooks/useFlash';
 import { CrystalValue } from '../components/Icons';
 import { PolicyCardModal, RARITY_COLOR } from '../components/PolicyCardModal';
 import { Scrollable } from '../components/Scrollable';
+import { useItemCatalog, itemName, knownItemName } from '../hooks/useItemCatalog';
+import { ItemThumb } from '../components/ItemThumb';
 
 // Карточка политики для лота маркета: показываем ИМЕННО тот вариант (def_id/редкость), что
 // продаётся в этом лоте — не все варианты названия (в отличие от библиотеки). Берём точное
@@ -41,6 +43,12 @@ const RARITY: Record<string, { c: string; n: string }> = {
   eternal: { c: '#C0392B', n: 'Вечный' },
 };
 const CAT: Record<string, string> = { booster: 'Ускоритель', pack: 'Набор', component: 'Компонент', masterplan: 'Мастерплан' };
+// название предмета лота: таблица клиента / локализация игры из каталога бота; у политик имя своё
+// (берётся из ответа рынка), поэтому для них каталог не спрашиваем — только категория.
+function lotItemName(itemId: number | null | undefined, category: string | null): string {
+  const known = category === 'policy' ? null : knownItemName(itemId);
+  return known ?? (category ? CAT[category] : null) ?? itemName(itemId);
+}
 const LIMIT_PERIOD: Record<string, string> = { day: 'день', week: 'нед', month: 'мес', hour: 'ч', total: 'всего' };
 
 // Предмет → серверные фильтры маркета (category + rarity). Пара уникальна = один предмет.
@@ -161,7 +169,7 @@ function BuyDialog({ offer, accounts, onClose, showFlash, onBought }: {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
           {meta && <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 40, height: 40, objectFit: 'contain' }} />}
           <Box>
-            <Text sx={{ fontWeight: 'bold', display: 'block' }}>{meta?.name ?? CAT[offer.item_category] ?? `#${offer.item_id}`}</Text>
+            <Text sx={{ fontWeight: 'bold', display: 'block' }}>{lotItemName(offer.item_id, offer.item_category)}</Text>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 1 }}>
               <Label sx={{ bg: RARITY[offer.item_rarity]?.c ?? '#6e7681', color: 'white', borderColor: 'transparent', fontSize: 0 }}>{RARITY[offer.item_rarity]?.n ?? offer.item_rarity}</Label>
               <Price currency={offer.listing_currency} value={price} />
@@ -229,7 +237,7 @@ function OfferActionDialog({ offer, accounts, title, actionLabel, defaultAmount,
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
           {meta && <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 40, height: 40, objectFit: 'contain' }} />}
           <Box>
-            <Text sx={{ fontWeight: 'bold', display: 'block' }}>{meta?.name ?? CAT[offer.item_category] ?? `#${offer.item_id}`}</Text>
+            <Text sx={{ fontWeight: 'bold', display: 'block' }}>{lotItemName(offer.item_id, offer.item_category)}</Text>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 1 }}>
               <Label sx={{ bg: RARITY[offer.item_rarity]?.c ?? '#6e7681', color: 'white', borderColor: 'transparent', fontSize: 0 }}>{RARITY[offer.item_rarity]?.n ?? offer.item_rarity}</Label>
               <Price currency={offer.listing_currency} value={offer.display_price} />
@@ -386,7 +394,7 @@ function AutoBuyManager({ accounts, onClose, showFlash }: {
           : rules.map(r => (
             <Box key={r.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2, py: '8px', border: '1px solid', borderColor: 'border.muted', borderRadius: 2, mb: 1, opacity: r.enabled ? 1 : 0.6 }}>
               <Box sx={{ flex: 1 }}>
-                <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{ITEMS_BY_ID[r.item_id ?? -1]?.name ?? r.categories}</Text>
+                <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{(r.item_id != null ? knownItemName(r.item_id) : null) ?? r.categories}</Text>
                 <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>
                   до <Price currency={r.currency} value={r.max_price} /> · бюджет {r.max_budget != null ? <>{fmt(r.spent)}/{fmt(r.max_budget)}</> : '∞'} · {r.account_ids.length} акк.{r.include_escrow ? ' · эскроу' : ''}
                 </Text>
@@ -430,7 +438,7 @@ function SnipeManager({ accounts, onClose }: { accounts: Account[]; onClose: () 
               <Box key={s.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2, py: '8px', border: '1px solid', borderColor: 'border.muted', borderRadius: 2, mb: 1, opacity: s.status === 'pending' ? 1 : 0.75 }}>
                 {meta && <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 32, height: 32, objectFit: 'contain' }} />}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{meta?.name ?? `#${s.item_id}`}</Text>
+                  <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{lotItemName(s.item_id, null)}</Text>
                   <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>
                     {accName(s.account_id)} · {s.price != null && s.currency ? <Price currency={s.currency} value={s.price} /> : '—'}
                   </Text>
@@ -450,6 +458,7 @@ function SnipeManager({ accounts, onClose }: { accounts: Account[]; onClose: () 
 }
 
 export function MarketLots() {
+  const catalog = useItemCatalog();
   const [offers, setOffers] = useState<MarketOffer[]>([]);
   const [total, setTotal] = useState(0);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -561,7 +570,7 @@ export function MarketLots() {
                 // имя: метаданные → имя политики из маркета → «Осколок/Категория» → #id
                 const name = meta?.name || pol?.name?.ru || pol?.name?.en
                   || (o.item_category === 'shard' ? `Осколок${o.item_rarity ? ' · ' + (RARITY[o.item_rarity]?.n ?? o.item_rarity) : ''}`
-                      : (CAT[o.item_category] ?? `#${o.item_id}`));
+                      : lotItemName(o.item_id, o.item_category));
                 // краткая расшифровка эффектов политики — в подсказке при наведении
                 const effTitle = pol?.effects?.length
                   ? pol.effects.map(e => `${(e.value ?? 0) >= 0 ? '+' : ''}${Math.round((e.value ?? 0) * 100)}% ${e.stat}`).join(', ')
@@ -581,7 +590,8 @@ export function MarketLots() {
                             onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
                         : polIcon
                           ? <span className={`mdi mdi-${polIcon}`} style={{ fontSize: 20, color: '#fff', lineHeight: 1 }} />
-                          : <span style={{ fontSize: 14 }}>{o.item_category === 'shard' ? '🔷' : `#${o.item_id}`}</span>}
+                          : o.item_category === 'shard' ? <span style={{ fontSize: 14 }}>🔷</span>
+                          : <ItemThumb itemId={o.item_id} item={catalog.get(o.item_id)} size={24} style={{ fontSize: 8, padding: 0 }} />}
                     </Box>
                     <Text sx={{ fontSize: 1, whiteSpace: 'nowrap', minWidth: 0 }}>{name}</Text>
                   </Box>

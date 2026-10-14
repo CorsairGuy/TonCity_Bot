@@ -31,9 +31,7 @@ function startWebServer(port){
   });
 
   app.use(express.json());
-  // /items/live — отдельный, более специфичный маршрут ПЕРЕД общим /items: иконки предметов теперь
-  // качаются в items-live/ в корне проекта (вне src/, см. utils/itemCatalog.js), а не в src/items/live/.
-  app.use('/items/live',express.static(path.join(process.cwd(),'items-live')));
+  // иконки предметов: заранее скачанные и докачанные ботом по тегу (см. utils/itemCatalog.js)
   app.use('/items',express.static(path.join(__dirname,'..','items')));
   app.use('/sprites',express.static(path.join(__dirname,'sprites')));
 
