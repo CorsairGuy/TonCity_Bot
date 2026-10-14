@@ -138,6 +138,9 @@ export function UpdatesCard() {
   const ChIcon = pinned ? PinIcon : ch.kind === 'stable' ? TagIcon : GitBranchIcon;
   const chTitle = ch.kind === 'branch' ? `Ветка ${ch.name}` : ch.kind === 'stable' ? `Стабильный${v.currentRelease ? ' · ' + v.currentRelease : ''}` : ch.kind === 'release' ? `Закреплена ${ch.name}` : `Закреплена сборка ${ch.name}`;
   const updaterLast = v.updater?.last;
+  // ошибку прошлого переключения показываем, только пока бот с тех пор не перезапускался: если он
+  // перезапустился позже, обновление всё-таки прошло (или его сделали вручную) и ошибка устарела
+  const lastError = updaterLast?.state === 'error' && !(v.startedAt && Date.parse(updaterLast.at) < v.startedAt) ? updaterLast : null;
   const releases = showAll ? v.releases : v.releases.slice(0, 6);
 
   const toggleAuto = async (next: boolean) => {
@@ -161,8 +164,8 @@ export function UpdatesCard() {
           </Flash>
         )}
         {v.error && <Flash variant="warning">Нет связи с GitHub: {v.error}</Flash>}
-        {updaterLast?.state === 'error' && (
-          <Flash variant="danger">Последнее переключение на {updaterLast.tag} ({fmtDayTime(updaterLast.at)}) не удалось: {updaterLast.message}</Flash>
+        {lastError && (
+          <Flash variant="danger">Последнее переключение на {lastError.tag} ({fmtDayTime(lastError.at)}) не удалось: {lastError.message}</Flash>
         )}
 
         {/* сейчас установлено */}
