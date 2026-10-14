@@ -1,9 +1,0 @@
-[
-  { "phase": 0, "name": "Старт",        "popThreshold": 0,       "profitThreshold": 0 },
-  { "phase": 1, "name": "Деревня",      "popThreshold": 500,     "profitThreshold": 500 },
-  { "phase": 2, "name": "Посёлок",      "popThreshold": 2000,    "profitThreshold": 10000 },
-  { "phase": 3, "name": "Город",        "popThreshold": 20000,   "profitThreshold": 300000 },
-  { "phase": 4, "name": "Мегаполис",    "popThreshold": 250000,  "profitThreshold": 5000000 },
-  { "phase": 5, "name": "Метрополия",   "popThreshold": 2000000, "profitThreshold": 20000000 },
-  { "phase": 6, "name": "Эндгейм",      "popThreshold": 5000000, "profitThreshold": 100000000 }
-]

@@ -60,12 +60,6 @@ export const POLICY_TARGET_LABEL: Record<string, string> = {
   epic_policy: 'эпические политики', legendary_policy: 'легендарные политики', mythic_policy: 'мифические политики',
 };
 
-export const POLICY_THEME_LABEL: Record<string, string> = {
-  urbanism: 'Урбанизм', industry: 'Промышленность', commerce: 'Коммерция', economy: 'Экономика',
-  finance: 'Финансы', market: 'Рынок', fortune: 'Фортуна', logistics: 'Логистика',
-  military: 'Военное дело', statecraft: 'Государственность',
-};
-
 // H2e из клиента: сырые id типов зданий (building_type_income.targets) → категория
 function normalizeBuildingType(raw: string): string {
   if (raw.startsWith('COM_bank')) return 'banks';

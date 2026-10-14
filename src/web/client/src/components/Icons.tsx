@@ -28,7 +28,6 @@ export const IC_RENOWN = <img src={RENOWN_URI} alt="" style={iconStyle} />;
 
 export function CoinIcon({ size = 16 }: { size?: number }) { return <img src={COIN_URI} alt="" style={sized(size)} />; }
 export function CrystalIcon({ size = 16 }: { size?: number }) { return <img src={CRYSTAL_URI} alt="" style={sized(size)} />; }
-export function RenownIcon({ size = 16 }: { size?: number }) { return <img src={RENOWN_URI} alt="" style={sized(size)} />; }
 
 // Число перед иконкой валюты (не иконка перед числом) — единый порядок для монет/кристаллов
 // во всём веб-интерфейсе. Это единственное место, где собирается пара "число+иконка" —

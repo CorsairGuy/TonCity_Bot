@@ -18,19 +18,19 @@
 ## 1. Запуск и окружение
 
 ```bash
-npm run dev                            # nodemon: перезапуск при изменениях src/ и .env (src/web/client и dist игнорирует)
+npm run dev                            # node --watch: перезапуск при правках подключённых модулей (иконки, dist, config/ и .env не следит)
 npm start                              # node --max-old-space-size=3072 src/index.js
 cd src/web/client && npm run build     # фронт → src/web/dist/ (сервер отдаёт статику отсюда)
 cd src/web/client && npm run dev       # vite dev-сервер, проксирует /api, /sprites, /items на :3000
 node --check src/web/server.js         # быстрая проверка синтаксиса
 docker compose up -d                   # db (MariaDB) + bot (образ из GHCR) + watchtower
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db bot   # разработка: ./src с хоста + nodemon
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db bot   # разработка: ./src с хоста + node --watch
 ```
 
 - **Docker и обновления (с 14.10.2026):** `docker-compose.yml` поднимает `db`, `bot` и `watchtower`. `bot` — **готовый образ** `ghcr.io/corsairguy/toncity_bot:${BOT_TAG:-latest}`, его собирает `.github/workflows/docker.yml` на каждый push в `main` (код, `node_modules` и собранный фронт внутри, коммит зашит в `APP_COMMIT`, теги `latest` и `sha-<коммит>`). С хоста в `bot` подключены только `./config` и `./logs`; иконки предметов, которые бот докачивает в `src/items`, живут внутри контейнера и после обновления докачиваются заново. Справочники из `config/` лежат копией в образе (`/app/config-defaults`) и при старте докладываются в `config/` только если файла там нет — **изменённый в git справочник на сервер сам не приедет**, его нужно скопировать вручную. Бот запускается через `exec node` под `init: true` (tini пробрасывает SIGTERM → `gracefulShutdown`).
   - **Watchtower** (форк `ghcr.io/nicholas-fedor/watchtower`, исходный containrrr заброшен и не работает с Docker 29) обновляет только контейнер бота своего `STACK_NAME` (метки `enable`+`scope`). По умолчанию — только по кнопке: панель → `POST /api/update` (`utils/selfUpdate.js`) → HTTP API Watchtower `POST http://watchtower:8080/v1/update` с `WATCHTOWER_TOKEN`. Если образ новый, Watchtower останавливает бота ещё до ответа (оборванный запрос = обновление идёт); если нет — отвечает `updated:0`. `/api/update` не стартует посреди операций `opRegistry` без `force`. Автообновление — `WATCHTOWER_AUTO=true` + `WATCHTOWER_SCHEDULE`. Откат — `BOT_TAG=sha-<коммит>` в `.env`.
   - Проверка версии — `utils/versionCheck.js` + `GET /api/version` (публичный GitHub API без токена, кэш 30 мин; плюс статус сборки образа в Actions) и плашка `components/VersionBadge.tsx` внизу меню.
-  - **Режим разработки** — `docker-compose.dev.yml`: локальная сборка, `./src`/`nodemon.json`/`.git` с хоста, `npx nodemon`, фронт собирать на хосте.
+  - **Режим разработки** — `docker-compose.dev.yml`: локальная сборка, `./src`/`.git` с хоста, `node --watch`, фронт собирать на хосте. nodemon из проекта убран (14.10.2026).
   - В контейнере `WEB_BIND=0.0.0.0`, порт `${WEB_PORT}:${WEB_PORT}`. Имена контейнеров — `${STACK_NAME}_db`/`_bot`/`_watchtower` (несколько копий на хосте — разные `STACK_NAME`/порты).
 - **Машина пользователя: Windows**, основная оболочка PowerShell. Рабочая папка `Z:\DOCKER\toncity_bot` (до 13.10.2026 — `X:\toncity_bot`) — это **сетевой диск, смонтированная папка `/DOCKER/toncity_bot` на боевом сервере** (Debian, Docker). До перехода сервера на образ из GHCR правка `src/` там = правка прода (~60 аккаунтов, применяется `docker compose restart bot`); после перехода код прода живёт только в образе, правки на Z: на работающего бота не влияют — всё через git → `main` → сборка → «Обновить». `config/` и логи `logs/bot*.log` по-прежнему там, боевые. С 14.10.2026 проект в git: https://github.com/CorsairGuy/TonCity_Bot.
 - **Время в логах — UTC** (в контейнере нет TZ), пользователь называет местное время GMT+5.
@@ -117,8 +117,6 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 | `shop` | `runShop` | магазин: `GET /shop/offers/booster`, `/shop/offers/booster_pack` |
 | `achievements` | `runAchievements` | `GET /achievements/unlocked` |
 | `loyalty` | `runLoyalty` | дорога верности: `GET/POST /loyalty-road/` |
-| `auditorium` | `runAuditorium` | вечный аудиториум (задача при `runAccount`) |
-| `techfactory` | `runTechFactory` | технологическая фабрика (задача при `runAccount`) |
 | `capital` | `runCapital`, `runQuestLoop`, `runCapUpgradeLoop`, `collectCapitalResources` | столица гильдии: `GET/POST /capitals/progress/{gid}`, `collect/coins`, `collect/crystals`; квесты гильдии `/guild-quests/*` |
 | `progress` | `runProgress` | **прокачка города**: строит/двигает/улучшает здания и **разблокирует секции** по референсу фазы (см. §6) |
 | `dailyads` | `getDailyAdsStatus`, `runDailyAds` | ежедневная реклама: `GET/POST /daily-ads/` |
@@ -155,13 +153,13 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 - `server.js` (тонкий, ~90 строк): поднимает Express, статику (`/items`,`/sprites`,SPA из `dist/`), **auth-гейт** (`/api/*` кроме `auth/status`,`login`,`logout`) + эндпоинты `login/logout/password`, собирает `ctx` и регистрирует группы роутов, `GET *` SPA-fallback, `app.listen`, старт фоновых воркеров рынка.
 - Общие хелперы — `src/web/lib/api.js`: `apiForAcc(acc,{noLock})` и `makeApiForAccount(accountId,{noLock})` → `ApiClient` для аккаунта (на 401 сам рефрешит токен); `midErr(e)` → ошибка МИД строкой. Передаются в группы через `ctx={apiForAcc,makeApiForAccount,midErr}`.
 - Каждая группа — `module.exports=function(app,ctx){…}` в `src/web/routes/`:
-  - `core.js` — items-meta/config/accounts/inventory/logs + item-info/action/refresh-inventory;
-  - `plans.js` — **refplans** (референсы города/столицы, генерация, импорт карты — §6), phases/building-phases/sections/coords/buildingslist/bot-state, legacy cityplan/capitalplan, city-/capital-snapshots;
+  - `core.js` — items/config/accounts/inventory/logs, версия и обновление;
+  - `plans.js` — sections/coords/buildingslist/bot-state, city-/capital-snapshots;
   - `minigames.js` — wordle (status/guess-all), minesweeper/sudoku/quiz (+SSE `solve-stream`), minigame-status;
-  - `fortune.js` — павильон удачи (raw/log/items-summary/status/can-draw-all/spin/spin-all);
+  - `fortune.js` — павильон удачи (log/status/can-draw-all/spin/spin-all);
   - `dashboards.js` — shop/townhall/journey/achievements/promo, guilds/guild-quests/special-buildings, builders;
   - `market.js` — **центральный рынок** (stats/deals/offers/ton-balances/auto-buy/buy/autobuy CRUD+воркер/snipe/sellable/list/list-spread/cancel); ставит `app.__startAutobuyWorker`/`app.__startSnipeScheduler`;
-  - `guilds.js` — guild-info/guild-mid, **mid-live** (МИД live: alliance/enemy/scouting/invitations), guild-settings, управление гильдией (applications/members/settings);
+  - `guilds.js` — **mid-live** (МИД live: alliance/enemy/scouting/invitations), управление гильдией (applications/members/settings);
   - `economy.js` — loyalty-road, `storage-live/:accountId/*` (склад: sell/activate/combine/open-pack/set-target/sync), `shop-live`, staking, daily-ads (+SSE `watch-stream`);
   - `refresh.js` — `refresh/:module` (ручной прогон модуля).
   - `policies.js` — политики (библиотека, кабинет мэра); `civicDraw.js` — городской розыгрыш (Мэрия); `satoshi.js` — Башня Сатоши (трейдинг GRAM/USDT, курс с реальных бирж); `questTiers.js` — уровни гильдейских квестов; `guildBuildings.js` — Технофабрика/Вечный аудиториум; `cityStrategy.js`/`capitalStrategy.js` — цели улучшений и разовые build/move/demolish; `anniversary.js`/`midway.js` — событие годовщины (август 2026).
@@ -171,17 +169,17 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 ### Фронтенд `src/web/client/` (React + Primer, роутинг в `App.tsx`)
 Меню (сайдбар, группы): Аккаунты, Инвентарь, **Федеральный Резерв**(Стейкинг), **Павильон удачи**(Фортуна), **Оплот Мудрости**(Вордли/Сапёр/Судоку/Викторина), **Профиль**(Путь Мэра/Достижения/Промокоды), Строители, МИД, Гильдии, **Сфера миссий**(Дорога верности/Квесты), Столицы, Города, Аудиториум, Фабрика, **Задания**(Ежедневный вход/реклама), **Мэрия**(Распределение/Политика/Разнообразие), **Магазин**(Ускорители/Наборы), **Центральный рынок**(Лоты/Листинги/Статистика/Покупки/Продажи), Настройки, Логи. Хидер убран; `--header-h:0`.
 
-Ключевые страницы: `Accounts`, `Inventory`+`StorageModal` (склад live: продажа/актив/комбо/открытие паков с показом выпавшего), `Reserve` (стейкинг), `Fortune`, мини-игры, `Plans` (референсы города/столицы), `CityMapEditor`+`MapEditor` (canvas-редактор карты), `City`/`CityMap`, `Capitals`, `Mid`, `Guilds`, `MarketStats/MarketLots/MarketDeals`, `DailyAds`, `Loyalty`, `Quests`, `Settings`, `Logs`.
+Ключевые страницы: `Accounts`, `Inventory`+`StorageModal` (склад live: продажа/актив/комбо/открытие паков с показом выпавшего), `Reserve` (стейкинг), `Fortune`, мини-игры, `City`/`CityMap` (`CityMapCity`/`CityMapCapital` + `CityActionsCanvas`), `GlobalUpgradePlan`/`GlobalCapitalUpgradePlan`, `Capitals`, `Mid`, `Guilds`, `MarketStats/MarketLots/MarketDeals`, `DailyAds`, `Loyalty`, `Quests`, `Settings`, `Logs`.
 
 Название предмета по id на любой странице — `itemName(id, catalog)`/`knownItemName` из `hooks/useItemCatalog.ts` (локализация игры → `ITEMS_BY_ID` → слаг → «Предмет #id»), страница вызывает `useItemCatalog()`, чтобы перерисоваться после загрузки каталога.
 
-Утилиты формата `src/web/client/src/utils.ts`: `fmt` (сокращения K/M/B/T), `fmtInt` (точное целое, разделение тысяч — баланс алмазов), `fmtCr` (дробное до 1 знака — прибыль в алмазах), `fmtDate`, `fmtPop`, `sortByName`. API-обёртка — `src/web/client/src/api.ts`.
+Утилиты формата `src/web/client/src/utils.ts`: `fmt` (сокращения K/M/B/T), `fmtInt` (точное целое, разделение тысяч — баланс алмазов), `fmtCr` (дробное до 1 знака — прибыль в алмазах), `fmtDate`, `sortByName`. API-обёртка — `src/web/client/src/api.ts`.
 
 ---
 
 ## 6. Прокачка города и столицы
 
-**С 20.07.2026 прокачкой управляют стратегии пользователя.** Старая автоматика «строить по эталонному плану фазы» (`config/city-refplans.json`, `capital-refplans.json`, `src/web/cityGen.js`) из цикла бота убрана: позиция здания в формулах ни на что не влияет. `cityGen.js` вызывается только legacy-эндпоинтом в `web/routes/plans.js`.
+**С 20.07.2026 прокачкой управляют стратегии пользователя.** Старая автоматика «строить по эталонному плану фазы» убрана из цикла бота (позиция здания в формулах ни на что не влияет), а 14.10.2026 удалена совсем: референсы `config/*-refplans.json`, `phases.json`, `city-building-phases.json`, генератор `src/web/cityGen.js` и эндпоинты `/api/refplans*`, `/api/cityplan`, `/api/capitalplan`.
 
 **Источники целей** (одинаково для города и столицы, по приоритету):
 1. **Ручная очередь** — клетки «улучшить следующими». Забирает столько свободных строителей, сколько может занять сейчас, остальные идут по планам. Одна клетка может стоять в очереди несколько раз подряд (серия уровней). Выполненная запись вычёркивается.
@@ -204,7 +202,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 
 Разблокировка секций (только город, `POST /progress/unlock-section`): только смежные и за монеты, кристальные бот не открывает. **У столицы секций нет.**
 
-Config-файлы: `buildings.txt`/`capital_buildings.txt`, `city-coords.json`/`capital-coords.json`, `city_sections.json`, `city-building-phases.json`, `phases.json`, `items.json`, `wordle-words.txt`.
+Config-файлы: `buildings.txt`/`capital_buildings.txt`, `city-coords.json`/`capital-coords.json`, `city_sections.json`, `items.json`, `wordle-words.txt`. Координаты для канваса карты продублированы в `src/web/client/src/data/` (импортируются в бандл), там же дорожные карты `road-map.json`/`capital-road-map.json`.
 
 ---
 
@@ -215,7 +213,7 @@ Config-файлы: `buildings.txt`/`capital_buildings.txt`, `city-coords.json`/`
 - **Новые таблицы БД** добавляются только через `CREATE TABLE IF NOT EXISTS` в массиве миграций `src/db/index.js` (init НЕ вызывает `seq.sync()`). Новые колонки — `ALTER TABLE` в тех же миграциях. UNIQUE-ключи для `upsert` — `UPSERT_KEYS`/`ensureUpsertKeys()`, дубли склеивает `mergeDuplicates`. Любую правку схемы проверять `init()` на пустой базе + `scripts/schema-dump.js`: боевая база не эталон, в неё многое добавляли руками.
 
 ### Модели БД (`src/db/index.js`)
-`Account`, `CityPlan`, `CapitalPlan`, `Inventory`, `WordleLog`, `MinigameLog`, `QuizAnswer`, `FortuneLog`, `DailyLog`, `ShopSnapshot`, `TownhallAirdrop`, `TownhallDiversity`, `JourneyLevel`, `AchievementSnapshot`, `PromoLog`, `CitySnapshot`, `GuildSnapshot`, `GuildQuestSnapshot`, `GuildSpecialBuilding`, `FortuneStatus`, `CapitalSnapshot`, `BuilderSnapshot`, `LoyaltySnapshot`, `GuildMembersSnapshot`, `MidSnapshot`, `DailyAdsSnapshot`, `StakingEntry`, `MarketStatsSnapshot`, `MarketListing`, `MarketPurchase`, `MarketSale`, `MarketAutobuy`, `MarketSnipe`.
+`Account`, `Inventory`, `WordleLog`, `MinigameLog`, `QuizAnswer`, `FortuneLog`, `DailyLog`, `ShopSnapshot`, `TownhallAirdrop`, `TownhallDiversity`, `JourneyLevel`, `AchievementSnapshot`, `PromoLog`, `CitySnapshot`, `GuildSnapshot`, `GuildQuestSnapshot`, `GuildSpecialBuilding`, `FortuneStatus`, `CapitalSnapshot`, `BuilderSnapshot`, `LoyaltySnapshot`, `GuildMembersSnapshot`, `MidSnapshot`, `DailyAdsSnapshot`, `StakingEntry`, `MarketStatsSnapshot`, `MarketListing`, `MarketPurchase`, `MarketSale`, `MarketAutobuy`, `MarketSnipe`.
 
 ---
 
@@ -256,7 +254,7 @@ Config-файлы: `buildings.txt`/`capital_buildings.txt`, `city-coords.json`/`
 **Данные и панель**
 - После покупок и действий баланс перечитывать из `/progress/` (`saveStats`/`refreshBalance`), а не вычитать локально: монеты параллельно капают с города.
 - Каждый `EventSource` на странице закрывать в cleanup `useEffect`: браузер держит максимум 6 соединений на origin, утёкшие SSE «вешают» всю панель.
-- Не класть в `src/` файлы, которые бот создаёт сам, кроме иконок предметов в `src/items/<тег>.png` (их докачивает `itemCatalog.fetchIcons`, для `npm run dev` папка в игноре `nodemon.json`). Прочий кэш из игры — в `config/`.
+- Не класть в `src/` файлы, которые бот создаёт сам, кроме иконок предметов в `src/items/<тег>.png` (их докачивает `itemCatalog.fetchIcons`; `node --watch` на новые файлы не реагирует). Прочий кэш из игры — в `config/`.
 - Иконки монет/кристаллов — `<img>` с data-URI SVG, не инлайновый JSX-`<svg>` (сильно тормозило таблицы). Страницы в `App.tsx` грузятся через `lazy()`.
 - Графики `lightweight-charts` ставят свои z-index 49/50 — у контейнера графика `isolation:isolate`, иначе он перекрывает модалки Primer (у портала z-index 1).
 - Настройки интерфейса, которые должны переживать простой PWA на iOS (localStorage чистится), хранить на сервере в `config.ui` (пример — `navOpenGroups`).

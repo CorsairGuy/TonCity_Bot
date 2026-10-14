@@ -4,19 +4,15 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node --max-old-space-size=3072 src/index.js",
-    "dev": "nodemon"
+    "dev": "node --watch --max-old-space-size=3072 src/index.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "mariadb": "^3.3.1",
-    "node-cron": "^3.0.3",
     "sequelize": "^6.37.3",
     "winston": "^3.13.0",
     "ws": "^8.21.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.10"
   }
 }

@@ -71,31 +71,9 @@ body {
 }
 
 /* ── header ── */
-.app-header {
-  position: sticky; top: 0; z-index: 10;
-  backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
-  background: rgb(255 255 255 / 70%);
-  border-bottom: 1px solid rgb(208 181 255 / 40%);
-  box-shadow: 0 4px 20px rgba(0,0,0,.08);
-  height: var(--header-h);
-  display: flex; align-items: stretch;
-}
-.header-left {
-  display: flex; align-items: center;
-  width: var(--sidebar-w); flex-shrink: 0;
-  padding: 0 16px; gap: 10px;
-  border-right: 1px solid rgb(208 181 255 / 30%);
-}
 .header-logo {
   font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: -.2px;
 }
-.header-content {
-  flex: 1; display: flex; align-items: center;
-  justify-content: space-between;
-  padding: 0 20px; gap: 12px; min-width: 0;
-}
-.header-page-info { display: flex; flex-direction: column; min-width: 0; }
-.header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 /* ── sidebar ── */
 .sidebar {
@@ -192,13 +170,9 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 /* ── utility ── */
 .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 12px; }
 .text-muted { color: var(--fg-muted); }
-.empty-state { padding: 40px 16px; text-align: center; color: var(--fg-muted); font-size: 13px; }
-.page-content { padding: 20px; max-width: 1400px; }
-.page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
 
 /* log viewer */
-.log-wrap { flex: 1; overflow-y: overlay; font-family: monospace; font-size: 12px; padding: 12px; background: #fff; }
 .log-line { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid #f0f0f0; }
 .log-ts   { color: var(--fg-subtle); white-space: nowrap; flex-shrink: 0; }
 .log-tag  { font-weight: 600; white-space: nowrap; flex-shrink: 0; }
@@ -230,7 +204,6 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   border-radius: 9px; padding: 1px 8px; right: -4px; bottom: 20px;
   font-size: 13px; line-height: 1.5;
 }
-.item-card__name { font-size: 11px; color: var(--fg-muted); text-align: center; line-height: 1.2; max-width: 96px; word-break: break-word; }
 
 /* Цвета/эффекты редкости — вытащены 1:1 из CSS самой игры (storage-*.css, класс .card-{rarity}):
    common #1e1e1e, uncommon #27AE60, rare #238FD5, epic #A92FDC, legendary #F1C40F, mythic #D35400,
@@ -282,20 +255,8 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600;
   background: var(--accent-dim); color: var(--accent);
 }
-.badge-green  { background: var(--green-dim); color: var(--green); }
-.badge-yellow { background: var(--yellow-dim); color: var(--yellow); }
-.badge-red    { background: var(--red-dim); color: var(--red); }
-
-/* map */
-.map-wrap { position: relative; flex: 1; overflow: hidden; background: #f0f4f8; border-radius: var(--radius); }
 
 /* ── map editor ────────────────────────────────────────────────────────────── */
-.map-canvas-wrap { overflow: hidden; cursor: grab; background: #d8d8d8; }
-.map-canvas-wrap.painting { cursor: crosshair; }
-.map-canvas-wrap:active { cursor: grabbing; }
-.map-canvas-wrap.painting:active { cursor: crosshair; }
-#map-canvas { display: block; }
-
 .map-panel {
   width: 240px; min-width: 240px;
   border-left: 1px solid var(--border);
@@ -388,13 +349,8 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   box-shadow: none;
 }
 
-.refplan-item { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9px; border: 1px solid var(--border); margin-bottom: 4px; font-size: 11px; }
-.refplan-item:hover { background: var(--accent-dim); }
-.refplan-badge { font-size: 10px; padding: 1px 8px; border-radius: 9px; background: var(--accent-mid); color: var(--accent); border: 1px solid var(--accent); white-space: nowrap; }
-
-/* hide sidebar/header behind Primer Dialog overlay */
-body:has([data-portal-root] [role=dialog]) .sidebar,
-body:has([data-portal-root] [role=dialog]) .app-header { z-index: 0 !important; }
+/* hide sidebar behind Primer Dialog overlay */
+body:has([data-portal-root] [role=dialog]) .sidebar { z-index: 0 !important; }
 
 /* ── плотность модалок (Dialog из @primer/react/experimental) ────────────────
    Шапка у него уже 8px, а тело (Dialog.Body) и футер (Dialog.Footer) заданы в
@@ -472,7 +428,6 @@ body:has([data-portal-root] [role=dialog]) .app-header { z-index: 0 !important; 
 
   /* контент занимает всю ширину, без отступа под сайдбар */
   .main { margin-left: 0; min-height: calc(100vh - 52px); }
-  .page-content { padding: 14px; }
 
   /* пункты меню чуть крупнее для удобного тапа */
   .nav-item, .nav-group-head { padding-top: 11px; padding-bottom: 11px; font-size: 15px; }
@@ -548,8 +503,6 @@ html[data-theme="dark"] .is-scrolling::-webkit-scrollbar-thumb { background: rgb
 html[data-theme="dark"] .is-scrolling::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.45); }
 
 /* стеклянные поверхности лэйаута */
-html[data-theme="dark"] .app-header { background: rgb(22 27 34 / 72%); border-bottom-color: rgb(48 54 61 / 70%); box-shadow: 0 4px 20px rgba(0,0,0,.35); }
-html[data-theme="dark"] .header-left { border-right-color: rgb(48 54 61 / 60%); }
 html[data-theme="dark"] .sidebar { background: rgb(22 27 34 / 82%); border-right-color: rgb(48 54 61 / 70%); }
 html[data-theme="dark"] .mobile-topbar { background: rgb(22 27 34 / 82%); border-bottom-color: rgb(48 54 61 / 70%); }
 html[data-theme="dark"] .sidebar-mobile-head { border-bottom-color: rgb(48 54 61 / 60%); }
@@ -560,7 +513,6 @@ html[data-theme="dark"] .data-table td { border-bottom-color: #21262d; }
 html[data-theme="dark"] .data-table tbody tr:hover td { background: rgba(255,255,255,.04); }
 
 /* логи */
-html[data-theme="dark"] .log-wrap { background: #0d1117; }
 html[data-theme="dark"] .log-line { border-bottom-color: #21262d; }
 
 /* карточки предметов: убираем белые «глянцевые» insets, чтобы не светились на тёмном */
@@ -583,8 +535,6 @@ html[data-theme="dark"] .ic-shard_eternal,html[data-theme="dark"] .ic-mystery_et
 }
 
 /* карта и редактор */
-html[data-theme="dark"] .map-wrap { background: #0d1117; }
-html[data-theme="dark"] .map-canvas-wrap { background: #161b22; }
 html[data-theme="dark"] .map-panel { background: rgba(22,27,34,.7); border-left-color: var(--border); }
 html[data-theme="dark"] #map-cat-tabs { background: #161b22; border-color: #30363d; }
 html[data-theme="dark"] .map-cat-tab.active::before { background: #21262d; border-color: #30363d; }

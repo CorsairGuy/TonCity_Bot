@@ -14,6 +14,15 @@
 
 ---
 
+## 2026-10-14 — Чистка неиспользуемого кода, nodemon убран
+- Удалены файлы, на которые нет ни одного `require`/импорта: заглушки `modules/auditorium.js` и `modules/techfactory.js` (настоящие функции давно в `modules/guildBuildings.js`), генератор референсов `web/cityGen.js`, компоненты панели `Btn`, `GlassCard`, `Flash`, `CityMapCanvas`, страница `Placeholder`, `src/web/client/.icons_src.json`, дубли `src/web/sprites/road-map.json` и `capital-road-map.json` (карта берёт их из `client/src/data/`).
+- Удалены эталонные планы фаз: эндпоинты `/api/refplans*`, `/api/phases`, `/api/building-phases`, `/api/cityplan`, `/api/capitalplan` и файлы `config/city-refplans.json`, `capital-refplans.json`, `city-plan.json`, `capital-plan.json`, `phases.json`, `city-building-phases.json`. На сервере эти файлы в `config/` можно удалить руками, бот их больше не читает.
+- Удалены эндпоинты без вызовов из панели: `/api/items-meta`, `/api/item-info`, `/api/item-action` (ещё без обязательного `listing_days`), `/api/refresh-inventory`, `/api/fortune-raw`, `/api/fortune-items-summary`, `/api/daily-log`, `/api/guild-info/:id`, `/api/guild-mid/:id`, `/api/guild-settings/:id` и их обёртки в `api.ts`. Модели `CityPlan`/`CapitalPlan` (таблицы `city`, `capital`) убраны из кода, сами таблицы в базе не тронуты.
+- Мёртвые стили в `global.css` (шапка, редактор карты, референсы, неиспользуемые бейджи), неиспользуемые экспорты клиента (`fmtPop`, `RenownIcon`, `itemImgProps`, `POLICY_THEME_LABEL`, тип `Phase`).
+- Зависимости: убраны `node-cron` (нигде не подключался), `nodemon`, в клиенте `@primer/css` (не импортируется) и `@types/styled-components` (и так приходит с `@primer/react`).
+- nodemon заменён встроенным в Node 22 `node --watch` (`npm run dev`, `docker-compose.dev.yml`), `nodemon.json` удалён. `--watch` следит только за подключёнными модулями, поэтому докачка иконок в `src/items` и сборка `dist` перезапуска не вызывают; на `.env` и `config/` он не реагирует. При перезапуске шлёт SIGTERM и ждёт `gracefulShutdown`.
+- Проверено: `node --check` всех файлов бэкенда, регистрация изменённых групп роутов, `npm ci`, `npm run build` клиента.
+
 ## 2026-10-14 — Обновление бота из панели: образ из GitHub Actions + Watchtower
 - Внизу меню панели плашка версии: текущий коммит, метка «Новая версия: +N» со ссылкой на сравнение коммитов (или релиз), статус сборки образа и кнопка «Обновить» с подтверждением. После обновления панель ждёт новый процесс и перезагружается сама.
 - `.github/workflows/docker.yml`: на каждый push в `main` образ собирается и публикуется в `ghcr.io/corsairguy/toncity_bot` (теги `latest` и `sha-<коммит>`, коммит в `APP_COMMIT`). Секреты не нужны, хватает `GITHUB_TOKEN`.
