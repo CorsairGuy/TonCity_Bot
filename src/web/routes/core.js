@@ -76,6 +76,13 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  // лёгкая проверка «какой процесс бота сейчас отвечает» без GitHub: панель опрашивает её с любой
+  // страницы и перезагружается, когда бот перезапустился на новой версии
+  app.get('/api/build',(req,res)=>{
+    try{res.json({ok:true,commit:process.env.APP_COMMIT||null,startedAt:PROCESS_STARTED,busy:require('../../utils/selfUpdate').updaterInfo().busy});}
+    catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   // обновление или смена канала через обновлятель (сервис updater). body: {tag?, force?}; без tag —
   // свежий образ текущего канала. Не стартует посреди ручных «Обновить» (opRegistry), если не
   // передан force. Если образ новый, бот перезапустится раньше ответа — панель это ждёт.

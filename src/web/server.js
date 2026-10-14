@@ -116,6 +116,7 @@ function startWebServer(port){
     logger.info(`Web UI: http://${shown}:${port} (bind ${bindHost})`);
     if(!auth.isPasswordSet())logger.warn('[web] ПАРОЛЬ НЕ ЗАДАН — задайте его в Настройках. Сейчас панель открыта без пароля!');
     if(bindHost!=='127.0.0.1'&&bindHost!=='localhost')logger.warn(`[web] панель слушает ${bindHost} (доступна по сети). Обязательно задайте пароль и используйте HTTPS (reverse proxy / SSH-туннель).`);
+    require('../utils/versionCheck').warmUp(); // проверка обновлений сразу после запуска
     resolveReady(httpServer);
   });
   // Порт как singleton-замок: если он занят (EADDRINUSE) — значит работает другой экземпляр бота
