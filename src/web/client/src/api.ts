@@ -16,8 +16,10 @@ export const api = {
 
   // проверка новой версии бота на GitHub (только чтение)
   version: (force = false) => req<VersionInfo>('/api/version' + (force ? '?force=1' : '')),
-  // обновление бота через Watchtower; если образ новый, бот перезапустится раньше ответа
-  update: (force = false) => req<{ ok: boolean; updated?: number; busy?: string[]; error?: string }>('/api/update', post({ force })),
+  // обновление или смена канала через обновлятель (tag не задан — свежий образ текущего канала);
+  // если образ новый, бот перезапустится раньше ответа
+  update: (force = false, tag?: string) =>
+    req<{ ok: boolean; updated?: number; busy?: string[]; error?: string }>('/api/update', post({ force, tag })),
 
   // auth
   authStatus: () => req<{ ok: boolean; required: boolean; authed: boolean }>('/api/auth/status'),
@@ -722,6 +724,7 @@ export interface DailyAdsRow {
 export interface AppConfig {
   logLevel: string;
   ui?: { navOpenGroups?: string[] };
+  update?: { auto?: boolean };
   telegram?: {
     botToken?: string;
     maintenanceChatId?: string; maintenanceThreadId?: string;
@@ -2137,22 +2140,46 @@ export interface MinigameStatusRow {
 export type Game2048Direction = 'up' | 'down' | 'left' | 'right';
 export type Game2048Status = 'ongoing' | 'won' | 'lost';
 
+export interface UpdateChannel {
+  // branch — свежая сборка ветки; stable — последний релиз; release — закреплённый релиз; commit — закреплённая сборка
+  kind: 'branch' | 'stable' | 'release' | 'commit';
+  name: string;
+  tag: string;
+  sha?: string;
+}
+export interface UpdateRelease {
+  version: string; tagName: string; tag: string; name: string; date: string;
+  prerelease: boolean; url: string; notes: string; isNew: boolean;
+}
 export interface VersionInfo {
   ok: boolean;
   error?: string | null;
   repo: string;
-  branch: string;
   repoUrl: string;
-  local: { sha: string; branch: string | null; source: 'git' | 'env' } | null;
-  remote: { sha: string; message: string; date: string | null; url: string } | null;
+  local: { sha: string; branch: string | null; ref: string | null; source: 'git' | 'env' } | null;
+  channel: UpdateChannel;
+  branch: string | null;
+  branches: { name: string; tag: string; sha?: string }[];
+  releases: UpdateRelease[];
+  stable: { version: string; date: string } | null;
+  currentRelease?: string | null;
+  newerReleases?: number;
+  // голова плавающего канала (ветка или последний релиз)
+  remote: { sha: string; ref: string; message: string; date: string | null; url: string } | null;
   release: { tag: string; name: string | null; date: string | null; url: string } | null;
-  // current — актуальна; behind — на GitHub есть новые коммиты; ahead/diverged — локально свои коммиты;
-  // unknown_local — локального коммита нет на GitHub; unknown — локальная версия не определена
-  status: 'current' | 'behind' | 'ahead' | 'diverged' | 'unknown_local' | 'unknown';
+  // current — актуальна; behind — в канале есть новее; pinned — закреплённая версия; ahead/diverged —
+  // локально свои коммиты; unknown_local — локального коммита нет на GitHub; unknown — не определена
+  status: 'current' | 'behind' | 'pinned' | 'ahead' | 'diverged' | 'unknown_local' | 'unknown';
   behindBy: number | null;
   compareUrl: string | null;
-  // сборка Docker-образа последнего коммита в GitHub Actions
+  // сборка Docker-образа головы канала в GitHub Actions
   build: { status: string; conclusion: string | null; url: string } | null;
   canUpdate?: boolean;
+  // время старта процесса бота — по нему панель понимает, что бот перезапустился
+  startedAt?: number;
+  auto?: boolean;
+  updater?: { alive: boolean; heartbeatAt: string | null; version: number | null;
+    last: { id: string; state: string; tag: string; message: string; at: string } | null };
+  history?: { commit: string; ref: string | null; tag: string; at: string }[];
   checkedAt: number;
 }

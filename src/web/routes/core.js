@@ -65,21 +65,31 @@ module.exports=function(app,ctx){
   const{makeApiForAccount}=ctx;
 
   // статус техработ игры (автопауза запросов) — для баннера в панели
-  // проверка новой версии бота на GitHub (кэш 30 мин, ?force=1 — ручная проверка, не чаще раза в минуту)
+  const PROCESS_STARTED=Date.now()-Math.round(process.uptime()*1000);
+  // версия бота и каналы обновлений с GitHub (кэш 30 мин, ?force=1 — ручная проверка, не чаще раза в минуту)
   app.get('/api/version',async(req,res)=>{
-    try{res.json({...await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'}),canUpdate:require('../../utils/selfUpdate').isConfigured()});}
-    catch(e){res.status(500).json({ok:false,error:e.message});}
+    try{
+      const upd=require('../../utils/selfUpdate');
+      const s=mergeDeep(DEFAULTS,loadSettings());
+      res.json({...await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'}),
+        canUpdate:upd.isConfigured(),startedAt:PROCESS_STARTED,updater:upd.updaterInfo(),history:upd.history(),auto:!!(s.update&&s.update.auto)});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
-  // обновление бота через Watchtower. Не стартует посреди ручных «Обновить» (opRegistry), если не
+  // обновление или смена канала через обновлятель (сервис updater). body: {tag?, force?}; без tag —
+  // свежий образ текущего канала. Не стартует посреди ручных «Обновить» (opRegistry), если не
   // передан force. Если образ новый, бот перезапустится раньше ответа — панель это ждёт.
   app.post('/api/update',async(req,res)=>{
     try{
       const upd=require('../../utils/selfUpdate');
-      if(!upd.isConfigured())return res.status(400).json({ok:false,error:'обновление не настроено (нужен запуск через docker-compose.yml с Watchtower)'});
+      const tag=req.body&&req.body.tag?String(req.body.tag).trim():upd.currentTag();
+      if(!upd.TAG_RE.test(tag))return res.status(400).json({ok:false,error:'недопустимый тег образа'});
+      if(!upd.isConfigured())return res.status(400).json({ok:false,error:'обновлятель не запущен (нужен сервис updater из docker-compose.yml)'});
       const busy=require('../lib/opRegistry').activeKeys();
       if(busy.length&&!(req.body&&req.body.force))return res.status(409).json({ok:false,busy,error:`идут операции: ${busy.join(', ')}`});
-      res.json({ok:true,...await upd.requestUpdate()});
+      const r=await upd.requestSwitch(tag,tag===upd.currentTag()?'manual':'switch');
+      require('../../utils/versionCheck').invalidate();
+      res.json({ok:true,...r});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 

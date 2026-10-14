@@ -22,6 +22,10 @@ const DEFAULTS={
   // очищаться после ~недели простоя (ITP), см. App.tsx SidebarNav. navOpenGroups — какие группы
   // бокового меню развёрнуты.
   ui:{navOpenGroups:[]},
+  // обновления бота (Настройки → Обновления, utils/autoUpdate.js). Сам канал (тег образа) живёт в
+  // BOT_TAG в .env — его меняет обновлятель; здесь только «ставить новое само» для плавающих каналов
+  // (ветка, stable). Закреплённая версия не обновляется никогда.
+  update:{auto:true},
   logLevel:'info',
   growthModePopulation:2500000,
   staking:{amount:0,currency:'coins',duration:30},sellItems:[],promoCodes:[],

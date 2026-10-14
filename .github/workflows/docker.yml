@@ -1,11 +1,18 @@
-# Сборка Docker-образа бота и публикация в GitHub Container Registry на каждый push в main.
-# Теги: latest и sha-<полный коммит> (для отката). Коммит зашивается в образ (APP_COMMIT) —
-# по нему панель понимает, какая версия запущена. Свои секреты не нужны, хватает GITHUB_TOKEN.
+# Сборка Docker-образа бота и публикация в GitHub Container Registry (ghcr.io/corsairguy/toncity_bot).
+# По этим тегам панель переключает «канал обновлений» (Настройки → Обновления):
+#   push в ветку B   → тег B (символы вне [A-Za-z0-9_.-] → «-»), для main ещё и latest;
+#   тег-релиз vX.Y   → неизменяемый тег X.Y, а если это не пре-релиз (без «-») — ещё и stable;
+#   любой push       → sha-<полный коммит> (откат на конкретную сборку).
+# Отдельно собирается обновлятель (updater/) — тег updater того же пакета, чтобы не заводить второй
+# пакет с отдельной видимостью. Ветки claude/** не собираются (это черновики PR).
+# Коммит и ссылка зашиваются в образ (APP_COMMIT, APP_REF) — по ним панель показывает версию.
+# Свои секреты не нужны, хватает GITHUB_TOKEN.
 name: Docker image
 
 on:
   push:
-    branches: [main]
+    branches: ['**', '!claude/**']
+    tags: ['v*']
   # в PR образ только собирается (проверка, что сборка не сломана), в реестр не публикуется
   pull_request:
   workflow_dispatch:
@@ -24,8 +31,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Имя образа в нижнем регистре
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - name: Теги образа
+        id: meta
+        shell: bash
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          TAGS="$IMAGE:sha-$GITHUB_SHA"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+            REF="$VER"
+            TAGS+=$'\n'"$IMAGE:$VER"
+            [[ "$VER" != *-* ]] && TAGS+=$'\n'"$IMAGE:stable"
+          else
+            REF="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+            TAGS+=$'\n'"$IMAGE:${REF//[^A-Za-z0-9_.-]/-}"
+            [[ "$REF" == "main" ]] && TAGS+=$'\n'"$IMAGE:latest"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          { echo 'tags<<EOF'; echo "$TAGS"; echo 'EOF'; } >> "$GITHUB_OUTPUT"
+          echo "$TAGS"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -42,11 +67,21 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
             APP_COMMIT=${{ github.sha }}
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            APP_REF=${{ steps.meta.outputs.ref }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.ref }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # обновлятель меняется редко, публикуется только из main
+      - uses: docker/build-push-action@v6
+        with:
+          context: updater
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ env.IMAGE }}:updater
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
