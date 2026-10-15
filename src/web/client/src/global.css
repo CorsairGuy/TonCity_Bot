@@ -197,22 +197,27 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   /* 15.10.2026: блик без размытия (было 1px blur) — на вид то же, но размытая внутренняя тень у
      тысячи карточек заметно тормозила прокрутку («Ежедневная награда», «Политики») */
   box-shadow: inset 1px 1px 0 0 rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.5);
-  transition: transform .15s, box-shadow .15s;
+  transition: border-color .12s;
 }
-.item-card.clickable:hover .item-card__box {
-  transform: scale(1.06);
-  box-shadow: inset 1px 1px 0 0 rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.5), 0 0 0 2px var(--accent);
+/* наведение (вариант «Заливка», 15.10.2026): без увеличения и без внешней тени — рамка становится
+   сплошной цвета редкости (--rc задан у .ic-*), поверх карточки полупрозрачная заливка тем же цветом.
+   Действует на все карточки (.item-card__box) на всех страницах: склад, политики, награды, квесты и т.д.
+   Слой ::after создаётся только у наведённой карточки, чтобы не держать лишний элемент у тысяч карточек. */
+.item-card.clickable:hover .item-card__box, .item-card__box:hover { border-color: var(--rc, var(--accent)); }
+.item-card.clickable:hover .item-card__box::after, .item-card__box:hover::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: var(--rc, var(--accent)); opacity: .16;
 }
 .item-card__img { display: block; height: 77px; object-fit: contain; }
 .item-card__count {
   position: absolute; color: #fff; background: #2196f3;
   border-radius: 9px; padding: 1px 8px; right: -4px; bottom: -4px;
-  font-size: 13px; line-height: 1.5;
+  font-size: 13px; line-height: 1.5; z-index: 1;
 }
 .item-card__locked {
   position: absolute; color: #fff; background: #e5534b;
   border-radius: 9px; padding: 1px 8px; right: -4px; bottom: 20px;
-  font-size: 13px; line-height: 1.5;
+  font-size: 13px; line-height: 1.5; z-index: 1;
 }
 
 /* Цвета/эффекты редкости — вытащены 1:1 из CSS самой игры (storage-*.css, класс .card-{rarity}):
@@ -224,11 +229,11 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
    в тёмной теме ниже. */
 /* обычная — серо-стальная подложка в той же схеме «полупрозрачный цвет + рамка», что и у остальных
    редкостей (белая сливалась с фоном и выглядела пустой) */
-.ic-common,.ic-basic,.ic-shard_common,.ic-mystery_common       { background: rgba(110,118,129,.14); border: 1px solid rgba(110,118,129,.5); }
-.ic-uncommon,.ic-advanced,.ic-shard_uncommon,.ic-mystery_uncommon { background: rgba(39,174,96,.10); border: 1px solid rgba(39,174,96,.5); }
-.ic-rare,.ic-elite,.ic-shard_rare,.ic-mystery_rare,.ic-policy_pack_rare             { background: rgba(35,143,213,.12); border: 1px solid rgba(35,143,213,.5); }
-.ic-component,.ic-epic,.ic-reform_stone_epic,.ic-premium,.ic-shard_epic,.ic-mystery_epic,.ic-policy_pack_epic { background: rgba(169,47,220,.14); border: 1px solid rgba(169,47,220,.5); }
-.ic-legendary,.ic-reform_stone_legendary,.ic-ultimate,.ic-masterplan,.ic-blueprint_tome,.ic-shard_legendary,.ic-mystery_legendary,.ic-snowflake,.ic-policy_pack_legendary {
+.ic-common,.ic-basic,.ic-shard_common,.ic-mystery_common       { --rc: #8c959f; background: rgba(110,118,129,.14); border: 1px solid rgba(110,118,129,.5); }
+.ic-uncommon,.ic-advanced,.ic-shard_uncommon,.ic-mystery_uncommon { --rc: #27ae60; background: rgba(39,174,96,.10); border: 1px solid rgba(39,174,96,.5); }
+.ic-rare,.ic-elite,.ic-shard_rare,.ic-mystery_rare,.ic-policy_pack_rare             { --rc: #238fd5; background: rgba(35,143,213,.12); border: 1px solid rgba(35,143,213,.5); }
+.ic-component,.ic-epic,.ic-reform_stone_epic,.ic-premium,.ic-shard_epic,.ic-mystery_epic,.ic-policy_pack_epic { --rc: #a92fdc; background: rgba(169,47,220,.14); border: 1px solid rgba(169,47,220,.5); }
+.ic-legendary,.ic-reform_stone_legendary,.ic-ultimate,.ic-masterplan,.ic-blueprint_tome,.ic-shard_legendary,.ic-mystery_legendary,.ic-snowflake,.ic-policy_pack_legendary { --rc: #e1b40c;
   background: linear-gradient(45deg, rgba(241,196,15,.16), rgba(241,196,15,.24) 50%, rgba(241,196,15,.16));
   border: 1px solid rgba(241,196,15,.55);
 }
@@ -246,7 +251,7 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
    (id 22 "Вечный осколок") и mystery_eternal (id 29 "Вечная тайная политика") — это ДЕЙСТВИТЕЛЬНО
    отдельная редкость ВЫШЕ мифической (см. группу ниже, красится как "Зимний набор"), их с
    .ic-eternal (bare) путать нельзя — разные предметы, разная семантика тега. */
-.ic-mythic,.ic-reform_stone_mythic,.ic-shard_mythic,.ic-mystery_mythic,.ic-policy_pack_mythic,.ic-eternal {
+.ic-mythic,.ic-reform_stone_mythic,.ic-shard_mythic,.ic-mystery_mythic,.ic-policy_pack_mythic,.ic-eternal { --rc: #d35400;
   background: linear-gradient(45deg, rgba(211,84,0,.10), rgba(211,84,0,.18) 50%, rgba(211,84,0,.10));
   border: 1px solid rgba(211,84,0,.5);
 }
@@ -254,7 +259,7 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
    "Зимний набор" (крапивно-малиновый), НЕ как мифик (оранжевый) — подтверждено пользователем
    вживую (30.07.2026, диалог открытия набора политик показал "Мифический осколок" и "Вечный
    осколок" рядом — цвета должны различаться). */
-.ic-shard_eternal,.ic-mystery_eternal,.ic-winter {
+.ic-shard_eternal,.ic-mystery_eternal,.ic-winter { --rc: #dc143c;
   background: linear-gradient(45deg, rgba(220,20,60,.10), rgba(220,20,60,.18) 50%, rgba(220,20,60,.10));
   border: 1px solid rgba(220,20,60,.5);
 }
@@ -539,7 +544,7 @@ html[data-theme="dark"] .log-line { border-bottom-color: #21262d; }
 
 /* карточки предметов: убираем белые «глянцевые» insets, чтобы не светились на тёмном */
 html[data-theme="dark"] .item-card__box { box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
-html[data-theme="dark"] .item-card.clickable:hover .item-card__box { box-shadow: inset 0 0 0 1px rgba(255,255,255,.06), 0 0 0 2px var(--accent); }
+html[data-theme="dark"] :is(.ic-common,.ic-basic,.ic-shard_common,.ic-mystery_common) { --rc: #adbac7; }
 /* фоны редкостей в тёмной теме — 1:1 из CSS игры (storage-*.css, .card-{rarity}), сама игра
    всегда тёмная, поэтому здесь точные исходные значения, не адаптация. */
 html[data-theme="dark"] .ic-common,html[data-theme="dark"] .ic-basic,html[data-theme="dark"] .ic-shard_common,html[data-theme="dark"] .ic-mystery_common { background: rgba(139,148,158,.14); border-color: rgba(139,148,158,.4); }
@@ -593,8 +598,8 @@ html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
 }
 
 /* Ежедневная награда: дни с монетами/кристаллами — цветная полупрозрачная подложка, адаптивна к теме */
-.dr-coins    { background: rgba(212,160,23,.13); border: 1px solid rgba(212,160,23,.5); gap: 4px; }
-.dr-crystals { background: rgba(46,160,67,.12);  border: 1px solid rgba(46,160,67,.5);  gap: 4px; }
+.dr-coins    { --rc: #d4a017; background: rgba(212,160,23,.13); border: 1px solid rgba(212,160,23,.5); gap: 4px; }
+.dr-crystals { --rc: #2ea043; background: rgba(46,160,67,.12);  border: 1px solid rgba(46,160,67,.5);  gap: 4px; }
 .dr-amount   { font-size: 12px; font-weight: 600; color: var(--fgColor-default, var(--fg)); line-height: 1; white-space: nowrap; }
 
 /* Иконки политик (components/PolicyIcon.tsx): цвет редкости в --rc — насыщеннее на светлой теме,
