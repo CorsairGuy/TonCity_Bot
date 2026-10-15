@@ -80,7 +80,9 @@ body {
   position: fixed; top: var(--header-h); left: 0;
   width: var(--sidebar-w); height: calc(100vh - var(--header-h));
   background: rgb(255 255 255 / 85%);
-  backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+  /* 15.10.2026: без backdrop-filter. На компьютере под меню только однотонный фон страницы (у .main
+     отступ на ширину меню), размывать нечего, а размытие пересчитывалось на каждом кадре прокрутки и
+     заметно тормозило длинные страницы. В мобильном меню фон и так почти непрозрачный (98%). */
   border-right: 1px solid rgb(208 181 255 / 30%);
   display: flex; flex-direction: column;
   z-index: 10; overflow: hidden;
@@ -192,12 +194,14 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   align-content: center; justify-content: center; align-items: center;
   flex-direction: column; flex-wrap: nowrap;
   border-radius: 12px; box-sizing: border-box;
-  box-shadow: inset 1px 1px 1px 0 rgba(255,255,255,.5), inset 0 0 1px 1px rgba(255,255,255,.5);
+  /* 15.10.2026: блик без размытия (было 1px blur) — на вид то же, но размытая внутренняя тень у
+     тысячи карточек заметно тормозила прокрутку («Ежедневная награда», «Политики») */
+  box-shadow: inset 1px 1px 0 0 rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.5);
   transition: transform .15s, box-shadow .15s;
 }
 .item-card.clickable:hover .item-card__box {
   transform: scale(1.06);
-  box-shadow: inset 1px 1px 1px 0 rgba(255,255,255,.5), inset 0 0 1px 1px rgba(255,255,255,.5), 0 0 0 2px var(--accent);
+  box-shadow: inset 1px 1px 0 0 rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.5), 0 0 0 2px var(--accent);
 }
 .item-card__img { display: block; height: 77px; object-fit: contain; }
 .item-card__count {
