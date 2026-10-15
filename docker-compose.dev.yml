@@ -1,8 +1,3 @@
-# Режим разработки: код с хоста подключается в контейнер, встроенный в Node режим --watch
-# перезапускает бота при правках подключённых модулей src/ (иконки, dist и config/ не следит),
-# образ собирается локально из Dockerfile. Переключение канала обновлений в этом режиме не работает.
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build bot db
-# Фронт в этом режиме собирается на хосте: cd src/web/client && npm install && npm run build
 services:
   bot:
     build: .
@@ -10,5 +5,4 @@ services:
     command: node --watch --max-old-space-size=3072 src/index.js
     volumes:
       - ./src:/app/src
-      # текущий коммит для плашки версии (если папка — git-клон)
       - ./.git:/app/.git:ro

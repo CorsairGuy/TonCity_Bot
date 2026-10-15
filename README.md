@@ -361,7 +361,26 @@ docker compose up -d        # база + бот + обновлятель
 
 ### Portainer
 
-Файл стека — `docker-compose.portainer.yml`, все данные в одной папке `DATA_DIR`, переменные задаются в Portainer. С `PORTAINER_URL` и `PORTAINER_TOKEN` обновлятель меняет версию через API Portainer. Пошаговая инструкция, включая переезд с запуска из консоли: [docs/portainer.md](docs/portainer.md).
+Стек описан в `docker-compose.portainer.yml`. Portainer хранит файл стека у себя, поэтому все данные (`config/`, `logs/`, `db_data/`) лежат в одной папке на сервере, её абсолютный путь задаёт `DATA_DIR`, а переменные вводятся в Portainer вместо `.env`.
+
+1. **Токен для обновлятеля.** Portainer → значок пользователя → **My account** → **Access tokens** → **Add access token**. Токен показывается один раз.
+2. **Стек.** **Stacks → Add stack**, имя `toncity_bot`. Содержимое — один из вариантов:
+   - **Web editor**: вставить `docker-compose.portainer.yml`;
+   - **Repository**: URL `https://github.com/CorsairGuy/TonCity_Bot`, reference `refs/heads/main`, compose path `docker-compose.portainer.yml`.
+3. **Переменные** (Environment variables):
+
+   | Переменная | Значение |
+   |---|---|
+   | `DATA_DIR` | Абсолютный путь к папке с данными, например `/DOCKER/toncity_bot`. Обязательно. |
+   | `DB_PASSWORD` | Пароль базы. Обязательно. |
+   | `BOT_TAG` | Канал: `latest`, `stable`, `1.0` или `sha-…`. |
+   | `PORTAINER_TOKEN` | Токен из шага 1, нужен для смены версии из панели. |
+   | `PORTAINER_URL` | Только если Portainer не на этом сервере на стандартных портах (обновлятель сам пробует https :9443, http :9000, http :9443). |
+   | `STACK_NAME`, `WEB_PORT`, `DB_EXPOSED_PORT`, `DB_NAME`, `GITHUB_TOKEN`, `TONCITYQUESTS_BOT_HASH` | По желанию, как в `.env`. |
+
+4. **Deploy the stack.** Контейнеры `<STACK_NAME>_db`, `_bot` и `_updater` должны быть в статусе running, панель — на `http://<сервер>:3000`.
+
+С токеном «Обновить сейчас» в панели меняет `BOT_TAG` стека и передеплоит его с новым образом. Без токена бот работает, а версию меняют вручную: Stacks → стек → Editor → `BOT_TAG` → **Update the stack** с включённым **Re-pull image and redeploy**. Ошибки обновлятеля видны в логах контейнера `_updater`.
 
 ### Несколько копий на одном сервере
 
@@ -458,7 +477,6 @@ src/web/client/       сама панель (React)
 config/               справочники зданий, координаты, словарь вордли
 updater/              сервис обновлений
 scripts/              служебные скрипты
-docs/                 инструкции (Portainer)
 ```
 
 ---
@@ -467,4 +485,3 @@ docs/                 инструкции (Portainer)
 
 - [CLAUDE.md](CLAUDE.md) — подробное устройство: архитектура, модули, API игры, правила кода, подводные камни.
 - [CHANGELOG.md](CHANGELOG.md) — журнал изменений.
-- [docs/portainer.md](docs/portainer.md) — запуск стеком Portainer.
