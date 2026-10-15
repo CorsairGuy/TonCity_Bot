@@ -601,6 +601,11 @@ html[data-theme="dark"] .r-legendary{--rc:#f2c94c}html[data-theme="dark"] .r-myt
 }
 html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 60%, #fff), var(--rc)); -webkit-background-clip: text; background-clip: text; }
 .pol-lv { color: var(--rc); }
+/* 15.10.2026: без мерцания рамки легендарных (.ic-legendary → legendaryBorder). Анимация border-color
+   перерисовывает каждую карточку и её drop-shadow на каждом кадре; на странице «Политики» таких
+   карточек сотни (все аккаунты), и вкладка грузила процессор постоянно, даже без движения.
+   До объёмных иконок у политик этой анимации и не было. */
+.pol-box { animation: none; }
 
 /* ── Модальные окна нового вида (components/RichDialog.tsx, 15.10.2026) ──────────────────────
    Только окна с .rdlg в теле: шапка с иконкой, тело с отступами 16/20, подвал с итогом и кнопками;
