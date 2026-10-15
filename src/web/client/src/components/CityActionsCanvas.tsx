@@ -570,13 +570,15 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const desired = s.scale * s.dpr;
     const t0 = performance.now();
     const r = s.layerR;
+    // контейнер текущего масштаба создаётся ДО расстановки transform: иначе новый контейнер после
+    // зума живёт кадр без transform и его куски мелькают не на своём месте
+    layerFor(r);
     // контейнеры: translate(ox,oy) scale(desired/r) — до 1:1 к экрану, когда r === desired
     for (const [lr, el] of s.layers) {
       // сдвиг — в целых пикселях экрана: дробный заставил бы композитор пересэмплировать куски (мыло)
       const tf = `translate(${Math.round(s.ox * s.dpr) / s.dpr}px,${Math.round(s.oy * s.dpr) / s.dpr}px) scale(${desired / lr})`;
-      if (el.style.transform !== tf) el.style.transform = tf;
+      if (el.dataset.tf !== tf) { el.dataset.tf = tf; el.style.transform = tf; }
     }
-    layerFor(r);
     // видимая область в мировых координатах, обрезанная по содержимому карты
     const vx0 = Math.max(-s.ox / s.scale, s.world.x0), vy0 = Math.max(-s.oy / s.scale, s.world.y0);
     const vx1 = Math.min((W - s.ox) / s.scale, s.world.x1), vy1 = Math.min((H - s.oy) / s.scale, s.world.y1);
