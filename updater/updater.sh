@@ -5,7 +5,8 @@
 # Протокол — файлы в общей папке config/updater/ (бот и обновлятель видят её оба, сеть и ключи не
 # нужны):
 #   request.json   ← пишет бот: {"id":"…","tag":"main|stable|1.0|sha-…","reason":"…"}
-#   status.json    → пишет обновлятель: {"id","state":"pulling|restarting|updated|unchanged|error","tag","message","at"}
+#   status.json    → пишет обновлятель: {"id","state":"pulling|restarting|updated|unchanged|error","tag","message","at",
+#                    "progress"?} — progress только при скачивании: {layers,downloaded,extracted,cur,total,estTotal}
 #   heartbeat.json → пишет обновлятель раз в HEARTBEAT секунд: панель понимает, что он жив.
 #
 # Переключение = docker compose pull bot (с BOT_TAG=<тег>) → BOT_TAG в .env → docker compose up -d
@@ -28,7 +29,7 @@ BOT="${BOT_CONTAINER:?нужен BOT_CONTAINER}"
 SERVICE="${BOT_SERVICE:-bot}"
 POLL="${POLL_SECONDS:-3}"
 HEARTBEAT="${HEARTBEAT_SECONDS:-20}"
-VERSION=4
+VERSION=5
 PORTAINER_URL="${PORTAINER_URL:-}"
 PORTAINER_TOKEN="${PORTAINER_TOKEN:-}"
 
@@ -39,11 +40,51 @@ log(){ echo "$(now) [updater] $*"; }
 write_json(){ # file json
   printf '%s\n' "$2" > "$1.tmp" && mv -f "$1.tmp" "$1"
 }
-status(){ # id state tag message
+status(){ # id state tag message [progress-json]
   write_json "$Q/status.json" "$(jq -nc --arg id "$1" --arg state "$2" --arg tag "$3" --arg message "$4" --arg at "$(now)" \
-    '{id:$id,state:$state,tag:$tag,message:$message,at:$at}')"
-  log "$1: $2 $3 $4"
+    --argjson progress "${5:-null}" '{id:$id,state:$state,tag:$tag,message:$message,at:$at}+(if $progress then {progress:$progress} else {} end)')"
+  [ -n "${5:-}" ] || log "$1: $2 $3 $4"
 }
+
+# Скачивание образа с прогрессом. docker pull без терминала прогресс по байтам не печатает, поэтому
+# идём прямо в Docker Engine API (POST /images/create): он стримит JSON по каждому слою с
+# progressDetail {current,total}. Раз в секунду сводим поток в один объект progress и пишем его в
+# status.json — панель рисует полосу. Слой узнаёт свой размер только когда начал качаться (Docker
+# качает по 3 сразу), поэтому для ещё не начатых слоёв размер оценивается средним по известным.
+PULL_LOG=/tmp/pull.log
+PULL_JQ='[inputs|fromjson?]
+  | reduce (.[]|select(.id and ((.status//"")|IN("Pulling fs layer","Waiting","Downloading","Verifying Checksum","Download complete","Extracting","Pull complete","Already exists")))) as $e ({};
+      (.[$e.id]//{}) as $l | .[$e.id]=(
+        if $e.status=="Downloading" then $l+{cur:($e.progressDetail.current//0),total:($e.progressDetail.total//$l.total//0)}
+        elif $e.status=="Verifying Checksum" or $e.status=="Download complete" or $e.status=="Extracting" then $l+{dl:true}
+        elif $e.status=="Pull complete" then $l+{dl:true,ex:true}
+        elif $e.status=="Already exists" then $l+{skip:true}
+        else $l end))
+  | [.[]|select(.skip|not)] as $L
+  | ($L|map(select((.total//0)>0))) as $K
+  | ($K|map(.total)|add//0) as $kt
+  | ($L|map(select((.total//0)==0 and (.dl|not)))|length) as $u
+  | {layers:($L|length),downloaded:($L|map(select(.dl))|length),extracted:($L|map(select(.ex))|length),
+     cur:($L|map(if .dl then (.total//0) else (.cur//0) end)|add//0),total:$kt,
+     estTotal:($kt+(if ($K|length)>0 then $u*$kt/($K|length) else 0 end))}'
+pull_progress(){ # id tag ref → 0 скачан; иначе запасной путь (docker pull)
+  ref="$3"; img="${ref%:*}"; t="${ref##*:}"
+  [ -S /var/run/docker.sock ] && [ "$img" != "$ref" ] || return 1
+  : > "$PULL_LOG"
+  curl -sS -N --max-time 1800 --unix-socket /var/run/docker.sock -X POST \
+    "http://localhost/images/create?fromImage=$img&tag=$t" > "$PULL_LOG" 2>&1 &
+  pid=$!; last=
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    p=$(jq -ncR "$PULL_JQ" < "$PULL_LOG" 2>/dev/null) || continue
+    [ "$p" = "$last" ] || { status "$1" pulling "$2" "скачиваю образ" "$p"; last="$p"; }
+  done
+  wait "$pid" || return 1
+  # ошибка реестра приходит строкой {"error":…} при HTTP 200, ошибка API — {"message":…}
+  ! jq -ncR '[inputs|fromjson?|select(.error or .message)]|length>0' < "$PULL_LOG" | grep -q true
+}
+# образ бота с другим тегом: из контейнера бота (имя образа то же, меняется только тег)
+bot_ref(){ r=$(docker inspect -f '{{.Config.Image}}' "$BOT" 2>/dev/null) && [ -n "$r" ] && echo "${r%:*}:$1"; }
 heartbeat(){
   write_json "$Q/heartbeat.json" "$(jq -nc --arg at "$(now)" --argjson v "$VERSION" --arg tag "${CUR_TAG:-}" --arg mode "${MODE:-}" '{at:$at,version:$v,botTag:$tag,mode:$mode}')"
 }
@@ -116,7 +157,10 @@ process_portainer(){ # id tag
   cur_img=$(docker inspect -f '{{.Image}}' "$BOT" 2>/dev/null)
   ref=$(docker inspect -f '{{.Config.Image}}' "$BOT" 2>/dev/null); ref="${ref%:*}:$tag"
   status "$id" pulling "$tag" "скачиваю образ"
-  if ! out=$(docker pull -q "$ref" 2>&1); then status "$id" error "$tag" "не удалось скачать образ: $(echo "$out" | tail -n 2 | tr '\n' ' ')"; return; fi
+  if ! pull_progress "$id" "$tag" "$ref"; then
+    log "$id: скачивание через Docker API не вышло ($(tail -n 1 "$PULL_LOG" 2>/dev/null)), повторяю через docker pull"
+    if ! out=$(docker pull -q "$ref" 2>&1); then status "$id" error "$tag" "не удалось скачать образ: $(echo "$out" | tail -n 2 | tr '\n' ' ')"; return; fi
+  fi
   new_img=$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null)
   if [ -n "$cur_img" ] && [ "$cur_img" = "$new_img" ] && [ "$tag" = "${CUR_TAG:-latest}" ]; then
     status "$id" unchanged "$tag" "эта версия уже установлена"; return
@@ -174,6 +218,8 @@ process(){ # id tag
   # сравниваем id контейнера: compose пересоздаёт его и при новом образе, и при смене тега
   before=$(docker inspect -f '{{.Id}}' "$BOT" 2>/dev/null)
   status "$id" pulling "$tag" "скачиваю образ"
+  # сначала качаем с прогрессом сами; compose pull после этого лишь сверяет образ с реестром
+  ref=$(bot_ref "$tag") && { pull_progress "$id" "$tag" "$ref" || log "$id: скачивание через Docker API не вышло, качает docker compose"; }
   if ! out=$(cd "$dir" && BOT_TAG="$tag" docker compose "$@" pull "$SERVICE" 2>&1); then
     status "$id" error "$tag" "не удалось скачать образ: $(echo "$out" | tail -n 3 | tr '\n' ' ')"; return
   fi

@@ -79,7 +79,12 @@ module.exports=function(app,ctx){
   // лёгкая проверка «какой процесс бота сейчас отвечает» без GitHub: панель опрашивает её с любой
   // страницы и перезагружается, когда бот перезапустился на новой версии
   app.get('/api/build',(req,res)=>{
-    try{res.json({ok:true,commit:process.env.APP_COMMIT||null,startedAt:PROCESS_STARTED,busy:require('../../utils/selfUpdate').updaterInfo().busy});}
+    try{
+      const u=require('../../utils/selfUpdate').updaterInfo(),l=u.busy&&u.last;
+      // пока идёт обновление — этап и прогресс скачивания образа для полосы в плашке версии
+      res.json({ok:true,commit:process.env.APP_COMMIT||null,startedAt:PROCESS_STARTED,busy:u.busy,
+        update:l?{state:l.state,message:l.message||null,progress:l.progress||null}:null});
+    }
     catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 

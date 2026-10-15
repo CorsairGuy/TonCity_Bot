@@ -5,6 +5,7 @@ import { SyncIcon, PinIcon, GitBranchIcon, TagIcon, DownloadIcon } from '@primer
 import { api, VersionInfo } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
+import { UpdateProgress } from './UpdateProgress';
 
 // Плашка версии внизу меню: канал обновлений, текущий коммит, есть ли новее и кнопка обновления
 // (через обновлятель, см. docker-compose.yml). Выбор канала — Настройки → Обновления. Сервер
@@ -16,7 +17,8 @@ export function VersionBadge() {
   const [confirm, setConfirm] = useState(false);
   const upd = useSelfUpdate();
   // обновление идёт на сервере (в т.ч. начатое с другой страницы/вкладки или автообновлением)
-  const serverBusy = useBuildState().busy;
+  const build = useBuildState();
+  const serverBusy = build.busy;
 
   const load = async (force = false) => {
     setBusy(true);
@@ -57,8 +59,7 @@ export function VersionBadge() {
 
   // одна строка состояния: цветная точка + текст
   const state: { color: string; text: ReactNode } =
-    updating ? { color: 'accent.fg', text: 'Обновляюсь, бот перезапускается…' }
-    : buildFailed && v.build ? { color: 'danger.fg', text: <Link href={v.build.url} target="_blank" rel="noreferrer" sx={{ color: 'danger.fg' }}>Сборка образа не удалась</Link> }
+    buildFailed && v.build ? { color: 'danger.fg', text: <Link href={v.build.url} target="_blank" rel="noreferrer" sx={{ color: 'danger.fg' }}>Сборка образа не удалась</Link> }
     : buildRunning && v.build ? { color: 'attention.fg', text: <Link href={v.build.url} target="_blank" rel="noreferrer" muted>Образ собирается на GitHub…</Link> }
     : v.status === 'behind' ? { color: 'success.fg', text: <Link href={newLink} target="_blank" rel="noreferrer" sx={{ color: 'success.fg' }}>Доступна новая{v.behindBy ? ` (+${v.behindBy})` : ''}</Link> }
     : pinned && !!v.newerReleases ? { color: 'success.fg', text: <RouterLink to="/settings#updates" style={{ color: 'inherit' }}>Есть релизы новее: {v.newerReleases}</RouterLink> }
@@ -97,12 +98,12 @@ export function VersionBadge() {
             ? <Link href={`${v.repoUrl}/commit/${v.local.sha}`} target="_blank" rel="noreferrer" muted sx={{ fontFamily: 'mono', ml: 'auto' }}>{short(v.local.sha)}</Link>
             : <Text sx={{ ml: 'auto' }}>версия неизвестна</Text>}
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {updating
-            ? <Spinner size="small" sx={{ width: 12, height: 12 }} />
-            : <Box sx={{ width: 8, height: 8, mx: '2px', borderRadius: '50%', bg: state.color, flexShrink: 0 }} />}
-          <Text sx={{ color: 'fg.default' }}>{state.text}</Text>
-        </Box>
+        {updating ? <UpdateProgress stage={build.update} /> : (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 8, height: 8, mx: '2px', borderRadius: '50%', bg: state.color, flexShrink: 0 }} />
+            <Text sx={{ color: 'fg.default' }}>{state.text}</Text>
+          </Box>
+        )}
         {!updating && (
           <RouterLink to="/settings#updates" style={{ color: 'inherit', textDecoration: 'none' }} title="Канал и автообновление — Настройки">
             <Text sx={{ color: 'fg.subtle', ':hover': { color: 'fg.muted' } }}>

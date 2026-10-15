@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { watchUpdate } from './useBuildWatcher';
 
 // Обновление / смена канала бота из панели (плашка версии и Настройки → Обновления).
 // Обновлятель пересоздаёт контейнер, поэтому запрос часто обрывается — это значит «бот
@@ -40,6 +41,8 @@ export function useSelfUpdate() {
     let oldStart: number | undefined;
     try { oldStart = (await api.version()).startedAt; } catch { /* нет связи */ }
     setUpdating(true);
+    // прогресс скачивания приходит через опрос /api/build (useBuildWatcher)
+    window.setTimeout(watchUpdate, 1000);
     let r: Awaited<ReturnType<typeof api.update>>;
     try { r = await api.update(force, tag); }
     catch { waitForRestart(oldStart); return; } // соединение оборвалось: бот уже перезапускается
