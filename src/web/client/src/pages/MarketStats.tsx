@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type MarketStatsRow } from '../api';
@@ -7,6 +7,7 @@ import { fmt } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CrystalValue } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
 
 const num = (v: number | null | undefined) => (v == null ? 0 : Number(v));
 const ton = (v: number | null | undefined) => (v == null ? '0' : Number(v).toFixed(2));
@@ -55,13 +56,12 @@ export function MarketStats() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Статистика рынка</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Статистика рынка" actions={<>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
           Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {data.length === 0
         ? <Box sx={{ p: 4, color: 'fg.muted', textAlign: 'center' }}>Нет данных — нажмите «Обновить»</Box>

@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Box, Button, Flash, Heading, Spinner, Text, ToggleSwitch, Label,
-  TabNav, ButtonGroup, CounterLabel, ConfirmationDialog,
+  Box, Button, Flash, Spinner, Text, ToggleSwitch, Label,
+  SegmentedControl, Checkbox, ConfirmationDialog, ProgressBar,
 } from '@primer/react';
 import { DataTable, Table, Dialog } from '@primer/react/experimental';
 import {
-  SyncIcon, CheckIcon, ClockIcon, AlertIcon, PlusCircleIcon, ZapIcon, StackAddIcon, XCircleIcon,
+  SyncIcon, CheckIcon, ClockIcon, AlertIcon, PlusCircleIcon, ZapIcon, XCircleIcon, DatabaseIcon,
 } from '@primer/octicons-react';
 import { api, type StakingEntryRow, type StakingAccountInfo } from '../api';
 import { fmt, fmtDate } from '../utils';
@@ -13,6 +13,9 @@ import { StatCard } from '../components/StatCard';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CrystalValue } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
+import { useNarrow } from '../hooks/useNarrow';
+import { richHeader, RichBody, RichFooter, SectionLabel, PickRow } from '../components/RichDialog';
 
 // ── Конфиг ставок ────────────────────────────────────────────────────────────
 
@@ -51,21 +54,6 @@ function StatusBadge({ canCollectAt, collected }: { canCollectAt: string; collec
   return <Label><ClockIcon size={12} /> {left}</Label>;
 }
 
-function AmtBtn({ value, selected, disabled, currency, onClick }: {
-  value: number; selected: boolean; disabled: boolean; currency: Currency; onClick: () => void;
-}) {
-  return (
-    <Button
-      variant={selected ? 'primary' : 'default'}
-      disabled={disabled}
-      onClick={onClick}
-      sx={{ fontFamily: 'mono', fontSize: 0 }}
-    >
-      {currency === 'coins' ? <CoinValue value={fmtAmt(value, currency)} /> : <CrystalValue value={fmtAmt(value, currency)} />}
-    </Button>
-  );
-}
-
 // ── Модалка стейкинга ─────────────────────────────────────────────────────────
 
 function StakeModal({
@@ -80,7 +68,8 @@ function StakeModal({
   const [currency, setCurrency] = useState<Currency>('coins');
   const [amount, setAmount]     = useState<number | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
-  const [staking, setStaking]     = useState<Record<number, boolean>>({});
+  // снятые галочки (по умолчанию выбраны все подходящие аккаунты)
+  const [unpicked, setUnpicked] = useState<Set<number>>(new Set());
   const [stakingAll, setStakingAll] = useState(false);
   const [results, setResults]   = useState<Record<number, { ok: boolean; error?: string }>>({});
   const { flash, showFlash }    = useFlash();
@@ -94,13 +83,13 @@ function StakeModal({
 
   const rate    = amount && duration ? getRate(currency, duration) : null;
   const profit  = rate != null && amount ? Math.floor(amount * rate) : null;
-  const toCollect = amount && profit != null ? amount + profit : null;
 
   // Сбросить выбор при смене валюты
   const switchCurrency = (c: Currency) => {
     setCurrency(c);
     setAmount(null);
     setDuration(null);
+    setUnpicked(new Set());
     setResults({});
   };
 
@@ -113,190 +102,113 @@ function StakeModal({
   const canStake = (acc: StakingAccountInfo) =>
     amount != null && duration != null && slots(acc) < 3 && balance(acc) >= amount;
 
+  const eligible = accounts.filter(canStake);
+  const picked = eligible.filter(a => !unpicked.has(a.id));
+  const togglePick = (id: number) => setUnpicked(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allPicked = picked.length === eligible.length;
+
   const stakeOne = async (acc: StakingAccountInfo) => {
-    if (!amount || !duration) return;
-    setStaking(s => ({ ...s, [acc.id]: true }));
+    if (!amount || !duration) return { ok: false };
     const r = await api.stakingStake(acc.id, currency, amount, duration);
     setResults(s => ({ ...s, [acc.id]: r }));
-    setStaking(s => ({ ...s, [acc.id]: false }));
-    if (r.ok) onStaked();
+    return r;
   };
 
-  const eligible = accounts.filter(canStake);
-
-  const stakeAll = async () => {
-    if (!eligible.length) return;
+  const stakePicked = async () => {
+    if (!picked.length) return;
     setStakingAll(true);
     try {
-      await Promise.allSettled(eligible.map(stakeOne));
-      showFlash(`Вложено для ${eligible.length} аккаунтов`, true);
+      const rs = await Promise.allSettled(picked.map(stakeOne));
+      const ok = rs.filter(r => r.status === 'fulfilled' && r.value.ok).length;
+      showFlash(ok === picked.length ? `Вложено на ${ok} акк.` : `Вложено на ${ok} из ${picked.length} акк.`, ok === picked.length);
       onStaked();
     } finally { setStakingAll(false); }
   };
 
+  const Val = ({ v }: { v: number }) => currency === 'coins' ? <CoinValue value={fmt(v)} /> : <CrystalValue value={fmt(v)} />;
+  const n = picked.length;
+  const summary = !amount || !duration
+    ? 'Выберите сумму и срок'
+    : n === 0 ? 'Нет подходящих аккаунтов'
+    : <>{n} акк. · <b><Val v={amount * n} /></b> → <b style={{ color: 'var(--green)' }}><Val v={(amount + (profit ?? 0)) * n} /></b> через {duration} дн.</>;
+
   return (
-    // 720px шире самого широкого пресета (xlarge = 640), поэтому ширина дожата через sx
     <Dialog
       title="Новый вклад"
+      subtitle="Федеральный резерв · вклад вернётся с процентом в конце срока"
+      renderHeader={richHeader(DatabaseIcon)}
       onClose={onClose}
       width="xlarge"
-      /* только на десктопе: на узких экранах Primer делает bottom-sheet во всю ширину,
-         а sx перебил бы его собственную media-раскладку */
-      sx={{ '@media (min-width: 768px)': { width: 720 } }}
       position={{ narrow: 'bottom', regular: 'center' }}
-      footerButtons={[{
-        content: 'Вложить всем',
-        buttonType: 'primary',
-        leadingVisual: StackAddIcon,
-        trailingVisual: () => eligible.length > 0 ? <CounterLabel sx={{ bg: 'rgba(255,255,255,0.9)', color: 'success.fg', borderColor: 'transparent' }}>{eligible.length}</CounterLabel> : null,
-        disabled: eligible.length === 0 || !amount || !duration || stakingAll,
-        loading: stakingAll,
-        onClick: stakeAll,
-      }]}
+      renderFooter={() => (
+        <RichFooter summary={summary}>
+          <Button onClick={onClose}>Отмена</Button>
+          <Button variant="primary" leadingVisual={ZapIcon} disabled={!amount || !duration || n === 0 || stakingAll}
+            loading={stakingAll} onClick={stakePicked}>
+            {n > 0 ? `Вложить в ${n}` : 'Вложить'}
+          </Button>
+        </RichFooter>
+      )}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <RichBody>
         {flash && <Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash>}
 
-        {/* Вкладки валюта */}
-        <TabNav aria-label="Валюта">
-          <TabNav.Link selected={currency === 'coins'} onClick={() => switchCurrency('coins')}>
-            💰 Монеты
-          </TabNav.Link>
-          <TabNav.Link selected={currency === 'crystals'} onClick={() => switchCurrency('crystals')}>
-            💎 Кристаллы
-          </TabNav.Link>
-        </TabNav>
+        <SegmentedControl fullWidth aria-label="Валюта" onChange={i => switchCurrency(i === 0 ? 'coins' : 'crystals')}>
+          <SegmentedControl.Button selected={currency === 'coins'}>Монеты</SegmentedControl.Button>
+          <SegmentedControl.Button selected={currency === 'crystals'}>Кристаллы</SegmentedControl.Button>
+        </SegmentedControl>
 
-        {/* Выбор суммы */}
-        <Box>
-          <Text sx={{ fontSize: 0, fontWeight: 600, color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', mb: 2 }}>
-            Сумма вклада
-          </Text>
-          <ButtonGroup>
-            {AMOUNTS[currency].map(v => (
-              <AmtBtn
-                key={v}
-                value={v}
-                currency={currency}
-                selected={amount === v}
-                disabled={false}
-                onClick={() => setAmount(v)}
-              />
-            ))}
-          </ButtonGroup>
-        </Box>
-
-        {/* Выбор срока */}
-        <Box>
-          <Text sx={{ fontSize: 0, fontWeight: 600, color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', mb: 2 }}>
-            Срок
-          </Text>
-          <ButtonGroup>
-            {DURATIONS[currency].map(d => (
-              <Button
-                key={d}
-                variant={duration === d ? 'primary' : 'default'}
-                onClick={() => setDuration(d)}
-                sx={{ fontFamily: 'mono', fontSize: 0 }}
-              >
-                {d}д — <span style={{ color: duration === d ? 'rgba(255,255,255,0.9)' : 'var(--green)', fontWeight: 700 }}>{(getRate(currency, d) * 100).toFixed(0)}%</span>
-              </Button>
-            ))}
-          </ButtonGroup>
-        </Box>
-
-        {/* Итого */}
-        {amount && duration && toCollect != null && (
-          <Box sx={{ bg: 'canvas.subtle', border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 2, display: 'flex', gap: 4 }}>
-            <Box>
-              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>Ставка</Text>
-              <Text sx={{ fontWeight: 700, color: 'var(--green)' }}>{((rate ?? 0) * 100).toFixed(0)}%</Text>
-            </Box>
-            <Box>
-              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>Прибыль</Text>
-              <Text sx={{ fontWeight: 700, color: 'var(--green)' }}>
-                +{currency === 'coins' ? <CoinValue value={fmt(profit!)} /> : <CrystalValue value={fmt(profit!)} />}
-              </Text>
-            </Box>
-            <Box>
-              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>К получению</Text>
-              <Text sx={{ fontWeight: 700 }}>
-                {currency === 'coins' ? <CoinValue value={fmt(toCollect)} /> : <CrystalValue value={fmt(toCollect)} />}
-              </Text>
-            </Box>
+        <Box sx={{ display: 'grid', gap: 3 }}>
+          <Box>
+            <SectionLabel>Сумма на аккаунт</SectionLabel>
+            <SegmentedControl fullWidth size="small" aria-label="Сумма" onChange={i => setAmount(AMOUNTS[currency][i])}>
+              {AMOUNTS[currency].map(v => (
+                <SegmentedControl.Button key={v} selected={amount === v}>{fmtAmt(v, currency)}</SegmentedControl.Button>
+              ))}
+            </SegmentedControl>
           </Box>
-        )}
-
-        {/* Таблица аккаунтов */}
-        <Box>
-          <Text sx={{ fontSize: 0, fontWeight: 600, color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', mb: 2 }}>
-            Аккаунты
-          </Text>
-          <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: 'var(--color-canvas-subtle)', borderBottom: '1px solid var(--color-border-default)' }}>
-                  <th style={{ textAlign: 'left', padding: '6px 12px', fontSize: 11, color: 'var(--fg-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Аккаунт</th>
-                  <th style={{ textAlign: 'right', padding: '6px 12px', fontSize: 11, color: 'var(--fg-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Баланс</th>
-                  <th style={{ textAlign: 'center', padding: '6px 12px', fontSize: 11, color: 'var(--fg-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Слоты</th>
-                  {amount && duration && <th style={{ textAlign: 'right', padding: '6px 12px', fontSize: 11, color: 'var(--fg-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Прибыль</th>}
-                  <th style={{ textAlign: 'center', padding: '6px 12px', fontSize: 11, color: 'var(--fg-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Действие</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((acc, i) => {
-                  const sl = slots(acc);
-                  const bal = balance(acc);
-                  const noSlot = sl >= 3;
-                  const noBal  = amount != null && bal < amount;
-                  const ok = !noSlot && !noBal && amount != null && duration != null;
-                  const res = results[acc.id];
-                  return (
-                    <tr key={acc.id} style={{ borderBottom: i < accounts.length - 1 ? '1px solid var(--color-border-muted)' : undefined }}>
-                      <td style={{ padding: '6px 12px' }}>
-                        <strong style={{ opacity: ok ? 1 : 0.5 }}>{acc.name}</strong>
-                      </td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12 }}>
-                        <span style={{ opacity: noBal ? 0.4 : 1, color: noBal ? 'var(--red)' : undefined }}>
-                          {currency === 'coins' ? <CoinValue value={fmt(bal)} /> : <CrystalValue value={fmt(bal)} />}
-                        </span>
-                      </td>
-                      <td style={{ padding: '6px 12px', textAlign: 'center' }}>
-                        <span style={{ color: noSlot ? 'var(--red)' : sl > 0 ? 'var(--yellow)' : 'var(--green)', fontWeight: 600, fontSize: 12 }}>
-                          {sl}/3
-                        </span>
-                      </td>
-                      {amount && duration && (
-                        <td style={{ padding: '6px 12px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12, color: 'var(--green)' }}>
-                          {ok ? <>+{currency === 'coins' ? <CoinValue value={fmt(profit!)} /> : <CrystalValue value={fmt(profit!)} />}</> : '—'}
-                        </td>
-                      )}
-                      <td style={{ padding: '6px 12px', textAlign: 'center' }}>
-                        {res && !res.ok
-                          ? <Label variant="danger">Ошибка</Label>
-                          : (
-                            <div style={{ width: 90, display: 'inline-block' }}>
-                              <Button
-                                variant="primary"
-                                leadingVisual={ZapIcon}
-                                disabled={!ok || staking[acc.id]}
-                                loading={staking[acc.id]}
-                                onClick={() => stakeOne(acc)}
-                                sx={{ width: '100%', justifyContent: 'center' }}
-                              >
-                                Вложить
-                              </Button>
-                            </div>
-                          )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <Box>
+            <SectionLabel>Срок и доход</SectionLabel>
+            <SegmentedControl fullWidth size="small" aria-label="Срок" onChange={i => setDuration(DURATIONS[currency][i])}>
+              {DURATIONS[currency].map(d => (
+                <SegmentedControl.Button key={d} selected={duration === d}>{`${d}д · ${(getRate(currency, d) * 100).toFixed(0)}%`}</SegmentedControl.Button>
+              ))}
+            </SegmentedControl>
           </Box>
         </Box>
-      </Box>
+
+        <Box>
+          <SectionLabel action={eligible.length > 0 && (
+            <Button size="small" variant="invisible" onClick={() => setUnpicked(allPicked ? new Set(eligible.map(a => a.id)) : new Set())}>
+              {allPicked ? 'Снять все' : 'Выбрать все подходящие'}
+            </Button>
+          )}>
+            {amount && duration ? `Аккаунты · выбрано ${n} из ${eligible.length}` : 'Аккаунты'}
+          </SectionLabel>
+          <div className="rdlg-list">
+            {accounts.map(acc => {
+              const sl = slots(acc);
+              const ok = canStake(acc);
+              const on = ok && !unpicked.has(acc.id);
+              const res = results[acc.id];
+              const why = res && !res.ok ? 'ошибка'
+                : res?.ok ? 'вложено'
+                : sl >= 3 ? 'нет слотов'
+                : amount != null && balance(acc) < amount ? (currency === 'coins' ? 'мало монет' : 'мало кристаллов')
+                : `слоты ${sl}/3`;
+              return (
+                <PickRow key={acc.id} on={on} off={!ok} onClick={() => togglePick(acc.id)}>
+                  <Checkbox checked={on} disabled={!ok} onChange={() => togglePick(acc.id)} onClick={e => e.stopPropagation()} aria-label={acc.name} />
+                  <b style={{ fontWeight: 600 }}>{acc.name}</b>
+                  <span className="num"><Val v={balance(acc)} /></span>
+                  <span className="why" style={res?.ok ? { color: 'var(--green)' } : res && !res.ok ? { color: 'var(--red)' } : undefined}
+                    title={res?.error}>{why}</span>
+                </PickRow>
+              );
+            })}
+          </div>
+        </Box>
+      </RichBody>
     </Dialog>
   );
 }
@@ -304,6 +216,7 @@ function StakeModal({
 // ── Основная страница ─────────────────────────────────────────────────────────
 
 export function Reserve() {
+  const narrow = useNarrow();
   const [entries, setEntries]     = useState<StakingEntryRow[]>([]);
   const [accounts, setAccounts]   = useState<StakingAccountInfo[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -387,17 +300,8 @@ export function Reserve() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Стейкинг</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <Button ref={openBtnRef} leadingVisual={PlusCircleIcon} variant="primary" onClick={() => setModalOpen(true)}>
-          Новый вклад
-        </Button>
-        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
-          Обновить
-        </Button>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 1 }}>
+      <PageHeader title="Стейкинг" actions={<>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 1 }}>
           <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Собранные</Text>
           {/* Primer ToggleSwitch в управляемом режиме (передан checked) реагирует на клик через
               onClick, а не onChange — onChange там только эффект на смену checked ИЗВНЕ. С onChange
@@ -405,15 +309,23 @@ export function Reserve() {
           <ToggleSwitch size="small" checked={showCollected} onClick={() => setShowCollected(v => !v)} aria-label="Показать собранные" />
         </Box>
         {ready.length > 0 && (
-          <Label variant="attention" sx={{ ml: 1 }}>
+          <Label variant="attention" sx={{ mr: 1 }}>
             <AlertIcon size={14} /> {ready.length} {ready.length === 1 ? 'вклад' : 'вклада'} готово
           </Label>
         )}
-      </Box>
+        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
+          Обновить
+        </Button>
+        <Button ref={openBtnRef} leadingVisual={PlusCircleIcon} variant="primary" onClick={() => setModalOpen(true)}>
+          Новый вклад
+        </Button>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+
 
       <>
           {active.length > 0 && (
-            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(185px, 1fr))', marginBottom: 20 }}>
+            <div className="stat-grid stat-grid--reserve">
               <StatCard label="Стейк монет" color="ton">
                 <div style={{ fontSize: 20, fontWeight: 700 }}><CoinValue value={fmt(totalStakedCoins)} /></div>
                 <div style={{ fontSize: 11, marginTop: 4, color: 'var(--fg-muted)' }}>{coins.length} из 3 слотов</div>
@@ -437,6 +349,41 @@ export function Reserve() {
             </div>
           )}
 
+          {narrow && data.length > 0 ? (
+            <Box>
+              <Text as="h3" sx={{ fontSize: 2, fontWeight: 'bold', mb: 2 }}>{showCollected ? 'Собранные вклады' : 'Активные вклады'}</Text>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {data.map(row => {
+                  const Val = row.currency === 'coins' ? CoinValue : CrystalValue;
+                  const start = new Date(row.created_at).getTime(), end = new Date(row.can_collect_at).getTime();
+                  const pct = row.collected || row._ready ? 100 : Math.max(0, Math.min(100, ((Date.now() - start) / Math.max(1, end - start)) * 100));
+                  const canCancel = row.currency === 'coins' && !row.collected && !row._ready;
+                  return (
+                    <Box key={row.entry_id} sx={{ border: '1px solid', borderColor: row._ready ? 'attention.muted' : 'border.default', borderRadius: 2, p: 2, px: 3, bg: 'canvas.default' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Text sx={{ fontWeight: 'bold', color: row._ready ? 'success.fg' : undefined }}>{row.account}</Text>
+                        <Text className="mono" sx={{ fontSize: 0, color: 'fg.muted' }}>{row._dur}д</Text>
+                        <Box sx={{ ml: 'auto' }}><StatusBadge canCollectAt={row.can_collect_at} collected={row.collected} /></Box>
+                      </Box>
+                      <Box className="mono" sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 2, fontSize: 1, minHeight: 28 }}>
+                        <Val value={fmt(row.amount_staked)} />
+                        <Text sx={{ color: 'fg.subtle' }}>→</Text>
+                        <Text sx={{ fontWeight: 600 }}><Val value={fmt(row.amount_to_collect)} /></Text>
+                        {canCancel && (
+                          <Button size="small" variant="invisible" sx={{ ml: 'auto', color: 'danger.fg' }}
+                            loading={!!cancelling[row.entry_id]} disabled={!!cancelling[row.entry_id]}
+                            onClick={() => setConfirmCancel(row)}>
+                            Отменить
+                          </Button>
+                        )}
+                      </Box>
+                      <ProgressBar progress={pct} barSize="small" bg={row._ready || row.collected ? 'success.emphasis' : 'accent.emphasis'} aria-label="До сбора" />
+                    </Box>
+                  );
+                })}
+              </Box>
+            </Box>
+          ) : (
           <Table.Container>
             <Table.Title as="h3" id="staking-table">
               {showCollected ? 'Собранные вклады' : 'Активные вклады'}
@@ -556,6 +503,7 @@ export function Reserve() {
               />
             )}
           </Table.Container>
+          )}
         </>
 
       {confirmCancel && (

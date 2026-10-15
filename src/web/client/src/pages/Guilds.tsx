@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Checkbox, Flash, Heading, Label, Text, Spinner } from '@primer/react';
+import { Box, Button, Checkbox, Flash, Label, Text, Spinner } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { api, type GuildMembership, type GuildApplication, type GuildMember, type GuildSettings } from '../api';
 import { fmt } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { PageHeader } from '../components/PageHeader';
 
 // ── бафы гильдии (GET /guilds/benefits) ──────────────────────────────────────
 type GuildBenefits = {
@@ -395,13 +396,12 @@ export function Guilds() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Гильдии</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Гильдии" actions={<>
         <Button onClick={refresh} disabled={refreshing} loading={refreshing}>
           ↻ Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {leaderGuilds.length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Нет гильдий, где аккаунт — лидер</Text>

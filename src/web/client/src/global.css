@@ -176,6 +176,7 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 12px; }
 .text-muted { color: var(--fg-muted); }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat-grid--reserve { grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); }
 
 /* log viewer */
 .log-line { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid #f0f0f0; }
@@ -217,7 +218,9 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
    ускоритель (уточнено по факту в игре). winter остаётся своим малиновым цветом. Ниже — светлая
    адаптация той же палитры (сама игра тёмная, эталона для светлой темы нет); точный вариант игры —
    в тёмной теме ниже. */
-.ic-common,.ic-basic,.ic-shard_common,.ic-mystery_common       { background: rgba(255,255,255,.8); border: 1px solid #ddd; }
+/* обычная — серо-стальная подложка в той же схеме «полупрозрачный цвет + рамка», что и у остальных
+   редкостей (белая сливалась с фоном и выглядела пустой) */
+.ic-common,.ic-basic,.ic-shard_common,.ic-mystery_common       { background: rgba(110,118,129,.14); border: 1px solid rgba(110,118,129,.5); }
 .ic-uncommon,.ic-advanced,.ic-shard_uncommon,.ic-mystery_uncommon { background: rgba(39,174,96,.10); border: 1px solid rgba(39,174,96,.5); }
 .ic-rare,.ic-elite,.ic-shard_rare,.ic-mystery_rare,.ic-policy_pack_rare             { background: rgba(35,143,213,.12); border: 1px solid rgba(35,143,213,.5); }
 .ic-component,.ic-epic,.ic-reform_stone_epic,.ic-premium,.ic-shard_epic,.ic-mystery_epic,.ic-policy_pack_epic { background: rgba(169,47,220,.14); border: 1px solid rgba(169,47,220,.5); }
@@ -528,7 +531,7 @@ html[data-theme="dark"] .item-card__box { box-shadow: inset 0 0 0 1px rgba(255,2
 html[data-theme="dark"] .item-card.clickable:hover .item-card__box { box-shadow: inset 0 0 0 1px rgba(255,255,255,.06), 0 0 0 2px var(--accent); }
 /* фоны редкостей в тёмной теме — 1:1 из CSS игры (storage-*.css, .card-{rarity}), сама игра
    всегда тёмная, поэтому здесь точные исходные значения, не адаптация. */
-html[data-theme="dark"] .ic-common,html[data-theme="dark"] .ic-basic,html[data-theme="dark"] .ic-shard_common,html[data-theme="dark"] .ic-mystery_common { background: #1e1e1e; border-color: #333; }
+html[data-theme="dark"] .ic-common,html[data-theme="dark"] .ic-basic,html[data-theme="dark"] .ic-shard_common,html[data-theme="dark"] .ic-mystery_common { background: rgba(139,148,158,.14); border-color: rgba(139,148,158,.4); }
 html[data-theme="dark"] .ic-uncommon,html[data-theme="dark"] .ic-advanced,html[data-theme="dark"] .ic-shard_uncommon,html[data-theme="dark"] .ic-mystery_uncommon { background: rgba(39,174,96,.08); border-color: rgba(39,174,96,.4); }
 html[data-theme="dark"] .ic-rare,html[data-theme="dark"] .ic-elite,html[data-theme="dark"] .ic-shard_rare,html[data-theme="dark"] .ic-mystery_rare,html[data-theme="dark"] .ic-policy_pack_rare { background: rgba(35,143,213,.15); border-color: rgba(35,143,213,.4); }
 html[data-theme="dark"] .ic-component,html[data-theme="dark"] .ic-reform_stone_epic,html[data-theme="dark"] .ic-epic,html[data-theme="dark"] .ic-premium,html[data-theme="dark"] .ic-shard_epic,html[data-theme="dark"] .ic-mystery_epic,html[data-theme="dark"] .ic-policy_pack_epic { background: rgba(169,47,220,.2); border-color: rgba(169,47,220,.3); }
@@ -557,3 +560,105 @@ html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
 .g2048-tile-pop { animation: g2048-pop .15s ease; }
 @keyframes g2048-appear { 0% { opacity: 0; transform: scale(0); } to { opacity: 1; transform: scale(1); } }
 @keyframes g2048-pop { 0% { transform: scale(1); } 50% { transform: scale(1.15); } to { transform: scale(1); } }
+
+/* ── телефон: квесты, стейкинг, склад ── */
+@media (max-width: 768px) {
+  /* квест: иконка+текст первой строкой на всю ширину, таймер/почёт и кнопка — второй строкой
+     (раньше кнопка и правые колонки сжимали описание до столбика и кнопка наезжала на текст) */
+  .quest-row { flex-wrap: wrap; row-gap: 8px !important; }
+  .quest-row__text { flex: 1 1 calc(100% - 68px) !important; }
+  .quest-row__meta { order: 3; flex: 1 1 auto !important; padding-left: 4px; }
+  .quest-row__meta > div { width: auto !important; margin-right: 14px; }
+  .quest-row__meta > div:empty { display: none; }
+  .quest-row__btn { order: 4; margin-left: auto; }
+
+  /* стейкинг: итоги сеткой 2×2 вместо четырёх карточек одна под другой */
+  .stat-grid--reserve { grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  /* склад: плотная сетка — 4 предмета в ряд на всю ширину */
+  .item-grid { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px !important; }
+  .item-grid .item-card__box { width: 100%; height: auto; aspect-ratio: 1; min-height: 0; }
+  .item-grid .item-card__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+}
+
+/* Ежедневная награда: дни с монетами/кристаллами — цветная полупрозрачная подложка, адаптивна к теме */
+.dr-coins    { background: rgba(212,160,23,.13); border: 1px solid rgba(212,160,23,.5); gap: 4px; }
+.dr-crystals { background: rgba(46,160,67,.12);  border: 1px solid rgba(46,160,67,.5);  gap: 4px; }
+.dr-amount   { font-size: 12px; font-weight: 600; color: var(--fgColor-default, var(--fg)); line-height: 1; white-space: nowrap; }
+
+/* Иконки политик (components/PolicyIcon.tsx): цвет редкости в --rc — насыщеннее на светлой теме,
+   светлее на тёмной; иконка с градиентом и мягкой тенью того же цвета */
+.r-common{--rc:#57606a}.r-uncommon{--rc:#1f8a4c}.r-rare{--rc:#1f6fb2}.r-epic{--rc:#8a2fc0}
+.r-legendary{--rc:#b8860b}.r-mythic,.r-eternal{--rc:#c0392b}
+html[data-theme="dark"] .r-common{--rc:#adbac7}html[data-theme="dark"] .r-uncommon{--rc:#3fd07a}
+html[data-theme="dark"] .r-rare{--rc:#58aef0}html[data-theme="dark"] .r-epic{--rc:#c77dff}
+html[data-theme="dark"] .r-legendary{--rc:#f2c94c}html[data-theme="dark"] .r-mythic,html[data-theme="dark"] .r-eternal{--rc:#ff6b5b}
+.pol-ic {
+  line-height: 1; color: transparent;
+  background: linear-gradient(160deg, var(--rc), color-mix(in srgb, var(--rc) 55%, #000));
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 2px 2px color-mix(in srgb, var(--rc) 40%, transparent));
+}
+html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 60%, #fff), var(--rc)); -webkit-background-clip: text; background-clip: text; }
+.pol-lv { color: var(--rc); }
+
+/* ── Модальные окна нового вида (components/RichDialog.tsx, 15.10.2026) ──────────────────────
+   Только окна с .rdlg в теле: шапка с иконкой, тело с отступами 16/20, подвал с итогом и кнопками;
+   на телефоне — лист снизу со скруглением и «ручкой», кнопки во всю ширину одна над другой. */
+[role="dialog"]:has(.rdlg) { border-radius: 14px; }
+[role="dialog"]:has(.rdlg) .rdlg-head { padding: 14px 16px 12px 20px; }
+[role="dialog"][data-position-regular] .DialogOverflowWrapper > *:has(> .rdlg),
+[role="dialog"][data-position-narrow] .DialogOverflowWrapper > *:has(> .rdlg) { padding: 16px 20px; }
+[role="dialog"]:has(.rdlg) .DialogOverflowWrapper + .rdlg-foot { padding: 12px 20px; background: var(--accent-dim); align-items: center; flex-wrap: nowrap; }
+.rdlg { display: flex; flex-direction: column; gap: 16px; }
+.rdlg-ic { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.rdlg-ic--accent { background: var(--accent-mid); color: var(--accent); }
+.rdlg-ic--danger { background: var(--red-dim); color: var(--red); }
+.rdlg-ic--attention { background: var(--yellow-dim); color: var(--yellow); }
+.rdlg-ic--success { background: var(--green-dim); color: var(--green); }
+.rdlg-title { font-size: 16px !important; line-height: 1.25; }
+.rdlg-sub { font-size: 12px !important; line-height: 1.35; }
+.rdlg-sum { font-size: 13px; color: var(--fg-muted); margin-right: auto; min-width: 0; }
+.rdlg-sum b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.rdlg-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.rdlg-sec { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: .5px;
+  text-transform: uppercase; color: var(--fg-muted); margin-bottom: 8px; min-height: 24px; }
+.rdlg-sec > :last-child:not(:first-child) { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.rdlg-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.rdlg-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--border);
+  font-size: 13px; cursor: pointer; user-select: none; }
+.rdlg-row:first-child { border-top: 0; }
+.rdlg-row.on { background: var(--accent-dim); }
+.rdlg-row.off { color: var(--fg-subtle); cursor: default; }
+.rdlg-row .num { font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+.rdlg-row .why { font-size: 12px; color: var(--fg-muted); width: 96px; text-align: right; flex-shrink: 0; }
+.rdlg-row.off .why { color: var(--red); }
+.rdlg-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 12px; }
+.rdlg-card.off { opacity: .6; }
+.rdlg-card__name { font-weight: 600; font-size: 14px; display: block; }
+.rdlg-form { border: 1px dashed var(--border); border-radius: 10px; padding: 12px; }
+.rdlg-tg { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.rdlg-tg:first-child { border-top: 0; padding-top: 0; }
+.rdlg-note { border-radius: 10px; padding: 10px 12px; font-size: 13px; display: flex; gap: 8px; align-items: flex-start; }
+.rdlg-note--info { background: var(--accent-dim); border: 1px solid var(--border); color: var(--fg-muted); }
+.rdlg-note--warn { background: var(--yellow-dim); border: 1px solid rgb(212 167 44 / 40%); color: var(--fg); }
+.rdlg-note summary { cursor: pointer; color: var(--fg); font-weight: 600; }
+.rdlg-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 20px 8px 8px; color: var(--fg-muted); }
+.rdlg-empty__ic { width: 52px; height: 52px; border-radius: 50%; background: var(--accent-mid); color: var(--accent); display: flex; align-items: center; justify-content: center; }
+.rdlg-empty__t { font-weight: 600; color: var(--fg); }
+.rdlg-empty__d { font-size: 13px; max-width: 360px; }
+@media (max-width: 768px) {
+  [role="dialog"][data-position-narrow="bottom"]:has(.rdlg) { border-radius: 18px 18px 0 0; max-height: 92vh; }
+  [role="dialog"][data-position-narrow="bottom"]:has(.rdlg)::before { content: ""; display: block; width: 38px; height: 5px;
+    border-radius: 3px; background: var(--border); margin: 8px auto 0; flex-shrink: 0; }
+  [role="dialog"]:has(.rdlg) .rdlg-head { padding: 8px 12px 10px 16px; }
+  [role="dialog"][data-position-narrow] .DialogOverflowWrapper > *:has(> .rdlg) { padding: 14px 16px; }
+  [role="dialog"]:has(.rdlg) .DialogOverflowWrapper + .rdlg-foot { flex-direction: column; align-items: stretch; gap: 8px;
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .rdlg-sum { margin: 0; }
+  .rdlg-btns { flex-direction: column-reverse; }
+  .rdlg-btns > *, .rdlg-btns button { width: 100%; }
+  .rdlg-row .why { width: auto; }
+  .rdlg-card .hide-narrow { display: none; }
+  .rdlg-card.editable { cursor: pointer; }
+}

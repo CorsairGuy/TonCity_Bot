@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Box, Flash, Heading, Text, Spinner, Label, Button } from '@primer/react';
+import { Box, Flash, Text, Spinner, Label, Button } from '@primer/react';
 import { api, type LoyaltyRow, type LoyaltyLevel, type LoyaltyReward } from '../api';
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { CrystalValue } from '../components/Icons';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { PageHeader } from '../components/PageHeader';
 
 function isMet(l: LoyaltyLevel): boolean {
   return !!(l.condition?.condition_met ?? l.condition_met);
@@ -112,13 +113,12 @@ export function Loyalty() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Дорога верности</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Дорога верности" actions={<>
         <Button onClick={refresh} disabled={refreshing} loading={refreshing}>
           ↻ Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {rows.length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Нет данных</Text>
