@@ -1583,6 +1583,7 @@ export interface PoliciesAccountData {
   cabinet: PolicyCabinet;
   economy: PolicyEconomy | null;
   shards: PolicyShardItem[];
+  reform_stones?: PolicyShardItem[]; // камни реформ (id 36-38) — только просмотр
   updated_at: string | null;
   population: number | null;
   policies_unlocked: boolean;
@@ -1592,7 +1593,7 @@ export interface PoliciesAccountData {
 }
 
 export type PolicyActionName =
-  | 'enact' | 'unequip' | 'levelup' | 'promote' | 'dissolve'
+  | 'enact' | 'unequip' | 'levelup' | 'promote' | 'dissolve' | 'reroll'
   | 'mystery-craft' | 'mystery-open' | 'civic-draw-claim';
 
 export interface PolicyActionResponse {

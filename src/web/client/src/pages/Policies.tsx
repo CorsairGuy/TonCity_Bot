@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Box, Button, Flash, Heading, Spinner, Text, Label, Tooltip, ConfirmationDialog } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
-import { SyncIcon } from '@primer/octicons-react';
+import { SyncIcon, TrashIcon, CheckCircleIcon, XCircleIcon, StarIcon, ArrowUpIcon, type Icon } from '@primer/octicons-react';
 import { api, type PoliciesAccountData, type PolicyInstance, type PolicyShardItem, type PolicyActionName, type PolicyEconomy } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { ITEMS_BY_ID, itemImgSrc } from '../utils';
+import { StorageModal } from '../components/StorageModal';
 import { effectLabel, effectValue } from '../policyEffects';
 
 // цвет/название редкости — как в игре (Библиотека политик)
@@ -24,6 +25,8 @@ const RARITY_RANK: Record<string, number> = Object.fromEntries(RARITY_ORDER.map(
 // дорогие и их легко случайно сжечь); ниже эпической — подтверждение только если уровень >1
 // (вложен стаж/осколки)
 const HIGH_RARITIES = new Set(['epic', 'legendary', 'mythic', 'eternal']);
+// Камень реформ своей редкости (id предмета) — «Провести реформу» есть только у этих редкостей
+const REFORM_STONE_BY_RARITY: Record<string, number> = { epic: 36, legendary: 37, mythic: 38 };
 
 function rarityFromTag(tag: string): string {
   const m = tag.match(/(common|uncommon|rare|epic|legendary|mythic|eternal)$/);
@@ -62,18 +65,21 @@ function PolicyBadge({ policy, enacted, onClick }: { policy: PolicyInstance; ena
 // enact/unequip/levelup/promote/dissolve — payload {instance_id} (enact ещё сам подбирает
 // свободный слот кабинета на сервере) — подтверждено реверсом chunks/storage-*.
 
-function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, onClose, onChanged, onStale }: {
+function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reformStones, policiesUnlocked, onClose, onChanged, onStale }: {
   policy: PolicyInstance;
   accountId: number;
   enacted: boolean;
   freeSlots: number;   // свободных слотов кабинета (unlocked && пуст) — без них «Применить» бессмысленно
   snapshotAt: string | null; // когда снят снимок: цифры ниже посчитаны на этот момент
+  reformStones: number;      // Камней реформ редкости этой политики у аккаунта
+  policiesUnlocked: boolean;
   onClose: () => void;
-  onChanged: () => void;
+  onChanged: (newPolicyId?: number) => void;
   onStale?: () => void;      // отказ игры → сервер пересинкал, надо перечитать страницу
 }) {
   const [busy, setBusy] = useState<PolicyActionName | null>(null);
   const [confirmDissolve, setConfirmDissolve] = useState(false);
+  const [confirmReform, setConfirmReform] = useState(false);
   const { flash, showFlash } = useFlash();
   const color = RARITY_COLOR[policy.rarity] ?? '#6e7681';
   const icon = (policy.definition?.icon_key || 'mdi-script-text').replace(/^mdi-/, '');
@@ -82,7 +88,12 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, onClos
     setBusy(action);
     try {
       const r = await api.policyAction(accountId, action, { instance_id: policy.id });
-      if (r.ok) { showFlash('Готово', true); onChanged(); }
+      if (r.ok) {
+        // реформа отвечает новым инстансом политики — окно переключаем на него
+        const newId = action === 'reroll' ? Number((r.result as { id?: number } | null)?.id) : NaN;
+        showFlash(action === 'reroll' ? 'Реформа завершена!' : 'Готово', true);
+        onChanged(Number.isFinite(newId) ? newId : undefined);
+      }
       else {
         // сервер при отказе тоже пересинхронизировал снимок с игрой (см. routes/policies.js) —
         // перечитываем данные, иначе на экране остались бы те же устаревшие цифры
@@ -103,6 +114,40 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, onClos
   // заблуждение. Теперь показываем только ТУ, что реально имеет смысл сейчас.
   const atLevelCap = policy.max_level != null && policy.level >= policy.max_level;
   const canPromoteFurther = !!policy.promotion;
+  // «Провести реформу» (15.10.2026, POST /policies/reroll): переписывает политику в случайную другую
+  // той же редкости за один Камень реформ. Условия — как в игре (chunks/storage-*): камень есть,
+  // у политики нет значка (badge), она не надета, 1 уровень и политики открыты по населению.
+  // Кнопку показываем, когда камень есть; если мешает другое условие — серая с причиной текстом.
+  const reformBlocker = !policiesUnlocked ? 'нужно 1 000 000 населения'
+    : enacted ? 'сначала снимите политику'
+    : policy.level !== 1 ? 'только для политики 1 уровня'
+    : !policy.definition || policy.definition.badge ? 'эту политику реформировать нельзя'
+    : null;
+
+  // основные действия окна; reason — почему недоступно (по тем же правилам, что и игра: стаж/осколки
+  // считает сервер в policy.progress, слоты — freeSlots)
+  type PolicyAction = { key: string; label: string; variant: 'primary' | 'default' | 'danger'; icon?: Icon; loading: boolean; reason: string | null; onClick: () => void };
+  const actions: PolicyAction[] = [
+    enacted
+      ? { key: 'unequip', label: 'Снять', variant: 'danger', icon: XCircleIcon, loading: busy === 'unequip', reason: null, onClick: () => run('unequip') }
+      : { key: 'enact', label: 'Применить', variant: 'primary', icon: CheckCircleIcon, loading: busy === 'enact',
+          reason: freeSlots <= 0 ? 'Нет свободных слотов в кабинете мэра' : null, onClick: () => run('enact') },
+  ];
+  if (atLevelCap && canPromoteFurther) {
+    // 13.10.2026: игра не даёт повысить редкость НАДЕТОЙ политике — гасим и говорим, что сначала «Снять»
+    actions.push({ key: 'promote', label: 'Улучшить редкость', variant: 'default', icon: StarIcon, loading: busy === 'promote',
+      reason: enacted ? 'Сначала снимите политику' : prog && !prog.can_promote ? (prog.promote_blockers.join('; ') || 'недоступно') : null,
+      onClick: () => run('promote') });
+  } else if (!atLevelCap) {
+    // на потолке уровня без следующей редкости кнопки нет — повышать некуда
+    actions.push({ key: 'levelup', label: 'Повысить уровень', variant: 'default', icon: ArrowUpIcon, loading: busy === 'levelup',
+      reason: prog && !prog.can_level_up ? (prog.level_blockers.join('; ') || 'недоступно') : null,
+      onClick: () => run('levelup') });
+  }
+  if (reformStones > 0) {
+    actions.push({ key: 'reroll', label: 'Провести реформу', variant: 'default', icon: SyncIcon, loading: busy === 'reroll',
+      reason: reformBlocker, onClick: () => setConfirmReform(true) });
+  }
 
   return (
     <>
@@ -111,43 +156,32 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, onClos
       onClose={onClose}
       width="large"
       position={{ narrow: 'bottom', regular: 'center' }}
-      /* кнопки гасим по тем же правилам, что и игра: их присылает сервер в policy.progress
-         (стаж/осколки), слоты — freeSlots. Причина недоступности идёт в title, чтобы не гадать */
-      footerButtons={[
-        enacted
-          ? { content: 'Снять', buttonType: 'danger', loading: busy === 'unequip', disabled: !!busy, onClick: () => run('unequip') }
-          : {
-            content: 'Применить', buttonType: 'primary', loading: busy === 'enact',
-            disabled: !!busy || freeSlots <= 0,
-            title: freeSlots <= 0 ? 'Нет свободных слотов в кабинете мэра' : undefined,
-            onClick: () => run('enact'),
-          },
-        ...(atLevelCap && canPromoteFurther
-          ? [{
-              content: 'Улучшить редкость', loading: busy === 'promote',
-              // 13.10.2026: игра не даёт повысить редкость НАДЕТОЙ политике — сервер отвечает
-              // отказом. Раньше кнопка была активна и вводила в заблуждение (жмёшь — ошибка без
-              // объяснения). Теперь гасим её здесь же и прямо говорим, что сначала нужно «Снять».
-              disabled: !!busy || enacted || (prog ? !prog.can_promote : false),
-              title: enacted ? 'Сначала снимите политику (кнопка «Снять») — игра не повышает редкость надетой политике'
-                : prog && !prog.can_promote ? prog.promote_blockers.join('; ') : undefined,
-              onClick: () => run('promote'),
-            }]
-          : atLevelCap
-            ? [] // упёрлись в потолок уровня, но дальше повышать редкость уже некуда (максимум)
-            : [{
-                content: 'Повысить уровень', loading: busy === 'levelup',
-                disabled: !!busy || (prog ? !prog.can_level_up : false),
-                title: prog && !prog.can_level_up ? prog.level_blockers.join('; ') : undefined,
-                onClick: () => run('levelup'),
-              }]),
-        {
-          content: 'Расформировать', buttonType: 'danger', loading: busy === 'dissolve', disabled: !!busy,
-          // подтверждение отдельным окном: эпическая и выше — ВСЕГДА (редкие осколки, жалко сжечь
-          // даже на 1 уровне), ниже эпической — только если уровень >1 (вложен стаж/осколки)
-          onClick: () => (HIGH_RARITIES.has(policy.rarity) || policy.level > 1) ? setConfirmDissolve(true) : run('dissolve'),
-        },
-      ]}
+      /* 15.10.2026: вместо стандартного footerButtons (кнопки разной ширины в ряд, серая
+         «Повысить уровень» выглядела оторванной) — свой футер: действия столбиком во всю ширину,
+         причина недоступности текстом под кнопкой (на телефоне title не увидеть), «Расформировать»
+         отдельной тихой кнопкой ниже, чтобы не стояла вровень с основными */
+      renderFooter={() => (
+        <Dialog.Footer sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
+          {actions.map(a => (
+            <Box key={a.key} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Button block variant={a.variant} leadingVisual={a.icon} loading={a.loading}
+                disabled={!!busy || !!a.reason} onClick={a.onClick}>
+                {a.label}
+              </Button>
+              {a.reason && <Text sx={{ fontSize: 0, color: 'fg.muted', textAlign: 'center' }}>{a.reason[0].toUpperCase() + a.reason.slice(1)}</Text>}
+            </Box>
+          ))}
+          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Button variant="invisible" size="small" leadingVisual={TrashIcon} loading={busy === 'dissolve'} disabled={!!busy}
+              sx={{ color: 'danger.fg' }}
+              // подтверждение отдельным окном: эпическая и выше — ВСЕГДА (редкие осколки, жалко сжечь
+              // даже на 1 уровне), ниже эпической — только если уровень >1 (вложен стаж/осколки)
+              onClick={() => (HIGH_RARITIES.has(policy.rarity) || policy.level > 1) ? setConfirmDissolve(true) : run('dissolve')}>
+              Расформировать
+            </Button>
+          </Box>
+        </Dialog.Footer>
+      )}
     >
       <Box>
         {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{flash.msg}</Flash>}
@@ -194,10 +228,8 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, onClos
                 </Text>
               </Box>
             )}
-            {!enacted && (
-              <Text sx={{ fontSize: 0, color: freeSlots > 0 ? 'fg.muted' : 'attention.fg', display: 'block', mt: 1 }}>
-                {freeSlots > 0 ? `Свободных слотов кабинета: ${freeSlots}` : 'Нет свободных слотов кабинета — «Применить» недоступно'}
-              </Text>
+            {!enacted && freeSlots > 0 && (
+              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>Свободных слотов кабинета: {freeSlots}</Text>
             )}
             {!enacted && prog.tenure_needed != null && (
               <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>
@@ -238,6 +270,21 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, onClos
         Уровень {policy.level} — вложенные стаж и осколки будут потеряны безвозвратно.
       </ConfirmationDialog>
     )}
+    {confirmReform && (
+      <ConfirmationDialog
+        title="Потратить Камень реформ?"
+        cancelButtonContent="Не сейчас"
+        confirmButtonContent="Провести реформу"
+        confirmButtonType="primary"
+        onClose={(gesture) => {
+          setConfirmReform(false);
+          if (gesture === 'confirm') run('reroll');
+        }}
+      >
+        Политика перепишется в другую той же редкости, стаж и редкость сохранятся, результат случаен.
+        Будет израсходован один камень (в запасе: {reformStones}). Это действие необратимо.
+      </ConfirmationDialog>
+    )}
     </>
   );
 }
@@ -246,12 +293,22 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, onClos
 // Клик открывает модалку с действием (создать/открыть), кнопка внутри недоступна,
 // если условие фичи не выполнено (1 000 000 населения) — не сама карточка.
 
-function ShardCard({ shard, onClick }: { shard: PolicyShardItem; onClick: () => void }) {
+// от самой редкой к самой частой; редкость — из тега предмета (shard_epic, mystery_rare, reform_stone_mythic)
+function shardRarityRank(s: PolicyShardItem): number {
+  const meta = ITEMS_BY_ID[Number(s.id)];
+  return meta ? (RARITY_RANK[rarityFromTag(meta.tag)] ?? 99) : 99;
+}
+function byRarityDesc(list: PolicyShardItem[]): PolicyShardItem[] {
+  return [...list].sort((a, b) => shardRarityRank(a) - shardRarityRank(b) || Number(a.id) - Number(b.id));
+}
+
+// onClick не передан — карточка только для просмотра
+function ShardCard({ shard, onClick }: { shard: PolicyShardItem; onClick?: () => void }) {
   const meta = ITEMS_BY_ID[Number(shard.id)] ?? null;
   const name = meta?.name ?? shard.type;
   return (
     <Tooltip text={name} direction="n" noDelay>
-      <div className="item-card clickable" aria-label={name} onClick={onClick}>
+      <div className={onClick ? 'item-card clickable' : 'item-card'} aria-label={name} onClick={onClick}>
         <div className={`item-card__box${meta ? ` ic-${meta.tag}` : ' ic-common'}`}>
           {/* 13.10.2026: карточки осколков выглядели заметно мельче карточек политик (та же
               item-card__box, 77×77, но картинка внутри уменьшалась через scale) — без подписи снизу
@@ -340,16 +397,22 @@ function ShardModal({ shard, accountId, locked, lockedReason, economy, onClose, 
 // ── Блок аккаунта (данные из БД, как на странице "Предметы") ────────────────
 // Городской розыгрыш перенесён на отдельную страницу в группе "Мэрия" (как в игре).
 
-function AccountBlock({ accountName, accountId, data, onOpenPolicy, onOpenShard }: {
+function AccountBlock({ accountName, accountId, data, onOpenPolicy, onOpenShard, onOpenStone }: {
   accountName: string;
   accountId: number;
   data: PoliciesAccountData;
   onOpenPolicy: (accountId: number, policy: PolicyInstance, enacted: boolean) => void;
   onOpenShard: (accountId: number, shard: PolicyShardItem) => void;
+  onOpenStone: (accountId: number, stone: PolicyShardItem) => void;
 }) {
   const enactedIds = new Set(
     (data.cabinet.slots ?? []).map(s => s.instance?.id).filter((x): x is number => x != null)
   );
+  // раньше сортировка шла по RARITY_RANK[тег], а тег у осколков — shard_common/mystery_rare,
+  // ранг всегда выходил 99, и линия оставалась в порядке БД (от обычных к редким)
+  const stones = byRarityDesc(data.reform_stones ?? []);
+  const sealed = byRarityDesc(data.shards.filter(s => s.type === 'mystery_policy'));
+  const shards = byRarityDesc(data.shards.filter(s => s.type !== 'mystery_policy'));
 
   return (
     <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, mb: 3, overflow: 'hidden' }}>
@@ -364,12 +427,29 @@ function AccountBlock({ accountName, accountId, data, onOpenPolicy, onOpenShard 
         </Text>
       </Box>
       <Box sx={{ p: 3 }}>
-        {data.list.length === 0 && data.shards.length === 0
+        {data.list.length === 0 && data.shards.length === 0 && stones.length === 0
           ? <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Нет данных — политики ещё не открыты или не синхронизированы</Text>
           : (
-            <>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {/* 15.10.2026: четыре линии — камни реформ → запечатанные (тайные) политики → осколки →
+                  политики; в каждой от самой редкой к самой частой */}
+              {stones.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {stones.map(s => <ShardCard key={s.id} shard={s} onClick={() => onOpenStone(accountId, s)} />)}
+                </div>
+              )}
+              {sealed.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {sealed.map(s => <ShardCard key={s.id} shard={s} onClick={() => onOpenShard(accountId, s)} />)}
+                </div>
+              )}
+              {shards.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {shards.map(s => <ShardCard key={s.id} shard={s} onClick={() => onOpenShard(accountId, s)} />)}
+                </div>
+              )}
               {data.list.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: data.shards.length ? 16 : 0 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                   {/* 13.10.2026: сначала применённые (в кабинете мэра), затем по редкости от вечной к обычной,
                       внутри одной редкости — одинаковые политики (def_id) рядом друг с другом */}
                   {[...data.list]
@@ -383,21 +463,17 @@ function AccountBlock({ accountName, accountId, data, onOpenPolicy, onOpenShard 
                     ))}
                 </div>
               )}
-              {data.shards.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                  {/* от самой редкой к самой частой — тот же порядок, что и у карточек политик выше */}
-                  {[...data.shards]
-                    .sort((a, b) => (RARITY_RANK[ITEMS_BY_ID[Number(a.id)]?.tag] ?? 99) - (RARITY_RANK[ITEMS_BY_ID[Number(b.id)]?.tag] ?? 99))
-                    .map(s => (
-                      <ShardCard key={s.id} shard={s} onClick={() => onOpenShard(accountId, s)} />
-                    ))}
-                </div>
-              )}
-            </>
+            </Box>
           )}
       </Box>
     </Box>
   );
+}
+
+function reformStonesFor(data: PoliciesAccountData, rarity: string): number {
+  const stoneId = REFORM_STONE_BY_RARITY[rarity];
+  if (stoneId == null) return 0;
+  return (data.reform_stones ?? []).find(s => Number(s.id) === stoneId)?.qty ?? 0;
 }
 
 // ── Основная страница ─────────────────────────────────────────────────────────
@@ -407,7 +483,9 @@ export function Policies() {
   const [accIdByName, setAccIdByName] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:policies', () => load(true));
-  const [policyModal, setPolicyModal] = useState<{ accountId: number; policy: PolicyInstance; enacted: boolean; freeSlots: number; snapshotAt: string | null } | null>(null);
+  const [policyModal, setPolicyModal] = useState<{ accountId: number; policy: PolicyInstance; enacted: boolean; freeSlots: number; snapshotAt: string | null; reformStones: number; policiesUnlocked: boolean } | null>(null);
+  // камень реформ открывает то же окно склада, что и на странице «Предметы» (продажа и т.д.)
+  const [stoneModal, setStoneModal] = useState<{ accountName: string; accountId: number; itemId: number } | null>(null);
   const [shardModal, setShardModal] = useState<{ accountId: number; shard: PolicyShardItem; locked: boolean; economy: PolicyEconomy | null } | null>(null);
   const { flash, showFlash } = useFlash();
 
@@ -439,12 +517,14 @@ export function Policies() {
   // использовался снимок состояния на момент вызова: пока шёл запрос, пользователь успевал открыть
   // карточку ДРУГОГО аккаунта, и ответ подменял/закрывал уже другое окно (жалоба 13.08). Теперь
   // сверяем аккаунт и id политики в функциональном setState — чужое окно не трогаем вовсе.
-  const refreshOpenPolicy = async (target: { accountId: number; policyId: number }) => {
+  const refreshOpenPolicy = async (target: { accountId: number; policyId: number; newPolicyId?: number }) => {
     const d = await api.policies().catch(() => null);
     if (d?.ok) { setByAccount(d.byAccount ?? {}); setAccIdByName(d.accIdByName ?? {}); }
     const accName = Object.keys(d?.accIdByName ?? {}).find(n => (d?.accIdByName ?? {})[n] === target.accountId);
     const data = accName ? d?.byAccount?.[accName] : null;
-    const fresh = data?.list?.find(p => p.id === target.policyId) ?? null;
+    // после реформы политика может прийти новым инстансом — сначала ищем его, потом старый id
+    const fresh = (target.newPolicyId != null ? data?.list?.find(p => p.id === target.newPolicyId) : null)
+      ?? data?.list?.find(p => p.id === target.policyId) ?? null;
     setPolicyModal(cur => {
       if (!cur || cur.accountId !== target.accountId || cur.policy.id !== target.policyId) return cur;
       if (!fresh || !data) return null;   // политику распустили/слили — показывать нечего
@@ -454,6 +534,8 @@ export function Policies() {
         enacted: fresh.enacted_slot != null,
         freeSlots: data.free_slots ?? 0,
         snapshotAt: data.updated_at,
+        reformStones: reformStonesFor(data, fresh.rarity),
+        policiesUnlocked: data.policies_unlocked,
       };
     });
   };
@@ -490,7 +572,8 @@ export function Policies() {
         ? <Text sx={{ color: 'fg.muted' }}>Нет данных</Text>
         : accounts.map(([accName, data]) => (
             <AccountBlock key={accName} accountName={accName} accountId={accIdByName[accName]} data={data}
-              onOpenPolicy={(accountId, policy, enacted) => setPolicyModal({ accountId, policy, enacted, freeSlots: data.free_slots ?? 0, snapshotAt: data.updated_at })}
+              onOpenPolicy={(accountId, policy, enacted) => setPolicyModal({ accountId, policy, enacted, freeSlots: data.free_slots ?? 0, snapshotAt: data.updated_at, reformStones: reformStonesFor(data, policy.rarity), policiesUnlocked: data.policies_unlocked })}
+              onOpenStone={(accountId, stone) => setStoneModal({ accountName: accName, accountId, itemId: Number(stone.id) })}
               onOpenShard={(accountId, shard) => setShardModal({ accountId, shard, locked: shard.type === 'mystery_policy' && !data.policies_unlocked, economy: data.economy })} />
           ))}
 
@@ -501,9 +584,20 @@ export function Policies() {
           enacted={policyModal.enacted}
           freeSlots={policyModal.freeSlots}
           snapshotAt={policyModal.snapshotAt}
+          reformStones={policyModal.reformStones}
+          policiesUnlocked={policyModal.policiesUnlocked}
           onStale={() => load(true)}
           onClose={() => setPolicyModal(null)}
-          onChanged={() => refreshOpenPolicy({ accountId: policyModal.accountId, policyId: policyModal.policy.id })}
+          onChanged={(newPolicyId) => refreshOpenPolicy({ accountId: policyModal.accountId, policyId: policyModal.policy.id, newPolicyId })}
+        />
+      )}
+
+      {stoneModal && (
+        <StorageModal
+          accountName={stoneModal.accountName}
+          accountId={stoneModal.accountId}
+          itemId={stoneModal.itemId}
+          onClose={() => { setStoneModal(null); load(true); }}
         />
       )}
 

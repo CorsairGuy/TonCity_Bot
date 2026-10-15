@@ -11,6 +11,8 @@
 //   POST /policies/levelup          {instance_id}
 //   POST /policies/promote          {instance_id}
 //   POST /policies/dissolve         {instance_id}
+//   POST /policies/reroll           {instance_id}  — «Провести реформу» за Камень реформ своей редкости
+//                                    (15.10.2026, chunks/storage-*: ответ — новый инстанс политики)
 //   POST /policies/mystery/craft    {rarity}
 //   POST /policies/mystery/open     {rarity}
 //   POST /policies/civic-draw/claim {}  (пустое тело)
@@ -21,6 +23,7 @@ const ACTION_ENDPOINTS={
   levelup:'/policies/levelup',
   promote:'/policies/promote',
   dissolve:'/policies/dissolve',
+  reroll:'/policies/reroll',
   'mystery-craft':'/policies/mystery/craft',
   'mystery-open':'/policies/mystery/open',
   'civic-draw-claim':'/policies/civic-draw/claim',
@@ -29,6 +32,9 @@ const ACTION_ENDPOINTS={
 // осколки политик/тайные политики хранятся в общей таблице Inventory (тот же /storage/allitemdata),
 // но помечены типом — здесь их достаём для страницы "Политики" вместо страницы "Предметы"
 const SHARD_ITEM_TYPES=new Set(['policy_shard','mystery_policy']);
+// Камни реформ (id 36-38, тип consumable) — расходник политик: с 15.10.2026 показываются только
+// на странице "Политики" своей линией, со страницы "Предметы" убраны (см. routes/core.js)
+const REFORM_STONE_IDS=['36','37','38'];
 
 // Осколки политик — обычные складские предметы, id идут подряд по редкости (config/items.json:
 // 16 shard_common … 22 shard_eternal). Нужны, чтобы сверить наличие с ценой повышения.
@@ -111,14 +117,15 @@ module.exports=function(app,ctx){
 
       const snaps=await PolicySnapshot.findAll({where:{account:{[Op.in]:accNames.length?accNames:['__none__']}}});
       const shardRows=await Inventory.findAll({
-        where:{account:{[Op.in]:accNames.length?accNames:['__none__']},type:{[Op.in]:[...SHARD_ITEM_TYPES]}},
+        where:{account:{[Op.in]:accNames.length?accNames:['__none__']},
+          [Op.or]:[{type:{[Op.in]:[...SHARD_ITEM_TYPES]}},{name:{[Op.in]:REFORM_STONE_IDS}}]},
         order:[['account','ASC'],['name','ASC']],
       });
 
       const byAccount={};
       for(const a of accs){
         const pop=parseFloat(a.population_final);
-        byAccount[a.name]={list:[],library:{discovered:0,total:0,sections:[]},cabinet:{slots:[],civic_draw:null},economy:null,shards:[],updated_at:null,
+        byAccount[a.name]={list:[],library:{discovered:0,total:0,sections:[]},cabinet:{slots:[],civic_draw:null},economy:null,shards:[],reform_stones:[],updated_at:null,
           population:isFinite(pop)?pop:null,policies_unlocked:isFinite(pop)&&pop>=POLICIES_UNLOCK_POPULATION};
       }
 
@@ -135,7 +142,8 @@ module.exports=function(app,ctx){
       }
       for(const r of shardRows){
         if(!byAccount[r.account])continue;
-        byAccount[r.account].shards.push({
+        const isStone=REFORM_STONE_IDS.includes(String(r.name));
+        byAccount[r.account][isStone?'reform_stones':'shards'].push({
           id:r.name,type:r.type,
           marketable:Number(r.marketable||0),locked:Number(r.locked||0),
           qty:Number(r.marketable||0)+Number(r.locked||0),
@@ -214,7 +222,7 @@ module.exports=function(app,ctx){
           body={instance_id:Number(instance_id),slot:free.slot};
           break;
         }
-        case 'unequip':case 'levelup':case 'promote':case 'dissolve':
+        case 'unequip':case 'levelup':case 'promote':case 'dissolve':case 'reroll':
           if(instance_id==null)return res.status(400).json({ok:false,error:'instance_id обязателен'});
           body={instance_id:Number(instance_id)};
           break;
