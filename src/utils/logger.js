@@ -21,7 +21,8 @@ module.exports=createLogger({
   transports:[
     new transports.Console({format:format.combine(format.colorize(),format.timestamp({format:'HH:mm:ss'}),
       format.printf(({timestamp,level,message})=>`${timestamp} [${level}] ${message}`))}),
-    new transports.File({filename:path.join(ld,'bot.log'),maxFiles:5,maxsize:5242880}),
+    // tailable: активный файл всегда bot.log, при ротации старые сдвигаются в bot1.log…bot4.log
+    new transports.File({filename:path.join(ld,'bot.log'),maxFiles:5,maxsize:5242880,tailable:true}),
     new BroadcastTransport(),
   ],
 });

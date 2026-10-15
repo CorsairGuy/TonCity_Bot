@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Button, Select, Text } from '@primer/react';
+import { Box, Button, Select, Text, UnderlineNav } from '@primer/react';
 import { api } from '../api';
 
 const MAX_LINES = 2000; // ограничение памяти в долго открытой вкладке
@@ -64,27 +64,29 @@ export function Logs() {
   };
 
   const filtered = filter === 'all' ? logs : logs.filter(l => l.toLowerCase().includes(filter));
+  const counts = {
+    all: logs.length,
+    error: logs.filter(l => l.toLowerCase().includes('error')).length,
+    warn: logs.filter(l => l.toLowerCase().includes('warn')).length,
+  };
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - var(--header-h))', p: 0, maxWidth: 'none' }}>
-      {/* toolbar */}
+      {/* разделы — табы как на странице аудиториума */}
       <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 2,
-        p: 2,
-        bg: 'canvas.subtle',
+        display: 'flex', alignItems: 'center', gap: 2, px: 2,
         borderBottom: '1px solid', borderColor: 'border.default',
         flexShrink: 0, flexWrap: 'wrap',
       }}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          {(['all', 'error', 'warn'] as const).map(f => (
-            <Button
-              key={f}
-              variant={filter === f ? 'primary' : 'default'}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'all' ? 'Все' : f === 'error' ? 'Ошибки' : 'Предупреждения'}
-            </Button>
-          ))}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <UnderlineNav aria-label="Разделы логов" sx={{ borderBottom: 'none' }}>
+            {(['all', 'error', 'warn'] as const).map(f => (
+              <UnderlineNav.Item key={f} href="#" aria-current={filter === f ? 'page' : undefined}
+                counter={counts[f]} onSelect={e => { e.preventDefault(); setFilter(f); }}>
+                {f === 'all' ? 'Все' : f === 'error' ? 'Ошибки' : 'Предупреждения'}
+              </UnderlineNav.Item>
+            ))}
+          </UnderlineNav>
         </Box>
         <Select value={String(lines)} onChange={e => setLines(Number(e.target.value))} sx={{ fontSize: 0 }}>
           <Select.Option value="100">100 строк</Select.Option>
@@ -92,7 +94,7 @@ export function Logs() {
           <Select.Option value="500">500 строк</Select.Option>
           <Select.Option value="1000">1000 строк</Select.Option>
         </Select>
-        <Button onClick={load} sx={{ ml: 'auto' }}>↻ Обновить</Button>
+        <Button onClick={load}>↻ Обновить</Button>
       </Box>
 
       <div ref={bodyRef} onScroll={handleScroll} style={{

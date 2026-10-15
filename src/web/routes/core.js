@@ -398,17 +398,14 @@ module.exports=function(app,ctx){
 
       const ld=path.join(process.cwd(),'logs');
       const all=fs.readdirSync(ld).filter(f=>/^bot\d*\.log$/.test(f));
-      // БАГ: bot.log (активный, самый свежий файл — winston пишет в него, пока не превышен
-      // maxsize, и только тогда переименовывает в bot1.log/bot2.log/...) не содержит цифры в
-      // имени, поэтому парсился как "0" и сортировался ПОСЛЕДНИМ (после bot4.log/bot3.log/...)
-      // при сортировке "от свежего к старому" по убыванию номера. tailFile() набирал `lines`
-      // строк из старых ротированных файлов и обрывал цикл ДО того, как вообще открывал bot.log —
-      // страница логов показывала историю недельной давности вместо реальных последних записей.
-      all.sort((a,b)=>{
-        const na=a==='bot.log'?-1:parseInt(a.match(/\d+/)?.[0]||'0');
-        const nb=b==='bot.log'?-1:parseInt(b.match(/\d+/)?.[0]||'0');
-        return na-nb; // от свежего (bot.log) к старому
-      });
+      // порядок файлов — по времени последней записи, а не по номеру в имени: winston без tailable
+      // пишет в bot.log → bot1.log → bot2.log…, а после каждого перезапуска процесса счётчик
+      // сбрасывается и запись снова идёт в bot.log (потом дописывает в старые bot1.log…). Номер в
+      // имени поэтому ничего не говорит о свежести, и сортировка по нему показывала логи недельной
+      // давности вместо последних.
+      const mt=f=>{try{return fs.statSync(path.join(ld,f)).mtimeMs;}catch{return 0;}};
+      const mtimes=Object.fromEntries(all.map(f=>[f,mt(f)]));
+      all.sort((a,b)=>mtimes[b]-mtimes[a]); // от свежего к старому
       let collected=[];
       for(const f of all){
         const rows=tailFile(path.join(ld,f));
