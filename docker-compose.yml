@@ -1,11 +1,6 @@
 services:
   db:
     image: mariadb:10.11
-    # Имя контейнера параметризовано, чтобы на одном хосте можно было поднять НЕСКОЛЬКО
-    # экземпляров бота. container_name — глобально уникальное имя на весь демон Docker, его не
-    # спасает даже отдельный проект compose (в отличие от volume/network, которым compose сам
-    # приписывает префикс проекта) — отсюда «Conflict. The container name is already in use».
-    # Второй экземпляр: свой каталог, свой .env со STACK_NAME/WEB_PORT/DB_EXPOSED_PORT.
     container_name: ${STACK_NAME:-toncity}_db
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
@@ -22,11 +17,6 @@ services:
       timeout: 5s
       retries: 10
   bot:
-    # Готовый образ из GitHub Container Registry (собирает .github/workflows/docker.yml). Код,
-    # зависимости и собранная панель — внутри образа, на сервере ничего не собирается.
-    # BOT_TAG в .env — канал обновлений: имя ветки (main, latest = main), stable (последний релиз),
-    # номер релиза (1.0) или sha-<коммит>. Его меняет панель (Настройки → Обновления) через
-    # сервис updater, руками править не нужно. Для разработки — docker-compose.dev.yml (см. README).
     image: ${BOT_IMAGE:-ghcr.io/corsairguy/toncity_bot}:${BOT_TAG:-latest}
     container_name: ${STACK_NAME:-toncity}_bot
     depends_on:
@@ -37,33 +27,22 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 3306
-      # В контейнере слушаем на всех интерфейсах, иначе публикация порта (ports) не достучится
-      # до приложения. Доступ снаружи защищён паролем веб-панели (задаётся в Настройках).
       WEB_BIND: 0.0.0.0
-    # init: tini пробрасывает SIGTERM процессу node → срабатывает graceful shutdown (src/index.js).
     init: true
     ports:
-      # ОБЕ стороны берём из WEB_PORT — приложение внутри контейнера слушает именно этот порт
-      # (src/config.js: webPort=process.env.WEB_PORT), а не захардкоженный 3000.
       - "${WEB_PORT:-3000}:${WEB_PORT:-3000}"
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config
-    # SIGTERM бот обрабатывает штатно (закрывает WS и БД, src/index.js gracefulShutdown)
     stop_grace_period: 15s
     restart: unless-stopped
     mem_limit: 4g
     memswap_limit: 4g
   updater:
-    # Обновлятель (updater/updater.sh): по заявке из панели скачивает образ нужного тега, прописывает
-    # BOT_TAG в .env и пересоздаёт ТОЛЬКО контейнер бота своего STACK_NAME (база не трогается).
-    # Заявки и статус — файлы в config/updater/, сеть и ключи не нужны, наружу ничего не открыто.
-    # Когда ставить обновления (сразу или только по кнопке), решает бот: Настройки → Обновления.
     image: ${BOT_IMAGE:-ghcr.io/corsairguy/toncity_bot}:updater
     container_name: ${STACK_NAME:-toncity}_updater
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # папка проекта целиком: docker-compose.yml, .env (BOT_TAG) и config/updater/
       - .:/project
     environment:
       BOT_CONTAINER: ${STACK_NAME:-toncity}_bot

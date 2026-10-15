@@ -1,12 +1,3 @@
-# Вариант docker-compose.yml для запуска стеком Portainer (Stacks → Add stack). Отличия от обычного:
-#  • Portainer хранит файл стека у себя (/data/compose/<id>), поэтому относительные пути ./config,
-#    ./db_data и файл .env рядом с ним не работают. Все данные лежат в ОДНОЙ папке хоста DATA_DIR
-#    (абсолютный путь, например /DOCKER/toncity_bot), переменные вводятся в Portainer
-#    (Environment variables или «Load variables from .env file»), а не читаются из .env.
-#  • Канал обновлений (BOT_TAG) — переменная стека в Portainer. Панель меняет её через сервис
-#    updater, который ходит в API Portainer по токену (PORTAINER_URL/PORTAINER_TOKEN) и передеплоит
-#    стек. Без токена всё работает, кроме переключения версии из панели.
-# Пошагово — docs/portainer.md.
 services:
   db:
     image: mariadb:10.11
@@ -58,15 +49,10 @@ services:
     container_name: ${STACK_NAME:-toncity}_updater
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # нужна только config/updater (заявки и статус); .env в этом режиме не используется
       - ${DATA_DIR}/config:/project/config
     environment:
       BOT_CONTAINER: ${STACK_NAME:-toncity}_bot
       TZ: UTC
-      # API Portainer: токен — Portainer → My account → Access tokens. Адрес обновлятель находит
-      # сам (https :9443, http :9000, http :9443 на host.docker.internal = сам сервер), PORTAINER_URL
-      # нужен, только если Portainer на другом адресе или порту. PORTAINER_STACK — имя стека, если
-      # отличается от имени проекта бота.
       PORTAINER_URL: ${PORTAINER_URL:-}
       PORTAINER_TOKEN: ${PORTAINER_TOKEN:-}
       PORTAINER_STACK: ${PORTAINER_STACK:-}
