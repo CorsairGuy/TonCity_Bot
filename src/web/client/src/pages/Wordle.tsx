@@ -41,20 +41,24 @@ function ManualWordDialog({ pending, onClose, onDone, showFlash }: { pending?: n
       position={{ narrow: 'bottom', regular: 'center' }}
       renderFooter={() => (
         <Dialog.Footer sx={{ gap: 2 }}>
-          <Button block sx={{ flex: 1 }} onClick={onClose}>{results ? 'Закрыть' : 'Отмена'}</Button>
-          <Button
-            block
-            sx={{ flex: 1 }}
-            variant="primary"
-            disabled={!valid || busy}
-            loading={busy}
-            onClick={submit}
-            trailingVisual={pending != null ? () => (
-              <CounterLabel sx={{ bg: '#ffffff', color: 'success.emphasis', fontWeight: 'bold', border: 'none' }}>{pending}</CounterLabel>
-            ) : undefined}
-          >
-            Подать
-          </Button>
+          {/* равная ширина — на обёртках: кнопку с loading Primer заворачивает в свой блок, flex у самой кнопки не работает */}
+          <Box sx={{ flex: '1 1 0', minWidth: 0 }}>
+            <Button block onClick={onClose}>{results ? 'Закрыть' : 'Отмена'}</Button>
+          </Box>
+          <Box sx={{ flex: '1 1 0', minWidth: 0 }}>
+            <Button
+              block
+              variant="primary"
+              disabled={!valid || busy}
+              loading={busy}
+              onClick={submit}
+              trailingVisual={pending != null ? () => (
+                <CounterLabel sx={{ bg: '#ffffff', color: 'success.emphasis', fontWeight: 'bold', border: 'none' }}>{pending}</CounterLabel>
+              ) : undefined}
+            >
+              Подать
+            </Button>
+          </Box>
         </Dialog.Footer>
       )}
     >
