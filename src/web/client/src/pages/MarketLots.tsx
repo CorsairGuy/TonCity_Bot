@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, CounterLabel, Flash, Label, SegmentedControl, Spinner, Text, Select, Checkbox, TextInput } from '@primer/react';
+import { Box, Button, CounterLabel, Flash, Label, SegmentedControl, Spinner, Text, Select, Checkbox, TextInput, IconButton, ToggleSwitch, ActionMenu, ActionList } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
-import { SyncIcon, ZapIcon } from '@primer/octicons-react';
+import { SyncIcon, ZapIcon, PlusIcon, PencilIcon, TrashIcon, TelescopeIcon } from '@primer/octicons-react';
 import { api, type MarketOffer, type Account, type MarketAutobuyRule, type MarketSnipeRow, type PolicyDefEntry } from '../api';
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { useFlash } from '../hooks/useFlash';
@@ -13,6 +13,7 @@ import { Scrollable } from '../components/Scrollable';
 import { useItemCatalog, itemName, knownItemName } from '../hooks/useItemCatalog';
 import { ItemThumb } from '../components/ItemThumb';
 import { PageHeader } from '../components/PageHeader';
+import { richHeader, RichBody, RichFooter, SectionLabel, EmptyState } from '../components/RichDialog';
 
 // Карточка политики для лота маркета: показываем ИМЕННО тот вариант (def_id/редкость), что
 // продаётся в этом лоте — не все варианты названия (в отличие от библиотеки). Берём точное
@@ -311,14 +312,17 @@ function AutoBuyManager({ accounts, onClose, showFlash }: {
   const [rules, setRules] = useState<MarketAutobuyRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<number | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyForm());
+  const [saving, setSaving] = useState(false);
 
-  const load = async () => { setLoading(true); try { const d = await api.marketAutobuyList(); if (d.ok) setRules(d.rules); } finally { setLoading(false); } };
+  const load = async () => { setLoading(true); try { const d = await api.marketAutobuyList(); if (d.ok) { setRules(d.rules); if (!d.rules.length) setFormOpen(true); } } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
 
-  const resetForm = () => { setEditId(null); setForm(emptyForm()); };
+  const resetForm = () => { setEditId(null); setForm(emptyForm()); setFormOpen(false); };
+  const openNew = () => { setEditId(null); setForm(emptyForm()); setFormOpen(true); };
   const startEdit = (r: MarketAutobuyRule) => {
-    setEditId(r.id);
+    setEditId(r.id); setFormOpen(true);
     setForm({ itemId: String(r.item_id ?? ''), currency: r.currency, maxPrice: String(r.max_price ?? ''), maxBudget: r.max_budget != null ? String(r.max_budget) : '', includeEscrow: r.include_escrow, enabled: r.enabled, accounts: new Set(r.account_ids) });
   };
 
@@ -332,87 +336,120 @@ function AutoBuyManager({ accounts, onClose, showFlash }: {
       max_price: Number(form.maxPrice), max_budget: form.maxBudget ? Number(form.maxBudget) : null,
       include_escrow: form.includeEscrow, enabled: form.enabled, account_ids: [...form.accounts],
     };
-    if (editId) await api.marketAutobuyUpdate(editId, payload); else await api.marketAutobuyCreate(payload);
-    showFlash('Сохранено', true); resetForm(); load();
+    setSaving(true);
+    try {
+      if (editId) await api.marketAutobuyUpdate(editId, payload); else await api.marketAutobuyCreate(payload);
+      showFlash('Сохранено', true); resetForm(); load();
+    } finally { setSaving(false); }
   };
-  const toggle = async (r: MarketAutobuyRule) => { await api.marketAutobuyUpdate(r.id, { enabled: !r.enabled }); load(); };
+  const toggle = async (r: MarketAutobuyRule) => {
+    setRules(rs => rs.map(x => x.id === r.id ? { ...x, enabled: !r.enabled } : x));
+    await api.marketAutobuyUpdate(r.id, { enabled: !r.enabled }); load();
+  };
   const del = async (r: MarketAutobuyRule) => { await api.marketAutobuyDelete(r.id); if (editId === r.id) resetForm(); load(); };
 
-  const inputStyle = { padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, width: 120 };
+  const toggleAcc = (id: number) => setForm(f => { const n = new Set(f.accounts); if (n.has(id)) n.delete(id); else n.add(id); return { ...f, accounts: n }; });
+  const allAcc = form.accounts.size === accounts.length;
+  const curIcon = (c: string) => c === 'ton' ? '▽' : '💎';
+  const active = rules.filter(r => r.enabled).length;
 
   return (
-    // 720px шире пресета xlarge (640) — дожимаем через sx
     <Dialog
-      title="Автопокупка — правила"
+      title="Автопокупки"
+      subtitle="Бот сам купит лот, когда цена опустится до порога"
+      renderHeader={richHeader(ZapIcon)}
       onClose={onClose}
       width="xlarge"
-      sx={{ '@media (min-width: 768px)': { width: 720 } }}
       position={{ narrow: 'bottom', regular: 'center' }}
+      renderFooter={() => (
+        <RichFooter summary={rules.length ? <>Активно <b>{active}</b> из <b>{rules.length}</b></> : null}>
+          <Button onClick={onClose}>Закрыть</Button>
+          <Button variant="primary" leadingVisual={PlusIcon} disabled={formOpen && !editId} onClick={openNew}>Новое правило</Button>
+        </RichFooter>
+      )}
     >
-      <Box>
-        {/* форма создания/редактирования */}
-        <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 2, mb: 3 }}>
-          <Text sx={{ fontWeight: 'bold', display: 'block', mb: 2 }}>{editId ? 'Редактировать правило' : 'Новое правило'}</Text>
-          <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Select value={form.itemId} onChange={e => setForm(f => ({ ...f, itemId: e.target.value }))}>
-              <Select.Option value="">Предмет…</Select.Option>
-              {ITEM_FILTERS.map(f => <Select.Option key={f.id} value={String(f.id)}>{ITEMS_BY_ID[f.id]?.name ?? `#${f.id}`}</Select.Option>)}
-            </Select>
-            <Select value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
-              <Select.Option value="crystals">💎 Кристаллы</Select.Option>
-              <Select.Option value="ton">▽ TON</Select.Option>
-            </Select>
-            <input type="number" placeholder="Цена лота до" value={form.maxPrice} onChange={e => setForm(f => ({ ...f, maxPrice: e.target.value }))} style={inputStyle} />
-            <input type="number" placeholder="Бюджет (всего)" value={form.maxBudget} onChange={e => setForm(f => ({ ...f, maxBudget: e.target.value }))} style={inputStyle} />
-          </Box>
-          <Box sx={{ display: 'flex', gap: 3, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
-              <Checkbox checked={form.includeEscrow} onChange={e => setForm(f => ({ ...f, includeEscrow: e.target.checked }))} /> Скупать эскроу (в момент доступности)
-            </label>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
-              <Checkbox checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} /> Включено
-            </label>
-          </Box>
-          <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 1 }}>Аккаунты ({form.accounts.size}):</Text>
-          <Box sx={{ border: '1px solid', borderColor: 'border.muted', borderRadius: 2, mb: 2, overflow: 'hidden' }}>
-            <Scrollable style={{ maxHeight: 140 }}>
-              {accounts.map(a => (
-                <Box key={a.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2, py: '4px', borderBottom: '1px solid', borderColor: 'border.muted' }}>
-                  <Checkbox checked={form.accounts.has(a.id)} onChange={e => setForm(f => { const n = new Set(f.accounts); if (e.target.checked) n.add(a.id); else n.delete(a.id); return { ...f, accounts: n }; })} />
-                  <Text sx={{ fontSize: 1 }}>{a.name}</Text>
+      <RichBody>
+        {loading && !rules.length ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
+          : rules.length === 0 && !formOpen ? <EmptyState icon={ZapIcon} title="Правил пока нет">Добавьте правило: предмет, цену и аккаунты, на которых покупать.</EmptyState>
+          : rules.map(r => {
+            const meta = r.item_id != null ? ITEMS_BY_ID[r.item_id] : null;
+            const name = (r.item_id != null ? knownItemName(r.item_id) : null) ?? r.categories;
+            return (
+              <div key={r.id} className={`rdlg-card editable${r.enabled ? '' : ' off'}`} onClick={() => startEdit(r)}>
+                {meta ? <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 36, height: 36, objectFit: 'contain', flexShrink: 0 }} />
+                  : r.item_id != null ? <ItemThumb itemId={r.item_id} size={36} /> : <ZapIcon size={24} />}
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <span className="rdlg-card__name">{name}</span>
+                  <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
+                    до <b><Price currency={r.currency} value={r.max_price} /></b> · бюджет {r.max_budget != null ? <>{fmt(r.spent)}/{fmt(r.max_budget)}</> : '∞'} · {r.account_ids.length} акк.{r.include_escrow ? ' · эскроу' : ''}
+                  </Text>
                 </Box>
-              ))}
-            </Scrollable>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button variant="primary" onClick={save}>{editId ? 'Сохранить' : 'Создать'}</Button>
-            {editId && <Button onClick={resetForm}>Отмена</Button>}
-          </Box>
-        </Box>
+                <IconButton className="hide-narrow" icon={PencilIcon} aria-label="Изменить" variant="invisible" size="small" onClick={e => { e.stopPropagation(); startEdit(r); }} />
+                <IconButton icon={TrashIcon} aria-label="Удалить" variant="invisible" size="small" sx={{ color: 'danger.fg' }} onClick={e => { e.stopPropagation(); del(r); }} />
+                <Box onClick={e => e.stopPropagation()}>
+                  <ToggleSwitch size="small" checked={r.enabled} onClick={() => toggle(r)} aria-label={`Включить: ${name}`} statusLabelPosition="end" />
+                </Box>
+              </div>
+            );
+          })}
 
-        {/* список правил */}
-        {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
-          : rules.length === 0 ? <Text sx={{ color: 'fg.muted' }}>Правил пока нет</Text>
-          : rules.map(r => (
-            <Box key={r.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2, py: '8px', border: '1px solid', borderColor: 'border.muted', borderRadius: 2, mb: 1, opacity: r.enabled ? 1 : 0.6 }}>
-              <Box sx={{ flex: 1 }}>
-                <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{(r.item_id != null ? knownItemName(r.item_id) : null) ?? r.categories}</Text>
-                <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>
-                  до <Price currency={r.currency} value={r.max_price} /> · бюджет {r.max_budget != null ? <>{fmt(r.spent)}/{fmt(r.max_budget)}</> : '∞'} · {r.account_ids.length} акк.{r.include_escrow ? ' · эскроу' : ''}
-                </Text>
+        {formOpen && (
+          <div className="rdlg-form">
+            <SectionLabel>{editId ? 'Изменить правило' : 'Новое правило'}</SectionLabel>
+            <Box sx={{ display: 'grid', gridTemplateColumns: ['1fr 1fr', '1fr 1fr', '2fr 1fr 1fr 1fr'], gap: 2 }}>
+              <Box sx={{ gridColumn: ['1 / -1', '1 / -1', 'auto'] }}>
+                <Select block value={form.itemId} onChange={e => setForm(f => ({ ...f, itemId: e.target.value }))}>
+                  <Select.Option value="">Предмет…</Select.Option>
+                  {ITEM_FILTERS.map(f => <Select.Option key={f.id} value={String(f.id)}>{ITEMS_BY_ID[f.id]?.name ?? `#${f.id}`}</Select.Option>)}
+                </Select>
               </Box>
-              <Button variant={r.enabled ? 'default' : 'primary'} onClick={() => toggle(r)}>{r.enabled ? 'Выкл' : 'Вкл'}</Button>
-              <Button onClick={() => startEdit(r)}>✎</Button>
-              <Button variant="danger" onClick={() => del(r)}>🗑</Button>
+              <Box sx={{ gridColumn: ['1 / -1', '1 / -1', 'auto'] }}>
+                <Select block value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
+                  <Select.Option value="crystals">💎 Кристаллы</Select.Option>
+                  <Select.Option value="ton">▽ TON</Select.Option>
+                </Select>
+              </Box>
+              <TextInput block type="number" placeholder="Цена до" value={form.maxPrice} trailingVisual={curIcon(form.currency)}
+                onChange={e => setForm(f => ({ ...f, maxPrice: e.target.value }))} />
+              <TextInput block type="number" placeholder="Бюджет" value={form.maxBudget} trailingVisual={curIcon(form.currency)}
+                onChange={e => setForm(f => ({ ...f, maxBudget: e.target.value }))} />
             </Box>
-          ))
-        }
-      </Box>
+            <Box sx={{ display: 'flex', gap: 3, mt: 2, alignItems: 'center', flexWrap: 'wrap', fontSize: 1 }}>
+              <ActionMenu>
+                <ActionMenu.Button size="small">Аккаунты: {allAcc ? `все ${accounts.length}` : form.accounts.size}</ActionMenu.Button>
+                <ActionMenu.Overlay width="medium" maxHeight="large" sx={{ overflow: 'auto' }}>
+                  <ActionList selectionVariant="multiple" showDividers={false}>
+                    <ActionList.Item selected={allAcc} onSelect={() => setForm(f => ({ ...f, accounts: allAcc ? new Set() : new Set(accounts.map(a => a.id)) }))}>
+                      Все аккаунты
+                    </ActionList.Item>
+                    <ActionList.Divider />
+                    {accounts.map(a => (
+                      <ActionList.Item key={a.id} selected={form.accounts.has(a.id)} onSelect={() => toggleAcc(a.id)}>{a.name}</ActionList.Item>
+                    ))}
+                  </ActionList>
+                </ActionMenu.Overlay>
+              </ActionMenu>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <Checkbox checked={form.includeEscrow} onChange={e => setForm(f => ({ ...f, includeEscrow: e.target.checked }))} /> Скупать эскроу
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <Checkbox checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} /> Включить сразу
+              </label>
+              <Box sx={{ display: 'flex', gap: 2, ml: 'auto' }}>
+                {(rules.length > 0 || editId) && <Button size="small" onClick={resetForm}>Отмена</Button>}
+                <Button size="small" variant="primary" loading={saving} onClick={save}>Сохранить</Button>
+              </Box>
+            </Box>
+          </div>
+        )}
+      </RichBody>
     </Dialog>
   );
 }
 
 // ── модалка снайпов (только просмотр) ───────────────────────────────────────
+// Снайп создаётся из лота эскроу (кнопка «Купить» у лота, который ещё не открыт) — отдельной
+// формы нет, поэтому кнопка в подвале просто возвращает к списку офферов.
 function SnipeManager({ accounts, onClose }: { accounts: Account[]; onClose: () => void }) {
   const [snipes, setSnipes] = useState<MarketSnipeRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -428,33 +465,49 @@ function SnipeManager({ accounts, onClose }: { accounts: Account[]; onClose: () 
     const ta = new Date(a.available_at || 0).getTime(), tb = new Date(b.available_at || 0).getTime();
     return a.status === 'pending' ? ta - tb : tb - ta;
   });
+  const pending = snipes.filter(s => s.status === 'pending').length;
 
   return (
-    <Dialog title="Снайпы" onClose={onClose} width="xlarge" position={{ narrow: 'bottom', regular: 'center' }}>
-      <Box>
+    <Dialog
+      title="Снайпы"
+      subtitle="Покупка лота эскроу в первую секунду, когда он откроется"
+      renderHeader={richHeader(TelescopeIcon)}
+      onClose={onClose}
+      width="xlarge"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      renderFooter={() => (
+        <RichFooter summary={snipes.length ? <>Ждут <b>{pending}</b> · всего <b>{snipes.length}</b></> : null}>
+          <Button variant="primary" leadingVisual={PlusIcon} onClick={onClose}>Выбрать лот</Button>
+        </RichFooter>
+      )}
+    >
+      <RichBody>
         {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
-          : sorted.length === 0 ? <Text sx={{ color: 'fg.muted' }}>Снайпов нет</Text>
+          : sorted.length === 0 ? (
+            <EmptyState icon={TelescopeIcon} title="Снайпов пока нет">
+              Снайп ставится на лот эскроу, который ещё не открылся: нажмите «Купить» у такого лота в списке офферов, и бот купит его сразу после открытия.
+            </EmptyState>
+          )
           : sorted.map(s => {
             const meta = s.item_id != null ? ITEMS_BY_ID[s.item_id] : null;
             return (
-              <Box key={s.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2, py: '8px', border: '1px solid', borderColor: 'border.muted', borderRadius: 2, mb: 1, opacity: s.status === 'pending' ? 1 : 0.75 }}>
-                {meta && <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 32, height: 32, objectFit: 'contain' }} />}
+              <div key={s.id} className={`rdlg-card${s.status === 'pending' ? '' : ' off'}`}>
+                {meta && <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 36, height: 36, objectFit: 'contain', flexShrink: 0 }} />}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{lotItemName(s.item_id, null)}</Text>
-                  <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>
+                  <Text sx={{ fontWeight: 600, fontSize: 1, display: 'block' }}>{lotItemName(s.item_id, null)}</Text>
+                  <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
                     {accName(s.account_id)} · {s.price != null && s.currency ? <Price currency={s.currency} value={s.price} /> : '—'}
+                    {s.status === 'pending' && <> · через {timeLeft(s.available_at || undefined)}</>}
                   </Text>
                 </Box>
-                {s.status === 'pending' && <Text sx={{ fontSize: 0, color: 'attention.fg' }}>через {timeLeft(s.available_at || undefined)}</Text>}
                 {s.status === 'pending' ? <Label variant="accent">Ждёт</Label>
                   : s.status === 'done' ? <Label variant="success">Куплено</Label>
                   : <Label variant="danger" title={s.error || ''}>Ошибка</Label>}
-                {s.status === 'pending' && <Button variant="danger" onClick={() => del(s.id)}>🗑</Button>}
-              </Box>
+                {s.status === 'pending' && <IconButton icon={TrashIcon} aria-label="Удалить снайп" variant="invisible" size="small" sx={{ color: 'danger.fg' }} onClick={() => del(s.id)} />}
+              </div>
             );
-          })
-        }
-      </Box>
+          })}
+      </RichBody>
     </Dialog>
   );
 }

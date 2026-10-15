@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Box, Button, Flash, Heading, Spinner, Text, ToggleSwitch } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
-import { CheckIcon, GearIcon, SyncIcon } from '@primer/octicons-react';
+import { AlertIcon, CheckIcon, GearIcon, SyncIcon } from '@primer/octicons-react';
 import { api, type GuildQuestGroup, type GuildQuest } from '../api';
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { RenownValue } from '../components/Icons';
+import { richHeader, RichBody, RichFooter } from '../components/RichDialog';
 
 // автовыполнение гильдейских квестов — тумблеры пишут/читают questAutomation в общих настройках
 // бота (/api/config), сам цикл — modules/questAutomation.js. КВЕСТ-ОСОЗНАННОЕ: действие выполняется,
@@ -15,12 +16,12 @@ import { RenownValue } from '../components/Icons';
 // Активация ускорителя убрана из автоматики (22.07.2026) — это намеренное решение игрока (тратит
 // инвентарь, блокирует другие типы ускорителей на часы/сутки), теперь только кнопка "Активировать"
 // прямо на строке квеста (см. QuestRow), не фоновый тумблер.
-const AUTOMATION_LABELS: Record<string, string> = {
-  ads: 'Смотреть рекламу — под квест "Просмотрите N роликов"',
-  sudoku: 'Судоку (Оплот Мудрости) — под квест "Выиграйте N мини-игр"',
-  minesweeper: 'Сапёр (Оплот Мудрости) — под квест "Выиграйте N мини-игр"',
-  quiz: 'Викторина (Оплот Мудрости) — под квест "Выиграйте N мини-игр"',
-  staking: 'Застейкать активы (сумма из Настроек) — под квест на стейкинг',
+const AUTOMATION_ITEMS: Record<string, { title: string; quest: string }> = {
+  ads: { title: 'Смотреть рекламу', quest: 'Квест «Просмотрите N роликов»' },
+  sudoku: { title: 'Судоку', quest: 'Квест «Выиграйте N мини-игр» · Оплот Мудрости' },
+  minesweeper: { title: 'Сапёр', quest: 'Квест «Выиграйте N мини-игр» · Оплот Мудрости' },
+  quiz: { title: 'Викторина', quest: 'Квест «Выиграйте N мини-игр» · Оплот Мудрости' },
+  staking: { title: 'Застейкать активы', quest: 'Квест на стейкинг · сумма из Настроек' },
 };
 const AUTOMATION_ORDER = ['ads', 'sudoku', 'minesweeper', 'quiz', 'staking'];
 
@@ -54,26 +55,43 @@ function AutomationSettingsModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Dialog title="Автовыполнение квестов" onClose={onClose} width="large" position={{ narrow: 'bottom', regular: 'center' }}>
-      <Box>
-        {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{flash.msg}</Flash>}
-        <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 3 }}>
-          Раз в день бот смотрит квесты гильдии этого аккаунта и выполняет действие, ТОЛЬКО если под
-          него есть реальный незавершённый квест (иначе — не трогает, не тратит время/ресурсы зря).
-          Сразу после действия проверяет, не выполнены ли оба условия (личное + общее), и если да —
-          сам забирает награду. Квесты с тратой алмазов/монет (рынок, буст гильдии, покупка алмазов)
-          и невозможные боту действия (приглашения) — не автоматизируются, заклейм для них появится
-          ниже кнопкой, если условие выполнится каким-то другим путём.
-        </Text>
+    <Dialog
+      title="Автовыполнение квестов"
+      subtitle="Бот делает действие, только если под него есть живой квест гильдии"
+      renderHeader={richHeader(GearIcon)}
+      onClose={onClose}
+      width="large"
+      position={{ narrow: 'bottom', regular: 'center' }}
+      renderFooter={() => <RichFooter><Button variant="primary" onClick={onClose}>Готово</Button></RichFooter>}
+    >
+      <RichBody>
+        {flash && <Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash>}
+        <details className="rdlg-note rdlg-note--info" style={{ display: 'block' }}>
+          <summary>Как это работает</summary>
+          <Text as="p" sx={{ m: 0, mt: 2 }}>
+            Раз в день бот смотрит квесты гильдии каждого аккаунта и выполняет действие, только если под
+            него есть незавершённый квест, иначе ничего не трогает. Сразу после действия проверяет, выполнены
+            ли оба условия (личное и общее), и сам забирает награду. Невозможные боту квесты (приглашения)
+            не автоматизируются: кнопка забрать награду появится на строке квеста, если условие выполнится иначе.
+          </Text>
+        </details>
         {!values
           ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
-          : AUTOMATION_ORDER.map(key => (
-            <Box key={key} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 3, py: 2, borderBottom: '1px solid', borderColor: 'border.muted' }}>
-              <Text sx={{ fontSize: 1 }}>{AUTOMATION_LABELS[key]}</Text>
-              <ToggleSwitch size="small" checked={values[key]} disabled={saving === key} onClick={() => toggle(key)} aria-label={AUTOMATION_LABELS[key]} />
-            </Box>
-          ))}
-      </Box>
+          : <div>{AUTOMATION_ORDER.map(key => (
+            <div key={key} className="rdlg-tg">
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Text sx={{ fontWeight: 600, fontSize: 1, display: 'block' }}>{AUTOMATION_ITEMS[key].title}</Text>
+                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{AUTOMATION_ITEMS[key].quest}</Text>
+              </Box>
+              <ToggleSwitch size="small" checked={values[key]} disabled={saving === key} onClick={() => toggle(key)}
+                aria-label={AUTOMATION_ITEMS[key].title} statusLabelPosition="end" />
+            </div>
+          ))}</div>}
+        <div className="rdlg-note rdlg-note--warn">
+          <AlertIcon size={16} />
+          <span>Квесты с тратой монет и алмазов (рынок, буст гильдии, покупка алмазов) бот не выполняет.</span>
+        </div>
+      </RichBody>
     </Dialog>
   );
 }

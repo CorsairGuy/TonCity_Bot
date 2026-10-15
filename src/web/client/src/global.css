@@ -601,3 +601,64 @@ html[data-theme="dark"] .r-legendary{--rc:#f2c94c}html[data-theme="dark"] .r-myt
 }
 html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 60%, #fff), var(--rc)); -webkit-background-clip: text; background-clip: text; }
 .pol-lv { color: var(--rc); }
+
+/* ── Модальные окна нового вида (components/RichDialog.tsx, 15.10.2026) ──────────────────────
+   Только окна с .rdlg в теле: шапка с иконкой, тело с отступами 16/20, подвал с итогом и кнопками;
+   на телефоне — лист снизу со скруглением и «ручкой», кнопки во всю ширину одна над другой. */
+[role="dialog"]:has(.rdlg) { border-radius: 14px; }
+[role="dialog"]:has(.rdlg) .rdlg-head { padding: 14px 16px 12px 20px; }
+[role="dialog"][data-position-regular] .DialogOverflowWrapper > *:has(> .rdlg),
+[role="dialog"][data-position-narrow] .DialogOverflowWrapper > *:has(> .rdlg) { padding: 16px 20px; }
+[role="dialog"]:has(.rdlg) .DialogOverflowWrapper + .rdlg-foot { padding: 12px 20px; background: var(--accent-dim); align-items: center; flex-wrap: nowrap; }
+.rdlg { display: flex; flex-direction: column; gap: 16px; }
+.rdlg-ic { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.rdlg-ic--accent { background: var(--accent-mid); color: var(--accent); }
+.rdlg-ic--danger { background: var(--red-dim); color: var(--red); }
+.rdlg-ic--attention { background: var(--yellow-dim); color: var(--yellow); }
+.rdlg-ic--success { background: var(--green-dim); color: var(--green); }
+.rdlg-title { font-size: 16px !important; line-height: 1.25; }
+.rdlg-sub { font-size: 12px !important; line-height: 1.35; }
+.rdlg-sum { font-size: 13px; color: var(--fg-muted); margin-right: auto; min-width: 0; }
+.rdlg-sum b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.rdlg-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.rdlg-sec { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: .5px;
+  text-transform: uppercase; color: var(--fg-muted); margin-bottom: 8px; min-height: 24px; }
+.rdlg-sec > :last-child:not(:first-child) { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.rdlg-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.rdlg-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--border);
+  font-size: 13px; cursor: pointer; user-select: none; }
+.rdlg-row:first-child { border-top: 0; }
+.rdlg-row.on { background: var(--accent-dim); }
+.rdlg-row.off { color: var(--fg-subtle); cursor: default; }
+.rdlg-row .num { font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+.rdlg-row .why { font-size: 12px; color: var(--fg-muted); width: 96px; text-align: right; flex-shrink: 0; }
+.rdlg-row.off .why { color: var(--red); }
+.rdlg-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 12px; }
+.rdlg-card.off { opacity: .6; }
+.rdlg-card__name { font-weight: 600; font-size: 14px; display: block; }
+.rdlg-form { border: 1px dashed var(--border); border-radius: 10px; padding: 12px; }
+.rdlg-tg { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.rdlg-tg:first-child { border-top: 0; padding-top: 0; }
+.rdlg-note { border-radius: 10px; padding: 10px 12px; font-size: 13px; display: flex; gap: 8px; align-items: flex-start; }
+.rdlg-note--info { background: var(--accent-dim); border: 1px solid var(--border); color: var(--fg-muted); }
+.rdlg-note--warn { background: var(--yellow-dim); border: 1px solid rgb(212 167 44 / 40%); color: var(--fg); }
+.rdlg-note summary { cursor: pointer; color: var(--fg); font-weight: 600; }
+.rdlg-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 20px 8px 8px; color: var(--fg-muted); }
+.rdlg-empty__ic { width: 52px; height: 52px; border-radius: 50%; background: var(--accent-mid); color: var(--accent); display: flex; align-items: center; justify-content: center; }
+.rdlg-empty__t { font-weight: 600; color: var(--fg); }
+.rdlg-empty__d { font-size: 13px; max-width: 360px; }
+@media (max-width: 768px) {
+  [role="dialog"][data-position-narrow="bottom"]:has(.rdlg) { border-radius: 18px 18px 0 0; max-height: 92vh; }
+  [role="dialog"][data-position-narrow="bottom"]:has(.rdlg)::before { content: ""; display: block; width: 38px; height: 5px;
+    border-radius: 3px; background: var(--border); margin: 8px auto 0; flex-shrink: 0; }
+  [role="dialog"]:has(.rdlg) .rdlg-head { padding: 8px 12px 10px 16px; }
+  [role="dialog"][data-position-narrow] .DialogOverflowWrapper > *:has(> .rdlg) { padding: 14px 16px; }
+  [role="dialog"]:has(.rdlg) .DialogOverflowWrapper + .rdlg-foot { flex-direction: column; align-items: stretch; gap: 8px;
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .rdlg-sum { margin: 0; }
+  .rdlg-btns { flex-direction: column-reverse; }
+  .rdlg-btns > *, .rdlg-btns button { width: 100%; }
+  .rdlg-row .why { width: auto; }
+  .rdlg-card .hide-narrow { display: none; }
+  .rdlg-card.editable { cursor: pointer; }
+}
