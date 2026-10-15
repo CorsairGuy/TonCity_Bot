@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Box, Button, Flash, Heading, Spinner, Text, Label, Tooltip, ConfirmationDialog } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
-import { SyncIcon } from '@primer/octicons-react';
+import { SyncIcon, TrashIcon, CheckCircleIcon, XCircleIcon, StarIcon, ArrowUpIcon, type Icon } from '@primer/octicons-react';
 import { api, type PoliciesAccountData, type PolicyInstance, type PolicyShardItem, type PolicyActionName, type PolicyEconomy } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
@@ -117,12 +117,37 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
   // «Провести реформу» (15.10.2026, POST /policies/reroll): переписывает политику в случайную другую
   // той же редкости за один Камень реформ. Условия — как в игре (chunks/storage-*): камень есть,
   // у политики нет значка (badge), она не надета, 1 уровень и политики открыты по населению.
-  // Кнопку показываем, когда камень есть; если мешает другое условие — серая с причиной.
-  const reformBlocker = !policiesUnlocked ? 'Политики доступны с 1 000 000 населения'
-    : enacted ? 'Сначала снимите политику — игра не проводит реформу надетой политике'
-    : policy.level !== 1 ? 'Реформа доступна только политике 1 уровня'
-    : !policy.definition || policy.definition.badge ? 'Эту политику реформировать нельзя'
+  // Кнопку показываем, когда камень есть; если мешает другое условие — серая с причиной текстом.
+  const reformBlocker = !policiesUnlocked ? 'нужно 1 000 000 населения'
+    : enacted ? 'сначала снимите политику'
+    : policy.level !== 1 ? 'только для политики 1 уровня'
+    : !policy.definition || policy.definition.badge ? 'эту политику реформировать нельзя'
     : null;
+
+  // основные действия окна; reason — почему недоступно (по тем же правилам, что и игра: стаж/осколки
+  // считает сервер в policy.progress, слоты — freeSlots)
+  type PolicyAction = { key: string; label: string; variant: 'primary' | 'default' | 'danger'; icon?: Icon; loading: boolean; reason: string | null; onClick: () => void };
+  const actions: PolicyAction[] = [
+    enacted
+      ? { key: 'unequip', label: 'Снять', variant: 'danger', icon: XCircleIcon, loading: busy === 'unequip', reason: null, onClick: () => run('unequip') }
+      : { key: 'enact', label: 'Применить', variant: 'primary', icon: CheckCircleIcon, loading: busy === 'enact',
+          reason: freeSlots <= 0 ? 'Нет свободных слотов в кабинете мэра' : null, onClick: () => run('enact') },
+  ];
+  if (atLevelCap && canPromoteFurther) {
+    // 13.10.2026: игра не даёт повысить редкость НАДЕТОЙ политике — гасим и говорим, что сначала «Снять»
+    actions.push({ key: 'promote', label: 'Улучшить редкость', variant: 'default', icon: StarIcon, loading: busy === 'promote',
+      reason: enacted ? 'Сначала снимите политику' : prog && !prog.can_promote ? (prog.promote_blockers.join('; ') || 'недоступно') : null,
+      onClick: () => run('promote') });
+  } else if (!atLevelCap) {
+    // на потолке уровня без следующей редкости кнопки нет — повышать некуда
+    actions.push({ key: 'levelup', label: 'Повысить уровень', variant: 'default', icon: ArrowUpIcon, loading: busy === 'levelup',
+      reason: prog && !prog.can_level_up ? (prog.level_blockers.join('; ') || 'недоступно') : null,
+      onClick: () => run('levelup') });
+  }
+  if (reformStones > 0) {
+    actions.push({ key: 'reroll', label: 'Провести реформу', variant: 'default', icon: SyncIcon, loading: busy === 'reroll',
+      reason: reformBlocker, onClick: () => setConfirmReform(true) });
+  }
 
   return (
     <>
@@ -131,51 +156,32 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
       onClose={onClose}
       width="large"
       position={{ narrow: 'bottom', regular: 'center' }}
-      /* кнопки гасим по тем же правилам, что и игра: их присылает сервер в policy.progress
-         (стаж/осколки), слоты — freeSlots. Причина недоступности идёт в title, чтобы не гадать */
-      footerButtons={[
-        enacted
-          ? { content: 'Снять', buttonType: 'danger', loading: busy === 'unequip', disabled: !!busy, onClick: () => run('unequip') }
-          : {
-            content: 'Применить', buttonType: 'primary', loading: busy === 'enact',
-            disabled: !!busy || freeSlots <= 0,
-            title: freeSlots <= 0 ? 'Нет свободных слотов в кабинете мэра' : undefined,
-            onClick: () => run('enact'),
-          },
-        ...(atLevelCap && canPromoteFurther
-          ? [{
-              content: 'Улучшить редкость', loading: busy === 'promote',
-              // 13.10.2026: игра не даёт повысить редкость НАДЕТОЙ политике — сервер отвечает
-              // отказом. Раньше кнопка была активна и вводила в заблуждение (жмёшь — ошибка без
-              // объяснения). Теперь гасим её здесь же и прямо говорим, что сначала нужно «Снять».
-              disabled: !!busy || enacted || (prog ? !prog.can_promote : false),
-              title: enacted ? 'Сначала снимите политику (кнопка «Снять») — игра не повышает редкость надетой политике'
-                : prog && !prog.can_promote ? prog.promote_blockers.join('; ') : undefined,
-              onClick: () => run('promote'),
-            }]
-          : atLevelCap
-            ? [] // упёрлись в потолок уровня, но дальше повышать редкость уже некуда (максимум)
-            : [{
-                content: 'Повысить уровень', loading: busy === 'levelup',
-                disabled: !!busy || (prog ? !prog.can_level_up : false),
-                title: prog && !prog.can_level_up ? prog.level_blockers.join('; ') : undefined,
-                onClick: () => run('levelup'),
-              }]),
-        ...(reformStones > 0
-          ? [{
-              content: 'Провести реформу', loading: busy === 'reroll',
-              disabled: !!busy || !!reformBlocker,
-              title: reformBlocker ?? 'Переписывает эту политику в другую той же редкости. Стаж и редкость сохраняются. Результат случаен.',
-              onClick: () => setConfirmReform(true),
-            }]
-          : []),
-        {
-          content: 'Расформировать', buttonType: 'danger', loading: busy === 'dissolve', disabled: !!busy,
-          // подтверждение отдельным окном: эпическая и выше — ВСЕГДА (редкие осколки, жалко сжечь
-          // даже на 1 уровне), ниже эпической — только если уровень >1 (вложен стаж/осколки)
-          onClick: () => (HIGH_RARITIES.has(policy.rarity) || policy.level > 1) ? setConfirmDissolve(true) : run('dissolve'),
-        },
-      ]}
+      /* 15.10.2026: вместо стандартного footerButtons (кнопки разной ширины в ряд, серая
+         «Повысить уровень» выглядела оторванной) — свой футер: действия столбиком во всю ширину,
+         причина недоступности текстом под кнопкой (на телефоне title не увидеть), «Расформировать»
+         отдельной тихой кнопкой ниже, чтобы не стояла вровень с основными */
+      renderFooter={() => (
+        <Dialog.Footer sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
+          {actions.map(a => (
+            <Box key={a.key} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Button block variant={a.variant} leadingVisual={a.icon} loading={a.loading}
+                disabled={!!busy || !!a.reason} onClick={a.onClick}>
+                {a.label}
+              </Button>
+              {a.reason && <Text sx={{ fontSize: 0, color: 'fg.muted', textAlign: 'center' }}>{a.reason[0].toUpperCase() + a.reason.slice(1)}</Text>}
+            </Box>
+          ))}
+          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Button variant="invisible" size="small" leadingVisual={TrashIcon} loading={busy === 'dissolve'} disabled={!!busy}
+              sx={{ color: 'danger.fg' }}
+              // подтверждение отдельным окном: эпическая и выше — ВСЕГДА (редкие осколки, жалко сжечь
+              // даже на 1 уровне), ниже эпической — только если уровень >1 (вложен стаж/осколки)
+              onClick={() => (HIGH_RARITIES.has(policy.rarity) || policy.level > 1) ? setConfirmDissolve(true) : run('dissolve')}>
+              Расформировать
+            </Button>
+          </Box>
+        </Dialog.Footer>
+      )}
     >
       <Box>
         {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{flash.msg}</Flash>}
@@ -222,10 +228,8 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
                 </Text>
               </Box>
             )}
-            {!enacted && (
-              <Text sx={{ fontSize: 0, color: freeSlots > 0 ? 'fg.muted' : 'attention.fg', display: 'block', mt: 1 }}>
-                {freeSlots > 0 ? `Свободных слотов кабинета: ${freeSlots}` : 'Нет свободных слотов кабинета — «Применить» недоступно'}
-              </Text>
+            {!enacted && freeSlots > 0 && (
+              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>Свободных слотов кабинета: {freeSlots}</Text>
             )}
             {!enacted && prog.tenure_needed != null && (
               <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>
