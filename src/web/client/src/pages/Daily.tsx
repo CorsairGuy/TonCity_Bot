@@ -17,18 +17,15 @@ function DayCard({ day }: { day: DailyRewardDay }) {
   const meta = isItem ? (ITEMS_BY_ID[Number(day.item_id)] ?? null) : null;
   const label = day.source === 'actual' ? 'получено' : day.source === 'estimated' ? 'оценка (забрано в игре)' : 'ожидается';
   const tooltip = `День ${day.day} — ${label}`;
-  const dimmed = day.source !== 'upcoming' && !day.is_today;
+  // 15.10.2026: сегодня — мягкий ореол цвета редкости, прошедшие дни — обычные карточки,
+  // будущие — приглушены (как «прожектор»), см. .dr-today/.dr-future в global.css
+  const future = day.source === 'upcoming' && !day.is_today;
 
   return (
     <Tooltip text={tooltip} direction="n" noDelay>
       <div className="item-card" aria-label={tooltip}>
         <div
-          className={`item-card__box${meta ? ` ic-${meta.tag}` : isItem ? '' : day.reward_type === 'crystals' ? ' dr-crystals' : ' dr-coins'}`}
-          style={{
-            opacity: dimmed ? 0.55 : 1,
-            outline: day.is_today ? '2px solid var(--accent)' : 'none',
-            outlineOffset: 2,
-          }}
+          className={`item-card__box${meta ? ` ic-${meta.tag}` : isItem ? '' : day.reward_type === 'crystals' ? ' dr-crystals' : ' dr-coins'}${day.is_today ? ' dr-today' : future ? ' dr-future' : ''}`}
         >
           {isItem
             ? (meta
