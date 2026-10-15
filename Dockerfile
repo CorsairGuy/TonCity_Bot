@@ -1,4 +1,4 @@
-# Образ собирается под amd64 и arm64. Веб-панель — чистая статика, её собираем один раз на машине
+# Образ собирается под amd64, arm64 и arm/v7. Веб-панель — чистая статика, её собираем один раз на машине
 # сборки ($BUILDPLATFORM, без эмуляции), в образ под каждую платформу кладём готовый dist.
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /app
@@ -31,5 +31,6 @@ ARG APP_COMMIT=
 ARG APP_REF=
 ENV APP_COMMIT=$APP_COMMIT APP_REF=$APP_REF
 
-# exec — чтобы SIGTERM от Docker/Watchtower доходил до node (штатное закрытие WS и БД)
-CMD ["sh", "-c", "for f in /app/config-defaults/*; do [ -e \"/app/config/${f##*/}\" ] || cp -r \"$f\" /app/config/; done; exec node --max-old-space-size=3072 src/index.js"]
+# exec — чтобы SIGTERM от Docker/Watchtower доходил до node (штатное закрытие WS и БД).
+# На 32-битном ARM куча 3 ГБ не помещается в адресное пространство процесса — там 1,5 ГБ.
+CMD ["sh", "-c", "for f in /app/config-defaults/*; do [ -e \"/app/config/${f##*/}\" ] || cp -r \"$f\" /app/config/; done; case \"$(uname -m)\" in arm*) H=1536;; *) H=3072;; esac; exec node --max-old-space-size=$H src/index.js"]

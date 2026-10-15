@@ -52,7 +52,7 @@ jobs:
           { echo 'tags<<EOF'; echo "$TAGS"; echo 'EOF'; } >> "$GITHUB_OUTPUT"
           echo "$TAGS"
 
-      # сервер может быть ARM (arm64): образы собираются под обе платформы
+      # сервер может быть ARM: образы собираются под amd64, arm64 (ARMv8) и arm/v7 (32-битные платы)
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
@@ -67,8 +67,12 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: ${{ github.event_name != 'pull_request' }}
+          # без attestation-манифестов (provenance/SBOM): иначе в списке платформ образа
+          # на GHCR появляются лишние строки unknown/unknown
+          provenance: false
+          sbom: false
           build-args: |
             APP_COMMIT=${{ github.sha }}
             APP_REF=${{ steps.meta.outputs.ref }}
@@ -84,8 +88,10 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: updater
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          provenance: false
+          sbom: false
           tags: ${{ env.IMAGE }}:updater
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
