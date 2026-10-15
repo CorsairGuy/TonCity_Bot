@@ -124,11 +124,6 @@ async function pump() {
   }
 }
 
-// подготовка спрайтов закончена — замерам скорости карты можно верить
-export function spritesIdle(): boolean {
-  return !running && jobs.length === 0;
-}
-
 export function requestSprite(id: string, info: SpriteInfo, targetW: number) {
   const key = keyOf(id, targetW);
   if (prepared.has(key) || queued.has(key)) return;
