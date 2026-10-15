@@ -1,16 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Button, CounterLabel, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
-import { ChevronLeftIcon, SidebarExpandIcon, SyncIcon, XIcon } from '@primer/octicons-react';
-import { useRegisterPanelToggle } from '../contexts/PanelToggleContext';
+import { Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
+import { CheckIcon, ChevronLeftIcon, SyncIcon } from '@primer/octicons-react';
 import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
-import { Scrollable } from '../components/Scrollable';
 import { fmt, itemImgSrc } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
+import { MapPalette, PanelShell, StatsPanel, PlanPanel, QueuePanel, PendingList, DemolishPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode } from './cityMapPanels';
 
 // ключ карты эффектов политики: та же схема, что cw(stat,scopeKind,target) в бандле игры —
 // scope_kind==="global" (или без target) — суффикса нет, иначе "scopeKind:target"
@@ -63,26 +62,6 @@ function buildCityStatsMods(cabinet: PolicyCabinet | undefined, incomeBoost: num
   };
 }
 
-const SERVICE_CAT_LABEL: Record<ServiceCat, string> = { hospital: 'Больницы', 'police-station': 'Полиция', 'fire-station': 'Пожарные', park: 'Парки' };
-// как в игре — 2 знака после запятой (fmt() из utils.ts даёт 1, используется везде ещё, здесь нужна
-// именно игровая точность: "2.19B", "2.97B")
-function fmtStat(n: number): string {
-  const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  if (abs >= 1e12) return sign + (abs / 1e12).toFixed(2) + 'T';
-  if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
-  if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
-  if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + 'K';
-  return String(Math.round(n));
-}
-function statRow(label: string, value: string) {
-  return (
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-      <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{label}</Text>
-      <Text sx={{ fontSize: 0 }}>{value}</Text>
-    </Box>
-  );
-}
 // запас предмета сверху вкладки "Реконструкция"/"Реновация" — иконка + число из БД (Inventory)
 function resourceHeader(tag: 'component' | 'masterplan', label: string, count: number) {
   return (
@@ -93,40 +72,6 @@ function resourceHeader(tag: 'component' | 'masterplan', label: string, count: n
     </Box>
   );
 }
-// разбивка прибыли — точно как в игре на экране "Обзор доходов": Базовый доход → Бонус гильдии %
-// → Политики % → Разнообразие % → Итого. "Базовый доход" в игре — это доход СОВСЕМ без политик
-// (даже без category_income/building_type_income, которые у нас иначе сворачиваются в per-building
-// сумму до happiness) — поэтому база берётся из `raw` (computeCityStats БЕЗ mods), а "Политики %" —
-// комбинированный эффект category/type-множителей (уже осевших в s.profit) И глобального
-// (mods.globalIncomeMult), взятых ВМЕСТЕ относительно raw.profit, а не только глобальный множитель.
-// "Разнообразие" — GET /progress/diversity → income_bonus (найден 2026-07-17, формулы в бандле нет).
-function statsBlock(title: string, raw: CityStats, s: CityStats, mods: CityStatsMods) {
-  const base = raw.profit * raw.happiness;
-  const guildPct = (mods.incomeBoost ?? 0) * 100;
-  const combinedPolicyMult = raw.profit > 0 ? (s.profit / raw.profit) * (mods.globalIncomeMult ?? 1) : (mods.globalIncomeMult ?? 1);
-  const policyPct = (combinedPolicyMult - 1) * 100;
-  const diversityPct = (mods.diversityIncomeBoost ?? 0) * 100;
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-      <Text sx={{ fontSize: 1, fontWeight: 'bold' }}>{title}</Text>
-      <Box sx={{ mb: 2 }}>
-        {statRow('Население', fmtStat(s.population))}
-      </Box>
-      {statRow('Базовый доход/ч', fmtStat(base))}
-      {statRow('Бонус гильдии', `${guildPct >= 0 ? '+' : ''}${guildPct.toFixed(0)}%`)}
-      {statRow('Политики', `${policyPct >= 0 ? '+' : ''}${policyPct.toFixed(0)}%`)}
-      {statRow('Разнообразие', `${diversityPct >= 0 ? '+' : ''}${diversityPct.toFixed(0)}%`)}
-      {statRow('Итого/ч', fmtStat(s.profitFinal))}
-      <Box sx={{ mt: 2 }}>
-        {statRow('Счастье', `${(s.happiness * 100).toFixed(1)}%`)}
-      </Box>
-      {(Object.keys(SERVICE_CAT_LABEL) as ServiceCat[]).map(k => (
-        statRow(`${SERVICE_CAT_LABEL[k]}: ${fmtStat(s.coverageByCat[k])}`, `${(s.serviceRatios[k] * 100).toFixed(0)}%`)
-      ))}
-    </Box>
-  );
-}
-
 // Редактор "Действий" по городу — прямо в странице карты (раньше была отдельная модалка
 // CityActionsModal с выпадающими списками). Строительство/Перемещение/Снос/Реконструкция/Реновация
 // копятся в ОДНУ общую очередь, которая переживает переключение вкладок режима — клик только
@@ -179,12 +124,6 @@ function criteriaReason(criteria: unknown, buildingId: string): string {
   if (unmet.type === 'profit' && unmet.profit) return `Нужна прибыль ${fmt(Math.ceil(unmet.profit.profit_required))}`;
   if (unmet.type === 'invitations' && unmet.invitations_required != null) return `Нужно приглашений: ${unmet.invitations_required}`;
   return 'Недоступно';
-}
-function fmtTimeLeft(ms: number): string {
-  if (ms <= 0) return '0м';
-  const totalMin = Math.ceil(ms / 60000);
-  const h = Math.floor(totalMin / 60), m = totalMin % 60;
-  return h > 0 ? `${h}ч ${m}м` : `${m}м`;
 }
 // цена постройки k-го здания семейства (0-индекс): Math.round(base_price · base_price_factor^k) ·
 // buildCostMultiplier — сверено с бандлом игры (get actualBasePrice()). buildCostMultiplier — скидка
@@ -362,11 +301,6 @@ export function CityMapCity() {
   const [buildCriteria, setBuildCriteria] = useState<unknown>(null);
   const [mode, setMode] = useState<CityActionMode>('view');
   const [busy, setBusy] = useState(false);
-  // правый сайдбар (показатели/действия) на мобильном — по умолчанию свёрнут, как левое меню
-  // навигации, открывается кнопкой в общем мобильном хидере (см. .map-panel в global.css)
-  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
-  const openMobilePanel = useCallback(() => setMobilePanelOpen(true), []);
-  useRegisterPanelToggle(useMemo(() => ({ onOpen: openMobilePanel, icon: SidebarExpandIcon, label: 'Открыть панель' }), [openMobilePanel]));
 
   // ── общая очередь одноразовых действий (копится между вкладками режима) ─────
   const [queue, setQueue] = useState<PendingAction[]>([]);
@@ -525,15 +459,11 @@ export function CityMapCity() {
     });
   }, [owned, targets, manualQueue, globalPlan]);
   const projectedStats = useMemo(() => computeCityStats(projectedBuildings, buildingParamMap, cityStatsMods), [projectedBuildings, buildingParamMap, cityStatsMods]);
-  const projectedStatsRaw = useMemo(() => computeCityStats(projectedBuildings, buildingParamMap), [projectedBuildings, buildingParamMap]);
   const boosterLabelFor = (id: string) => { const b = boosters.find(x => x.name === id); return b ? b.label : `#${id}`; };
 
   function switchMode(m: CityActionMode) {
     setMode(m); setMoveFrom(null);
     if (m !== 'build') { setBuildFamily(''); setSearch(''); setCatFilter(''); }
-    // на мобильном выбор вкладки — это и есть намерение увидеть её содержимое, поэтому сразу
-    // открываем правый сайдбар (на десктопе класс .open ни на что не влияет — там сайдбар всегда виден)
-    if (window.innerWidth <= 768) setMobilePanelOpen(true);
   }
 
   // ── множества клеток по режимам (на основе ОПТИМИСТИЧНОГО состояния — с учётом очереди) ───────
@@ -704,8 +634,6 @@ export function CityMapCity() {
   // ── Очередь активации ускорителей ───────────────────────────────────────────
   // Порядок = приоритет: цикл активирует первый доступный сверху, а когда слот освободится —
   // следующий. Так делается «сначала легендарный, потом мифический». Сохраняем весь порядок разом.
-  // сколько экземпляров этого типа уже стоит в очереди (повторы разрешены)
-  const queuedCount = (name: string) => boosterQueue.filter(q => q.name === name).length;
   const saveQueue = async (order: string[]) => {
     const prev = boosterQueue;
     setBoosterQueue(order.map(n => ({ name: n, label: boosterLabelFor(n) })));   // оптимистично
@@ -852,13 +780,91 @@ export function CityMapCity() {
   const catRank = (c: string) => { const i = CAT_ORDER.indexOf(c); return i === -1 ? 999 : i; };
   const paletteCats = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean).sort((a, b) => catRank(a) - catRank(b));
 
+  // ── данные страниц сайдбара ─────────────────────────────────────────────────
+  const nameWithStar = (id: string) => { const m = id.match(/_(\d+)_star\.png$/i); return m ? `${labelFor(id)} ★${m[1]}` : labelFor(id); };
+  const ownedAt = (x: number, y: number) => owned.find(o => o.x === x && o.y === y);
+  const demolishTiles = queue.flatMap(a => {
+    if (a.kind !== 'demolish') return [];
+    const b = ownedAt(a.x, a.y);
+    return b ? [{ id: a.id, sprite: b.id, x: a.x, y: a.y, name: labelFor(b.id) }] : [];
+  });
+  // сколько дохода в час уйдёт вместе со снесёнными зданиями — те же формулы игры, что у показателей
+  const demolishLoss = useMemo(() => {
+    const gone = new Set(queue.filter(a => a.kind === 'demolish').map(a => `${(a as { x: number }).x},${(a as { y: number }).y}`));
+    if (!gone.size) return 0;
+    const left = owned.filter(b => !gone.has(`${b.x},${b.y}`));
+    return Math.max(0, currentStats.profitFinal - computeCityStats(left, buildingParamMap, cityStatsMods).profitFinal);
+  }, [queue, owned, buildingParamMap, cityStatsMods, currentStats]);
+  // кандидаты на реновацию — по РЕАЛЬНОМУ состоянию (превью очереди уже подменило бы здание на next_id)
+  const renovateItems = owned.flatMap(b => {
+    const info = buildingParamMap.get(b.id);
+    if (!info?.is_renovatable || !info.next_id || info.required_lvl == null) return [];
+    if ((Number(b.level) || 0) < info.required_lvl || underConstruction(b)) return [];
+    const marked = queue.some(a => a.kind === 'renovate' && a.x === b.x && a.y === b.y);
+    return [{ x: b.x, y: b.y, id: b.id, nextId: info.next_id, name: nameWithStar(b.id), nextName: nameWithStar(info.next_id), cost: info.masterplans_num, marked }];
+  });
+  const toggleRenovate = (x: number, y: number) => setQueue(prev => prev.some(a => a.kind === 'renovate' && a.x === x && a.y === y)
+    ? prev.filter(a => !(a.kind === 'renovate' && a.x === x && a.y === y))
+    : [...prev, { id: nextIdRef.current++, kind: 'renovate', x, y }]);
+  const pendingRows = queue.map(a => {
+    const at = a.kind === 'move' ? a.from : a.kind === 'build' ? null : { x: a.x, y: a.y };
+    const sprite = a.kind === 'build' ? a.family_id : at ? ownedAt(at.x, at.y)?.id : undefined;
+    return { id: a.id, kind: a.kind, label: actionLabel(a, labelFor, findInfoAt), sprite };
+  });
+  const pendingKinds = new Set(queue.map(a => a.kind));
+  const dots: Partial<Record<PanelMode, boolean>> = {
+    upgrade: targets.length > 0, queue: manualQueue.length > 0, build: pendingKinds.has('build'), move: pendingKinds.has('move'),
+    demolish: pendingKinds.has('demolish'), reconstruct: pendingKinds.has('reconstruct'), renovate: pendingKinds.has('renovate'),
+    boosters: boosterQueue.length > 0,
+  };
+  const moveQueued = (from: number, to: number) => setManualQueue(prev => { const n = [...prev]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; });
+
   if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
 
-  const showSidebar = true;
+  const panelMode = mode as PanelMode;
+  const HINT: Partial<Record<PanelMode, string>> = {
+    view: 'Цифры города по формулам игры: сейчас и после выполнения всех планов и очереди.',
+    upgrade: 'Кликните здание или проведите кистью по нескольким — им выставится уровень из поля «Кисть ставит уровень». Бот сам ждёт строителей и улучшает до цели.',
+    queue: 'Каждый клик по зданию добавляет один уровень в конец очереди, одно здание можно поставить несколько раз подряд. Свободные строители сначала разбирают очередь, потом переходят к плану. Порядок меняется перетаскиванием.',
+    forecast: 'Что бот запустит в ближайшие трое суток: очередь, личный и общий план, с учётом накопления монет.',
+    build: 'Выберите здание в списке, затем кликайте пустые клетки или проведите кистью. Каждая клетка добавляется в действия, которые выполнит кнопка «Выполнить».',
+    move: 'Кликните здание, затем пустую клетку. Можно переместить несколько подряд. Цели и очередь переедут вместе со зданием, на экономику это не влияет.',
+    demolish: 'Кликайте здания или проведите кистью. Монеты за снос не возвращаются. Нажмите на плитку, чтобы снять отметку.',
+    reconstruct: 'Тратит компоненты, сбрасывает здание на 1 уровень и даёт мастерпланы. «Запланировать» — бот сам сделает, когда здание дойдёт до нужного уровня.',
+    renovate: 'Тратит мастерпланы и переводит здание в следующий звёздный тир. Отметьте здания и нажмите «Выполнить».',
+    boosters: 'Бот активирует ускорители из очереди по порядку, как только освобождается слот. Молния рядом с ускорителем включает его сразу.',
+    log: 'Последние действия по этому городу, и бота, и ручные.',
+  };
+  const runFooter = queue.length > 0 && (
+    <>
+      <Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>
+        {executing && progress ? `Выполняется ${progress.done} из ${progress.total}…` : `Ждут выполнения: ${queue.length}`}
+      </Text>
+      <Button size="small" variant="invisible" disabled={executing} onClick={() => setQueue([])}>Очистить</Button>
+      <Button size="small" variant="primary" leadingVisual={CheckIcon} loading={executing} disabled={executing} onClick={runQueue}>Выполнить</Button>
+    </>
+  );
+  const footer = mode === 'upgrade'
+    ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>Целей: {targets.length}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveTargets}>Сохранить</Button></>
+    : mode === 'queue'
+      ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>{manualQueue.length ? <>Итого со скидками <CoinValue value={fmt(manualQueueTotal)} /></> : 'Очередь пуста'}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveManualQueue}>Сохранить</Button></>
+      : runFooter || undefined;
+  const headActions = mode === 'boosters'
+    ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Сверить с игрой" disabled={boostersChecking} onClick={checkBoosters} />
+    : mode === 'forecast'
+      ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Пересчитать прогноз" disabled={forecastLoading} onClick={loadForecast} />
+      : mode === 'log'
+        ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Обновить лог" disabled={actionLogLoading} onClick={loadActionLog} />
+        : undefined;
+  const pendingNoDemolish = pendingRows.filter(r => r.kind !== 'demolish');
 
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - var(--header-h))' }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+    <Box sx={{
+      display: 'flex', height: 'calc(100vh - var(--header-h))',
+      // телефон: карта сверху, сайдбар снизу — он всегда на экране, как и на десктопе
+      '@media (max-width: 768px)': { flexDirection: 'column', height: 'calc(100dvh - 52px)' },
+    }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
         {/* toolbar */}
         <Box sx={{
           p: 2, bg: 'canvas.subtle',
@@ -885,8 +891,8 @@ export function CityMapCity() {
           </Box>
         )}
 
-        {/* canvas */}
-        <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        {/* canvas + палитра инструментов поверх него, по центру снизу */}
+        <Box sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
           {owned.length === 0 && mode === 'view'
             ? <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Text sx={{ color: 'fg.muted' }}>Нет данных о зданиях</Text>
@@ -908,364 +914,168 @@ export function CityMapCity() {
                 onUnlockCell={onUnlockCell}
               />
           }
+          <Box sx={{ position: 'absolute', left: 2, right: 2, bottom: 3, display: 'flex', justifyContent: 'center', pointerEvents: 'none', '& > *': { pointerEvents: 'auto' } }}>
+            <MapPalette mode={panelMode} onSelect={switchMode} dots={dots} />
+          </Box>
         </Box>
       </Box>
 
-      {showSidebar && (
-        <div className={`map-panel-overlay${mobilePanelOpen ? ' show' : ''}`} onClick={() => setMobilePanelOpen(false)} />
-      )}
-      {showSidebar && (
-        <div className={`map-panel${mobilePanelOpen ? ' open' : ''}`}>
-          {/* крестик — только на мобильном оверлее (см. .map-panel-head в global.css), ровно на
-              месте кнопки открытия в хидере */}
-          <div className="map-panel-head">
-            <IconButton icon={XIcon} aria-label="Закрыть панель" variant="invisible" onClick={() => setMobilePanelOpen(false)} />
-          </div>
-          <div className="map-panel-tabs">
-            <Button variant={mode === 'view' ? 'primary' : 'default'} onClick={() => switchMode('view')}>Показатели</Button>
-            {(['queue', 'upgrade', 'build', 'move', 'demolish', 'reconstruct', 'renovate', 'boosters', 'log', 'forecast'] as const).map(m => (
-              <Button key={m} variant={mode === m ? 'primary' : 'default'} onClick={() => switchMode(m)}>{MODE_TITLE[m]}</Button>
-            ))}
-          </div>
-          <Scrollable style={{ flex: 1 }}>
-            <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Box sx={{
+        width: 360, flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
+        borderLeft: '1px solid', borderColor: 'border.default',
+        '@media (max-width: 1012px)': { width: 320 },
+        '@media (max-width: 768px)': { width: '100%', height: '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default' },
+      }}>
+        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={headActions} footer={footer}
+          count={mode === 'upgrade' ? targets.length : mode === 'queue' ? manualQueue.length : mode === 'boosters' ? boosterQueue.length : undefined}>
 
-                      {mode === 'view' && (
-                        <>
-                          {statsBlock('Сейчас', currentStatsRaw, currentStats, cityStatsMods)}
-                          {statsBlock('После улучшений', projectedStatsRaw, projectedStats, cityStatsMods)}
-                        </>
-                      )}
+          {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
 
-                      {mode === 'queue' && (
-                        <>
-                          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                            Кликните здание — оно встанет в конец очереди. Можно выбрать одно и то же
-                            здание несколько раз подряд — несколько последовательных апгрейдов (бот
-                            сам не запустит следующий, пока клетка не освободится от предыдущего).
-                            Пока в очереди есть здания, свободные строители сначала разбирают их (по
-                            одному на строителя, в порядке очереди) и только потом переходят к плану.
-                          </Text>
-                          {manualQueue.length === 0
-                            ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Очередь пуста</Text>
-                            : <>
-                              {manualQueue.map((q, i) => {
-                                const b = owned.find(o => o.x === q.x && o.y === q.y);
-                                // порядковый номер ЭТОГО же здания среди более ранних записей очереди —
-                                // каждый последующий повтор поднимает уровень ещё на 1 относительно текущего
-                                const priorSame = manualQueue.slice(0, i).filter(qq => qq.x === q.x && qq.y === q.y).length;
-                                const fromLvl = b ? (Number(b.level) || 0) + priorSame : null;
-                                const price = manualQueuePrices[i];
-                                return (
-                                  <Box key={i} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                                    <Text sx={{ fontSize: 1 }}>
-                                      {i + 1}. {b ? labelFor(b.id) : '—'} ({q.x},{q.y}){fromLvl != null ? ` ${fromLvl}→${fromLvl + 1}` : ''}
-                                    </Text>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                      {price != null && <CoinValue value={fmt(price)} />}
-                                      <Button variant="danger" onClick={() => removeQueuedManual(i)}>×</Button>
-                                    </Box>
-                                  </Box>
-                                );
-                              })}
-                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pt: 1, borderTop: '1px solid', borderColor: 'border.default' }}>
-                                <Text sx={{ fontSize: 1, fontWeight: 'bold' }}>Итого (со скидками)</Text>
-                                <Text sx={{ fontSize: 1, fontWeight: 'bold' }}><CoinValue value={fmt(manualQueueTotal)} /></Text>
-                              </Box>
-                            </>}
-                          <Button variant="primary" block loading={busy} disabled={busy} onClick={saveManualQueue}>Сохранить</Button>
-                        </>
-                      )}
+          {mode === 'upgrade' && (
+            <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
+              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} onTargets={setTargets} />
+          )}
 
-                      {mode === 'upgrade' && (
-                        <>
-                          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                            Кликните по зданию — цель сохранится для этой клетки. Можно и «кистью»:
-                            зажмите левую кнопку и проведите по нескольким зданиям сразу — всем им
-                            выставится один и тот же целевой уровень. Бот сам ждёт освобождения
-                            строителей и улучшает до нужного уровня.
-                          </Text>
-                          <Box>
-                            <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 1 }}>Целевой уровень</Text>
-                            <TextInput type="number" value={addLevel} onChange={e => setAddLevel(e.target.value)} block />
-                          </Box>
-                          {targets.length === 0
-                            ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Целей пока нет</Text>
-                            : targets.map(t => {
-                              const b = owned.find(o => o.x === t.x && o.y === t.y);
-                              return (
-                                <Box key={`${t.x},${t.y}`} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                                  <Text sx={{ fontSize: 1 }}>{b ? labelFor(b.id) : '—'} ({t.x},{t.y}) → ур. {t.target_level}</Text>
-                                  <Button variant="danger" onClick={() => removeTarget(t.x, t.y)}>×</Button>
-                                </Box>
-                              );
-                            })}
-                          <Button variant="primary" block loading={busy} disabled={busy} onClick={saveTargets}>Сохранить</Button>
-                        </>
-                      )}
+          {mode === 'queue' && (
+            <QueuePanel queue={manualQueue} owned={owned} labelFor={labelFor} prices={manualQueuePrices}
+              onReorder={moveQueued} onRemove={removeQueuedManual} />
+          )}
 
-                      {mode === 'build' && (
-                        <>
-                          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                            Выберите здание в списке, затем кликайте пустые клетки на карте — или
-                            зажмите левую кнопку и проведите кистью по нескольким сразу. Каждая клетка
-                            добавляется в очередь ниже.
-                          </Text>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
-                            <div id="map-cat-tabs">
-                              {['', ...paletteCats].map(cat => (
-                                <span key={cat || '__all'} className={'map-cat-tab' + (catFilter === cat ? ' active' : '')} onClick={() => setCatFilter(cat)}>
-                                  {cat || 'ВСЕ'}
-                                </span>
-                              ))}
-                            </div>
-                            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                              {paletteFiltered.map(b => {
-                                const k = familyCounts.get(familyId(b.id)) ?? 0;
-                                const limitReached = b.limit != null && k >= b.limit;
-                                const criteriaUnmet = !limitReached && isCriteriaUnmet(buildCriteria, b.id);
-                                const price = buildPriceAt(b, k, buildCostMultiplier);
-                                const unaffordable = !limitReached && !criteriaUnmet && price > balance;
-                                const unavailable = limitReached || criteriaUnmet || unaffordable;
-                                return (
-                                  <div key={b.id}
-                                    className={'map-bitem' + (buildFamily === b.id ? ' active' : '') + (unavailable ? ' disabled' : '')}
-                                    onClick={() => { if (!unavailable) setBuildFamily(b.id); }}>
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildingName(b)}</span>
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: unavailable ? 'var(--fg-muted)' : 'var(--fg)', flexShrink: 0 }}>
-                                      {limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : <CoinValue value={fmt(price)} />}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </Box>
-                          </Box>
-                        </>
-                      )}
+          {mode === 'forecast' && <ForecastPanel events={forecastEvents} loading={forecastLoading} labelFor={labelFor} />}
 
-                      {mode === 'move' && (
-                        <>
-                          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                            {!moveFrom ? 'Кликните здание, которое хотите переместить.' : 'Теперь кликните пустую клетку — куда переместить.'}
-                            {' '}Можно переместить сразу несколько — после каждой пары карта сразу
-                            покажет здание на новом месте, а старая клетка освобождается для следующего.
-                            Косметика — на экономику не влияет.
-                          </Text>
-                          {moveFrom && <Text sx={{ fontSize: 1 }}>Откуда: ({moveFrom.x},{moveFrom.y})</Text>}
-                          {moveFrom && <Button onClick={() => setMoveFrom(null)}>Отменить выбор</Button>}
-                        </>
-                      )}
-
-                      {mode === 'demolish' && (
-                        <Text sx={{ fontSize: 0, color: 'danger.fg' }}>
-                          Кликайте здания для сноса — или зажмите левую кнопку и проведите кистью,
-                          чтобы отметить сразу область. Без возврата монет.
-                        </Text>
-                      )}
-
-                      {mode === 'reconstruct' && (
-                        <>
-                          {resourceHeader('component', 'Компонентов', components)}
-                          <Box sx={{ display: 'flex', gap: 1 }}>
-                            <Button variant={!schedulingReconstruct ? 'primary' : 'default'} onClick={() => setSchedulingReconstruct(false)}>Сейчас</Button>
-                            <Button variant={schedulingReconstruct ? 'primary' : 'default'} onClick={() => setSchedulingReconstruct(true)}>Запланировать</Button>
-                          </Box>
-                          {!schedulingReconstruct ? (
-                            <>
-                              <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                                Тратит «Компонент», сбрасывает здание на 1 уровень взамен на мастерпланы.
-                                Подсвечены только уже подходящие здания (уровень уже достигнут) — кликайте
-                                или выделяйте кистью, выполнится сразу кнопкой «Выполнить».
-                              </Text>
-                              {reconstructableSet.size === 0 && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Нет зданий, подходящих под реконструкцию прямо сейчас</Text>}
-                            </>
-                          ) : (
-                            <>
-                              <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                                Кликните здание (не обязательно уже готовое) — бот сам отправит
-                                реконструкцию, как только оно достигнет нужного уровня и не будет занято
-                                стройкой. Повторный клик снимает план.
-                              </Text>
-                              {reconstructPlan.length === 0
-                                ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Ничего не запланировано</Text>
-                                : reconstructPlan.map(p => {
-                                  const b = owned.find(o => o.x === p.x && o.y === p.y);
-                                  const info = b ? buildingParamMap.get(b.id) : undefined;
-                                  const endMs = b?.end ? new Date(b.end).getTime() : 0;
-                                  const underConstruction = endMs > Date.now();
-                                  // во время стройки игра уже отдаёт b.level КАК ЦЕЛЕВОЙ (после завершения), а не
-                                  // текущий реальный — поэтому пока стройка идёт, показываем b.level-1 как реальный
-                                  // уровень и явно помечаем "в процессе", вместо вводящего в заблуждение "25/25"
-                                  // (реконструкция всё равно не уйдёт, пока стройка не закончится — см. progress.js)
-                                  const realLevel = b ? (Number(b.level) || 0) - (underConstruction ? 1 : 0) : null;
-                                  return (
-                                    <Box key={`${p.x},${p.y}`} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                                      <Box>
-                                        <Text sx={{ fontSize: 1 }}>
-                                          {b ? labelFor(b.id) : '—'} ({p.x},{p.y})
-                                          {underConstruction
-                                            ? ` — ур. ${realLevel}→${b!.level} (стройка, осталось ${fmtTimeLeft(endMs - Date.now())})`
-                                            : info?.required_lvl != null ? ` — ур. ${realLevel ?? '?'}/${info.required_lvl}` : ''}
-                                        </Text>
-                                        {(info?.components_required != null || info?.masterplans_to_get != null) && (
-                                          <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>
-                                            {info?.components_required != null && `−${info.components_required} компонентов`}
-                                            {info?.components_required != null && info?.masterplans_to_get != null && ' · '}
-                                            {info?.masterplans_to_get != null && `+${info.masterplans_to_get} мастерпланов`}
-                                          </Text>
-                                        )}
-                                      </Box>
-                                      <Button variant="danger" onClick={() => removeReconstructPlanned(p.x, p.y)}>×</Button>
-                                    </Box>
-                                  );
-                                })}
-                              <Button variant="primary" block loading={busy} disabled={busy} onClick={saveReconstructPlan}>Сохранить</Button>
-                            </>
-                          )}
-                        </>
-                      )}
-
-                      {mode === 'renovate' && (
-                        <>
-                          {resourceHeader('masterplan', 'Мастерпланов', masterplans)}
-                          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                            Тратит «Мастерплан», эволюционирует здание в следующий звёздный тир.
-                            Подсвечены только подходящие здания — кликайте или выделяйте кистью.
-                          </Text>
-                          {renovatableSet.size === 0 && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Нет зданий, подходящих под реновацию</Text>}
-                        </>
-                      )}
-
-                      {mode === 'boosters' && (
-                        <>
-                          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <Button disabled={boostersChecking} loading={boostersChecking} onClick={checkBoosters}>Обновить с игры</Button>
-                          </Box>
-
-                          {/* Очередь активации: порядок = приоритет. Цикл активирует первый доступный
-                              сверху, а как освободится слот — следующий (напр. лега → мифик). */}
-                          <Box sx={{ p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                            <Text sx={{ fontSize: 1, fontWeight: 'bold', display: 'block', mb: 1 }}>Очередь активации</Text>
-                            {boosterQueue.length === 0
-                              ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Пусто — добавьте ускорители кнопкой «В очередь» ниже</Text>
-                              : boosterQueue.map((q, i) => (
-                                  <Box key={`${q.name}:${i}`} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: '4px' }}>
-                                    <Text sx={{ fontSize: 0, color: 'fg.muted', width: 18 }}>{i + 1}.</Text>
-                                    <Text sx={{ fontSize: 1, flex: 1, minWidth: 0 }}>{q.label}</Text>
-                                    <Button size="small" variant="invisible" disabled={i === 0} onClick={() => queueMove(i, -1)}>↑</Button>
-                                    <Button size="small" variant="invisible" disabled={i === boosterQueue.length - 1} onClick={() => queueMove(i, 1)}>↓</Button>
-                                    <Button size="small" variant="danger" onClick={() => queueRemoveAt(i)}>✕</Button>
-                                  </Box>
-                                ))}
-                            <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>
-                              Бот активирует по порядку: пока занят слот одного типа, другой тип ждёт; как только
-                              освободится — встанет следующий из очереди.
-                            </Text>
-                          </Box>
-
-                          {boostersLoading ? <Spinner />
-                            : boosters.length === 0 ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Ускорителей в инвентаре нет</Text>
-                            : boosters.map(b => {
-                              const canActivate = b.available > 0 && b.currently_active < b.active_limit && !b.blocked_by_other;
-                              const activating = boosterActivating.has(b.name);
-                              return (
-                                <Box key={b.name} sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                                  <Text sx={{ fontSize: 1, fontWeight: 'bold' }}>{b.label}</Text>
-                                  <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                                    Активно: {b.currently_active}/{b.active_limit} · В наличии: {b.available}
-                                    {b.currently_active > 0 && b.ends_at != null && ` · осталось ${fmtTimeLeft(b.ends_at - Date.now())}`}
-                                  </Text>
-                                  {b.blocked_by_other && <Text sx={{ fontSize: 0, color: 'attention.fg' }}>Заблокировано другим активным ускорителем</Text>}
-                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    {/* вместо «Активировать» — постановка в очередь: цикл сам активирует
-                                        по порядку, как только освободится слот (см. modules/boosterAutomation.js) */}
-                                    {/* одно нажатие = +1 экземпляр; ограничение — сколько реально
-                                        есть в наличии, больше в очередь ставить бессмысленно */}
-                                    <Button variant="primary" disabled={queuedCount(b.name) >= b.available}
-                                      onClick={() => queueAdd(b.name)}>
-                                      В очередь{queuedCount(b.name) > 0 && <CounterLabel sx={{ ml: 1, bg: 'fg.onEmphasis', color: 'btn.primary.bg' }}>{queuedCount(b.name)}/{b.available}</CounterLabel>}
-                                    </Button>
-                                    <Button variant="invisible" disabled={!canActivate || activating} loading={activating}
-                                      onClick={() => activateBooster(b.name)} sx={{ fontSize: 0 }}>Активировать сейчас</Button>
-                                  </Box>
-                                </Box>
-                              );
-                            })}
-                        </>
-                      )}
-
-                      {mode === 'log' && (
-                        <>
-                          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Последние действия по этому городу — и бота, и ручные.</Text>
-                          {actionLogLoading ? <Spinner />
-                            : actionLog.length === 0 ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Лог пуст</Text>
-                            : actionLog.map(r => (
-                              <Box key={r.id} sx={{ p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                                <Text sx={{ fontSize: 1, display: 'block' }}>{logLabel(r, labelFor, boosterLabelFor)}</Text>
-                                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{new Date(r.created_at).toLocaleString('ru')}</Text>
-                              </Box>
-                            ))}
-                        </>
-                      )}
-
-                      {mode === 'forecast' && (
-                        <>
-                          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                            Реальные предполагаемые действия бота на ближайшие ~3 суток — очередь,
-                            личный и общий планы, с учётом накопления монет от прибыли города.
-                          </Text>
-                          <Button loading={forecastLoading} disabled={forecastLoading} onClick={loadForecast}>Обновить прогноз</Button>
-                          {forecastLoading ? null : forecastEvents.length === 0
-                            ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Прогноз пуст — нечего запускать в ближайшие 3 суток</Text>
-                            : (() => {
-                              const groups = new Map<string, ForecastEvent[]>();
-                              for (const e of forecastEvents) {
-                                const day = new Date(e.start).toLocaleDateString('ru');
-                                if (!groups.has(day)) groups.set(day, []);
-                                groups.get(day)!.push(e);
-                              }
-                              return [...groups.entries()].map(([day, evs]) => (
-                                <Box key={day} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                  <Text sx={{ fontSize: 0, fontWeight: 'bold', color: 'fg.muted' }}>{day}</Text>
-                                  {evs.map((e, i) => (
-                                    <Box key={i} sx={{ p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                                      <Text sx={{ fontSize: 1, display: 'block' }}>{labelFor(e.building_id)} ({e.x},{e.y}) {e.level_from}→{e.level_to}</Text>
-                                      <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                                        {new Date(e.start).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })} — займёт {fmtTimeLeft(e.duration_ms)}
-                                      </Text>
-                                    </Box>
-                                  ))}
-                                </Box>
-                              ));
-                            })()}
-                        </>
-                      )}
-
-                      {/* ── общая очередь действий — видна в любой вкладке ── */}
-                      {queue.length > 0 && (
-                        <Box sx={{ borderTop: '1px solid', borderColor: 'border.default', pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <Text sx={{ fontSize: 0, fontWeight: 'bold', color: 'fg.muted' }}>Очередь ({queue.length})</Text>
-                          {queue.map(a => (
-                            <Box key={a.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                              <Text sx={{ fontSize: 1 }}>{actionLabel(a, labelFor, findInfoAt)}</Text>
-                              <Button variant="danger" disabled={executing} onClick={() => removeQueued(a.id)}>×</Button>
-                            </Box>
-                          ))}
-                        </Box>
-                      )}
-                    </Box>
-                  </Scrollable>
-
-                  {queue.length > 0 && (
-                    <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default' }}>
-                      <Button variant="primary" block loading={executing} disabled={executing} onClick={runQueue}>
-                        {executing && progress ? `Выполняется ${progress.done}/${progress.total}…` : `Выполнить очередь (${queue.length})`}
-                      </Button>
-                    </Box>
-                  )}
+          {mode === 'build' && (
+            <>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
+                <div id="map-cat-tabs">
+                  {['', ...paletteCats].map(cat => (
+                    <span key={cat || '__all'} className={'map-cat-tab' + (catFilter === cat ? ' active' : '')} onClick={() => setCatFilter(cat)}>
+                      {cat || 'ВСЕ'}
+                    </span>
+                  ))}
                 </div>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  {paletteFiltered.map(b => {
+                    const k = familyCounts.get(familyId(b.id)) ?? 0;
+                    const limitReached = b.limit != null && k >= b.limit;
+                    const criteriaUnmet = !limitReached && isCriteriaUnmet(buildCriteria, b.id);
+                    const price = buildPriceAt(b, k, buildCostMultiplier);
+                    const unaffordable = !limitReached && !criteriaUnmet && price > balance;
+                    const unavailable = limitReached || criteriaUnmet || unaffordable;
+                    return (
+                      <div key={b.id}
+                        className={'map-bitem' + (buildFamily === b.id ? ' active' : '') + (unavailable ? ' disabled' : '')}
+                        onClick={() => { if (!unavailable) setBuildFamily(b.id); }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildingName(b)}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: unavailable ? 'var(--fg-muted)' : 'var(--fg)', flexShrink: 0 }}>
+                          {limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : <CoinValue value={fmt(price)} />}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </Box>
+              </Box>
+              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
+
+          {mode === 'move' && (
+            <>
+              <Text sx={{ color: moveFrom ? 'accent.fg' : 'fg.default' }}>
+                {!moveFrom ? 'Кликните здание, которое хотите переместить.' : `Откуда: (${moveFrom.x},${moveFrom.y}). Теперь кликните пустую клетку.`}
+              </Text>
+              {moveFrom && <Box><Button size="small" onClick={() => setMoveFrom(null)}>Отменить выбор</Button></Box>}
+              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
+
+          {mode === 'demolish' && (
+            <>
+              <DemolishPanel tiles={demolishTiles} lossPerHour={demolishLoss} disabled={executing} onRemove={removeQueued} />
+              <PendingList rows={pendingNoDemolish} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
+
+          {mode === 'reconstruct' && (
+            <>
+              {resourceHeader('component', 'Компонентов', components)}
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button variant={!schedulingReconstruct ? 'primary' : 'default'} onClick={() => setSchedulingReconstruct(false)}>Сейчас</Button>
+                <Button variant={schedulingReconstruct ? 'primary' : 'default'} onClick={() => setSchedulingReconstruct(true)}>Запланировать</Button>
+              </Box>
+              {!schedulingReconstruct ? (
+                <>
+                  <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
+                    Тратит «Компонент», сбрасывает здание на 1 уровень взамен на мастерпланы.
+                    Подсвечены только уже подходящие здания (уровень уже достигнут) — кликайте
+                    или выделяйте кистью, выполнится сразу кнопкой «Выполнить».
+                  </Text>
+                  {reconstructableSet.size === 0 && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Нет зданий, подходящих под реконструкцию прямо сейчас</Text>}
+                </>
+              ) : (
+                <>
+                  <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
+                    Кликните здание (не обязательно уже готовое) — бот сам отправит
+                    реконструкцию, как только оно достигнет нужного уровня и не будет занято
+                    стройкой. Повторный клик снимает план.
+                  </Text>
+                  {reconstructPlan.length === 0
+                    ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Ничего не запланировано</Text>
+                    : reconstructPlan.map(p => {
+                      const b = owned.find(o => o.x === p.x && o.y === p.y);
+                      const info = b ? buildingParamMap.get(b.id) : undefined;
+                      const endMs = b?.end ? new Date(b.end).getTime() : 0;
+                      const underConstruction = endMs > Date.now();
+                      // во время стройки игра уже отдаёт b.level КАК ЦЕЛЕВОЙ (после завершения), а не
+                      // текущий реальный — поэтому пока стройка идёт, показываем b.level-1 как реальный
+                      // уровень и явно помечаем "в процессе", вместо вводящего в заблуждение "25/25"
+                      // (реконструкция всё равно не уйдёт, пока стройка не закончится — см. progress.js)
+                      const realLevel = b ? (Number(b.level) || 0) - (underConstruction ? 1 : 0) : null;
+                      return (
+                        <Box key={`${p.x},${p.y}`} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
+                          <Box>
+                            <Text sx={{ fontSize: 1 }}>
+                              {b ? labelFor(b.id) : '—'} ({p.x},{p.y})
+                              {underConstruction
+                                ? ` — ур. ${realLevel}→${b!.level} (стройка, осталось ${fmtTimeLeft(endMs - Date.now())})`
+                                : info?.required_lvl != null ? ` — ур. ${realLevel ?? '?'}/${info.required_lvl}` : ''}
+                            </Text>
+                            {(info?.components_required != null || info?.masterplans_to_get != null) && (
+                              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>
+                                {info?.components_required != null && `−${info.components_required} компонентов`}
+                                {info?.components_required != null && info?.masterplans_to_get != null && ' · '}
+                                {info?.masterplans_to_get != null && `+${info.masterplans_to_get} мастерпланов`}
+                              </Text>
+                            )}
+                          </Box>
+                          <Button variant="danger" onClick={() => removeReconstructPlanned(p.x, p.y)}>×</Button>
+                        </Box>
+                      );
+                    })}
+                  <Button variant="primary" block loading={busy} disabled={busy} onClick={saveReconstructPlan}>Сохранить</Button>
+                </>
               )}
+              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
+
+          {mode === 'renovate' && (
+            <>
+              <RenovatePanel masterplans={masterplans} items={renovateItems} onToggle={toggleRenovate} disabled={executing} />
+              <PendingList rows={pendingRows.filter(r => r.kind !== 'renovate')} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
+
+          {mode === 'boosters' && (
+            <BoostersPanel boosters={boosters} loading={boostersLoading} queue={boosterQueue} activating={boosterActivating}
+              onAdd={queueAdd} onMove={queueMove} onRemoveAt={queueRemoveAt} onActivate={activateBooster} />
+          )}
+
+          {mode === 'log' && <LogPanel rows={actionLog} loading={actionLogLoading} label={r => logLabel(r, labelFor, boosterLabelFor)} />}
+
+          {mode === 'skip' && <Empty>—</Empty>}
+        </PanelShell>
+      </Box>
     </Box>
   );
 }
