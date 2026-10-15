@@ -18,6 +18,11 @@
 
 ## 2026-10-15
 
+### Образы: arm/v7 и без строк unknown/unknown
+- `.github/workflows/docker.yml`: бот и обновлятель собираются ещё и под `linux/arm/v7` (32-битные платы), `arm64` = ARMv8 уже был. Базовые `node:22-alpine` и `docker:27-cli` есть под arm/v7, нативных модулей у бэкенда нет (ни одного `hasInstallScript` в `package-lock.json`), веб-панель по-прежнему собирается один раз на машине сборки.
+- Там же `provenance: false`, `sbom: false`: buildx по умолчанию добавлял к каждой платформе attestation-манифест, GHCR показывал его как `unknown/unknown`.
+- `Dockerfile`: на 32-битном ARM (`uname -m` = `arm*`) куча node 1,5 ГБ вместо 3 ГБ — 3 ГБ не помещается в адресное пространство процесса.
+
 ### Обновление бота: настоящий прогресс скачивания
 - `updater/updater.sh` (версия 5): образ качается через Docker Engine API (`POST /images/create` по сокету), поток по слоям раз в секунду сводится в `progress {layers,downloaded,extracted,cur,total,estTotal}` в `status.json`. Размер ещё не начатых слоёв оценивается средним по известным. Не вышло (сокет, приватный реестр) — прежний `docker pull -q`. В режиме compose `docker compose pull` идёт после и лишь сверяет образ.
 - `GET /api/build` отдаёт `update {state,message,progress}`, пока обновлятель занят; `useBuildWatcher` опрашивает раз в 1,5 с во время обновления и минуту после нажатия «Обновить» (`watchUpdate`).
