@@ -311,7 +311,9 @@ function QuestRow({ q: qProp, accountId, account: ownAccount, onCollected, sibli
   };
 
   return (
-    <Box sx={{
+    // className quest-row* — раскладка для телефона (см. global.css): иконка и текст сверху,
+    // таймер/почёт и кнопка — отдельной строкой снизу, чтобы кнопка не наезжала на описание
+    <Box className="quest-row" sx={{
       display: 'flex', alignItems: 'center', gap: '12px', p: '8px', mb: '8px',
       border: '2px solid', borderColor: border, borderRadius: '21px', bg: 'canvas.default',
       opacity: q.is_collected ? 0.55 : 1,
@@ -326,7 +328,7 @@ function QuestRow({ q: qProp, accountId, account: ownAccount, onCollected, sibli
       </div>
 
       {/* текст */}
-      <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Box className="quest-row__text" sx={{ flex: 1, minWidth: 0 }}>
         <Text sx={{ fontWeight: 'bold', fontSize: 1, display: 'block' }}>{name}</Text>
         <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: '2px' }}>
           {desc} [Личное: {fmt(q.personal_progress)}/{fmt(q.personal_threshold)}]
@@ -340,14 +342,14 @@ function QuestRow({ q: qProp, accountId, account: ownAccount, onCollected, sibli
           (Активировать/Комбинировать) и заклеймом. Остаток ускорителей и занятость слота тоже
           показываются там — в строке квеста их намеренно нет, чтобы не дублировать */}
       {actionable && (
-        <Button size="small" variant={readyToCollect ? 'primary' : 'default'} onClick={() => setDoOpen(true)}>
+        <Button className="quest-row__btn" size="small" variant={readyToCollect ? 'primary' : 'default'} onClick={() => setDoOpen(true)}>
           {claimingNow ? 'Забираем…' : 'Выполнить'}
         </Button>
       )}
 
       {/* типы без действий бота: модалки у них нет, поэтому заклейм остаётся прямо в строке */}
       {!actionable && readyToCollect && (
-        <Button size="small" variant="primary" loading={collecting || claimingNow}
+        <Button className="quest-row__btn" size="small" variant="primary" loading={collecting || claimingNow}
           disabled={collecting || claimingNow || !accountId} onClick={collect}>
           {claimingNow ? 'Забираем…' : 'Заклеймить'}
         </Button>
@@ -363,7 +365,7 @@ function QuestRow({ q: qProp, accountId, account: ownAccount, onCollected, sibli
       )}
 
       {/* галочка (получено) / время / почёт — фикс. ширина, чтобы колонки выравнивались по рядам */}
-      <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', pr: '4px' }}>
+      <Box className="quest-row__meta" sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', pr: '4px' }}>
         <Box sx={{ width: RIGHT_COL_WIDTH, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
           {q.is_collected && <CheckIcon size={16} fill="var(--green)" />}
         </Box>

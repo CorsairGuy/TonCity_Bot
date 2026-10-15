@@ -176,6 +176,7 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 12px; }
 .text-muted { color: var(--fg-muted); }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat-grid--reserve { grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); }
 
 /* log viewer */
 .log-line { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid #f0f0f0; }
@@ -217,7 +218,9 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
    ускоритель (уточнено по факту в игре). winter остаётся своим малиновым цветом. Ниже — светлая
    адаптация той же палитры (сама игра тёмная, эталона для светлой темы нет); точный вариант игры —
    в тёмной теме ниже. */
-.ic-common,.ic-basic,.ic-shard_common,.ic-mystery_common       { background: rgba(255,255,255,.8); border: 1px solid #ddd; }
+/* обычная — серо-стальная подложка в той же схеме «полупрозрачный цвет + рамка», что и у остальных
+   редкостей (белая сливалась с фоном и выглядела пустой) */
+.ic-common,.ic-basic,.ic-shard_common,.ic-mystery_common       { background: rgba(110,118,129,.14); border: 1px solid rgba(110,118,129,.5); }
 .ic-uncommon,.ic-advanced,.ic-shard_uncommon,.ic-mystery_uncommon { background: rgba(39,174,96,.10); border: 1px solid rgba(39,174,96,.5); }
 .ic-rare,.ic-elite,.ic-shard_rare,.ic-mystery_rare,.ic-policy_pack_rare             { background: rgba(35,143,213,.12); border: 1px solid rgba(35,143,213,.5); }
 .ic-component,.ic-epic,.ic-reform_stone_epic,.ic-premium,.ic-shard_epic,.ic-mystery_epic,.ic-policy_pack_epic { background: rgba(169,47,220,.14); border: 1px solid rgba(169,47,220,.5); }
@@ -528,7 +531,7 @@ html[data-theme="dark"] .item-card__box { box-shadow: inset 0 0 0 1px rgba(255,2
 html[data-theme="dark"] .item-card.clickable:hover .item-card__box { box-shadow: inset 0 0 0 1px rgba(255,255,255,.06), 0 0 0 2px var(--accent); }
 /* фоны редкостей в тёмной теме — 1:1 из CSS игры (storage-*.css, .card-{rarity}), сама игра
    всегда тёмная, поэтому здесь точные исходные значения, не адаптация. */
-html[data-theme="dark"] .ic-common,html[data-theme="dark"] .ic-basic,html[data-theme="dark"] .ic-shard_common,html[data-theme="dark"] .ic-mystery_common { background: #1e1e1e; border-color: #333; }
+html[data-theme="dark"] .ic-common,html[data-theme="dark"] .ic-basic,html[data-theme="dark"] .ic-shard_common,html[data-theme="dark"] .ic-mystery_common { background: rgba(139,148,158,.14); border-color: rgba(139,148,158,.4); }
 html[data-theme="dark"] .ic-uncommon,html[data-theme="dark"] .ic-advanced,html[data-theme="dark"] .ic-shard_uncommon,html[data-theme="dark"] .ic-mystery_uncommon { background: rgba(39,174,96,.08); border-color: rgba(39,174,96,.4); }
 html[data-theme="dark"] .ic-rare,html[data-theme="dark"] .ic-elite,html[data-theme="dark"] .ic-shard_rare,html[data-theme="dark"] .ic-mystery_rare,html[data-theme="dark"] .ic-policy_pack_rare { background: rgba(35,143,213,.15); border-color: rgba(35,143,213,.4); }
 html[data-theme="dark"] .ic-component,html[data-theme="dark"] .ic-reform_stone_epic,html[data-theme="dark"] .ic-epic,html[data-theme="dark"] .ic-premium,html[data-theme="dark"] .ic-shard_epic,html[data-theme="dark"] .ic-mystery_epic,html[data-theme="dark"] .ic-policy_pack_epic { background: rgba(169,47,220,.2); border-color: rgba(169,47,220,.3); }
@@ -557,3 +560,28 @@ html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
 .g2048-tile-pop { animation: g2048-pop .15s ease; }
 @keyframes g2048-appear { 0% { opacity: 0; transform: scale(0); } to { opacity: 1; transform: scale(1); } }
 @keyframes g2048-pop { 0% { transform: scale(1); } 50% { transform: scale(1.15); } to { transform: scale(1); } }
+
+/* ── телефон: квесты, стейкинг, склад ── */
+@media (max-width: 768px) {
+  /* квест: иконка+текст первой строкой на всю ширину, таймер/почёт и кнопка — второй строкой
+     (раньше кнопка и правые колонки сжимали описание до столбика и кнопка наезжала на текст) */
+  .quest-row { flex-wrap: wrap; row-gap: 8px !important; }
+  .quest-row__text { flex: 1 1 calc(100% - 68px) !important; }
+  .quest-row__meta { order: 3; flex: 1 1 auto !important; padding-left: 4px; }
+  .quest-row__meta > div { width: auto !important; margin-right: 14px; }
+  .quest-row__meta > div:empty { display: none; }
+  .quest-row__btn { order: 4; margin-left: auto; }
+
+  /* стейкинг: итоги сеткой 2×2 вместо четырёх карточек одна под другой */
+  .stat-grid--reserve { grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  /* склад: плотная сетка — 4 предмета в ряд на всю ширину */
+  .item-grid { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px !important; }
+  .item-grid .item-card__box { width: 100%; height: auto; aspect-ratio: 1; min-height: 0; }
+  .item-grid .item-card__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+}
+
+/* Ежедневная награда: дни с монетами/кристаллами — цветная полупрозрачная подложка, адаптивна к теме */
+.dr-coins    { background: rgba(212,160,23,.13); border: 1px solid rgba(212,160,23,.5); gap: 4px; }
+.dr-crystals { background: rgba(46,160,67,.12);  border: 1px solid rgba(46,160,67,.5);  gap: 4px; }
+.dr-amount   { font-size: 12px; font-weight: 600; color: var(--fgColor-default, var(--fg)); line-height: 1; white-space: nowrap; }

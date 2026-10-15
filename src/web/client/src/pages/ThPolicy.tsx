@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Tooltip } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text, Tooltip } from '@primer/react';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type PolicyDefEntry } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { PolicyCardModal, RARITY_COLOR, RARITY_NAME, RARITY_ORDER, defName } from '../components/PolicyCardModal';
+import { PageHeader } from '../components/PageHeader';
 
 // "Библиотека политик" — каталог описаний, собранный со всех аккаунтов бота.
 // Игра НЕ хранит на клиенте полный список всех политик: /policies/library отдаёт по каждому
@@ -84,7 +85,11 @@ export function ThPolicy() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 2 }}>Библиотека политик</Heading>
+      <PageHeader mb={2} title="Библиотека политик" actions={<>
+        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
+          Обновить
+        </Button>
+      </>} />
       <Text sx={{ color: 'fg.muted', fontSize: 1, display: 'block', mb: 3 }}>
         Каталог из всех аккаунтов бота, пополняется по мере открытия. Игра сообщает лишь СКОЛЬКО
         политик каждой редкости существует (прогресс ниже) — но идентичность запертых (их имена/эффекты)
@@ -92,11 +97,6 @@ export function ThPolicy() {
       </Text>
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
-          Обновить
-        </Button>
-      </Box>
 
       {defs.length === 0 && Object.keys(totals).length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Пока ничего не найдено — политики ещё не открыты ни у одного аккаунта</Text>

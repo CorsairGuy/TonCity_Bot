@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Label, Tooltip, ConfirmationDialog, IconButton, TextInput } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text, Label, Tooltip, ConfirmationDialog, IconButton, TextInput } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { SyncIcon, TrashIcon, CheckCircleIcon, XCircleIcon, StarIcon, ArrowUpIcon, DashIcon, PlusIcon, UnlockIcon, PlusCircleIcon, type Icon } from '@primer/octicons-react';
 import { api, type PoliciesAccountData, type PolicyInstance, type PolicyShardItem, type PolicyActionName, type PolicyEconomy } from '../api';
@@ -8,6 +8,7 @@ import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { StorageModal } from '../components/StorageModal';
 import { effectLabel, effectValue } from '../policyEffects';
+import { PageHeader } from '../components/PageHeader';
 
 // цвет/название редкости — как в игре (Библиотека политик)
 const RARITY_COLOR: Record<string, string> = {
@@ -603,14 +604,13 @@ export function Policies() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Политики</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Политики" actions={<>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
           Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+
 
       {accounts.length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Нет данных</Text>

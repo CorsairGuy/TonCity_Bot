@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner } from '@primer/react';
+import { Box, Button, Flash, Spinner } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type TownhallAccount } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { PageHeader } from '../components/PageHeader';
 
 export function ThDiversity() {
   const [accounts, setAccounts] = useState<TownhallAccount[]>([]);
@@ -49,13 +50,12 @@ export function ThDiversity() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Разнообразие города</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Разнообразие города" actions={<>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
           Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       <Table.Container>
         <DataTable

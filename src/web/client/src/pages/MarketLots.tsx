@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Label, Spinner, Text, Select, Checkbox, TextInput } from '@primer/react';
+import { Box, Button, CounterLabel, Flash, Label, SegmentedControl, Spinner, Text, Select, Checkbox, TextInput } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, ZapIcon } from '@primer/octicons-react';
@@ -11,6 +11,7 @@ import { PolicyCardModal, RARITY_COLOR } from '../components/PolicyCardModal';
 import { Scrollable } from '../components/Scrollable';
 import { useItemCatalog, itemName, knownItemName } from '../hooks/useItemCatalog';
 import { ItemThumb } from '../components/ItemThumb';
+import { PageHeader } from '../components/PageHeader';
 
 // Карточка политики для лота маркета: показываем ИМЕННО тот вариант (def_id/редкость), что
 // продаётся в этом лоте — не все варианты названия (в отличие от библиотеки). Берём точное
@@ -477,6 +478,14 @@ export function MarketLots() {
   const [policyDefs, setPolicyDefs] = useState<PolicyDefEntry[]>([]);   // каталог для вариантов
   const [autoBuy, setAutoBuy] = useState(false);
   const [snipesOpen, setSnipesOpen] = useState(false);
+  // счётчики на кнопках «Автопокупки»/«Снайпы» — сколько правил включено и сколько снайпов ждёт
+  const [autoBuyCount, setAutoBuyCount] = useState(0);
+  const [snipeCount, setSnipeCount] = useState(0);
+  const loadCounters = () => {
+    api.marketAutobuyList().then(d => { if (d.ok) setAutoBuyCount(d.rules.filter(r => r.enabled).length); }).catch(() => {});
+    api.marketSnipeList().then(d => { if (d.ok) setSnipeCount(d.snipes.filter(x => x.status === 'pending').length); }).catch(() => {});
+  };
+  useEffect(() => { loadCounters(); }, []);
   const { flash, showFlash } = useFlash();
 
   // гибрид: если выбран конкретный предмет — категория+редкость берутся из него (фильтр редкости
@@ -514,48 +523,58 @@ export function MarketLots() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 1 }}>Офферы</Heading>
-      <Text sx={{ color: 'fg.muted', fontSize: 1, display: 'block', mb: 3 }}>
-        Витрина с рандомного аккаунта. «Купить» — параллельная покупка с выбранных аккаунтов, у кого хватает баланса.
-      </Text>
+      <PageHeader
+        title="Офферы"
+        sub={`${total} лотов · витрина с рандомного аккаунта`}
+        actions={<>
+          <Button leadingVisual={ZapIcon} onClick={() => setAutoBuy(true)}>
+            Автопокупки{autoBuyCount > 0 && <CounterLabel sx={{ ml: 1 }}>{autoBuyCount}</CounterLabel>}
+          </Button>
+          <Button onClick={() => setSnipesOpen(true)}>
+            Снайпы{snipeCount > 0 && <CounterLabel sx={{ ml: 1 }}>{snipeCount}</CounterLabel>}
+          </Button>
+          <Button leadingVisual={SyncIcon} loading={loading} onClick={() => load()}>Обновить</Button>
+        </>}
+      />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
+      {/* фильтры одной строкой: категория — сегментами слева (на телефоне сворачивается в список),
+          уточняющие списки — справа */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button leadingVisual={SyncIcon} loading={loading} onClick={() => load()}>Обновить</Button>
-        <Select value={marketType} onChange={e => setMarketType(e.target.value)}>
-          <Select.Option value="all">Все типы</Select.Option>
-          {MARKET_TYPES.map(t => <Select.Option key={t.value} value={t.value}>{t.label}</Select.Option>)}
-        </Select>
-        <Select value={item} onChange={e => setItem(e.target.value)}>
-          <Select.Option value="all">Все предметы</Select.Option>
-          {ITEM_FILTERS.map(f => <Select.Option key={f.id} value={String(f.id)}>{ITEMS_BY_ID[f.id]?.name ?? `#${f.id}`}</Select.Option>)}
-        </Select>
-        {/* полный фильтр по категории/редкости активен, только когда НЕ выбран конкретный предмет */}
-        <Select value={pickedItem ? pickedItem.category : category} onChange={e => setCategory(e.target.value)} disabled={!!pickedItem}>
-          <Select.Option value="all">Все категории</Select.Option>
-          {CATEGORIES.map(c => <Select.Option key={c.value} value={c.value}>{c.label}</Select.Option>)}
-        </Select>
-        {!pickedItem && (
-          <Select value={rarity} onChange={e => setRarity(e.target.value)}>
-            <Select.Option value="all">Любая редкость</Select.Option>
-            {RARITIES.map(r => <Select.Option key={r.value} value={r.value}>{r.label}</Select.Option>)}
+        <SegmentedControl aria-label="Категория" size="small" variant={{ narrow: 'dropdown', regular: 'default' }}
+          onChange={i => { setItem('all'); setCategory(i === 0 ? 'all' : CATEGORIES[i - 1].value); }}>
+          <SegmentedControl.Button selected={!pickedItem && category === 'all'}>Все</SegmentedControl.Button>
+          {CATEGORIES.map(c => (
+            <SegmentedControl.Button key={c.value} selected={(pickedItem ? pickedItem.category : category) === c.value}>{c.label}</SegmentedControl.Button>
+          ))}
+        </SegmentedControl>
+        <Box sx={{ display: 'flex', gap: 2, ml: 'auto', flexWrap: 'wrap' }}>
+          <Select size="small" value={item} onChange={e => setItem(e.target.value)}>
+            <Select.Option value="all">Все предметы</Select.Option>
+            {ITEM_FILTERS.map(f => <Select.Option key={f.id} value={String(f.id)}>{ITEMS_BY_ID[f.id]?.name ?? `#${f.id}`}</Select.Option>)}
           </Select>
-        )}
-        <Select value={currency} onChange={e => setCurrency(e.target.value)}>
-          <Select.Option value="all">Все валюты</Select.Option>
-          <Select.Option value="crystals">💎 Кристаллы</Select.Option>
-          <Select.Option value="ton">GRAM</Select.Option>
-        </Select>
-        <Select value={sort} onChange={e => setSort(e.target.value)}>
-          <Select.Option value="ends_at">Скоро закончатся</Select.Option>
-          <Select.Option value="price_asc">Дешевле</Select.Option>
-          <Select.Option value="price_desc">Дороже</Select.Option>
-        </Select>
-        <Button variant="danger" leadingVisual={ZapIcon} onClick={() => setAutoBuy(true)}>
-          Автопокупки
-        </Button>
-        <Button onClick={() => setSnipesOpen(true)}>Снайпы</Button>
-        <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Всего: {total}</Text>
+          {/* редкость — только когда НЕ выбран конкретный предмет (у предмета она своя) */}
+          {!pickedItem && (
+            <Select size="small" value={rarity} onChange={e => setRarity(e.target.value)}>
+              <Select.Option value="all">Любая редкость</Select.Option>
+              {RARITIES.map(r => <Select.Option key={r.value} value={r.value}>{r.label}</Select.Option>)}
+            </Select>
+          )}
+          <Select size="small" value={currency} onChange={e => setCurrency(e.target.value)}>
+            <Select.Option value="all">Все валюты</Select.Option>
+            <Select.Option value="crystals">💎 Кристаллы</Select.Option>
+            <Select.Option value="ton">GRAM</Select.Option>
+          </Select>
+          <Select size="small" value={marketType} onChange={e => setMarketType(e.target.value)}>
+            <Select.Option value="all">Все типы</Select.Option>
+            {MARKET_TYPES.map(t => <Select.Option key={t.value} value={t.value}>{t.label}</Select.Option>)}
+          </Select>
+          <Select size="small" value={sort} onChange={e => setSort(e.target.value)}>
+            <Select.Option value="ends_at">Скоро закончатся</Select.Option>
+            <Select.Option value="price_asc">Сначала дешевле</Select.Option>
+            <Select.Option value="price_desc">Сначала дороже</Select.Option>
+          </Select>
+        </Box>
       </Box>
 
       <Table.Container>
@@ -594,6 +613,9 @@ export function MarketLots() {
                           : <ItemThumb itemId={o.item_id} item={catalog.get(o.item_id)} size={24} style={{ fontSize: 8, padding: 0 }} />}
                     </Box>
                     <Text sx={{ fontSize: 1, whiteSpace: 'nowrap', minWidth: 0 }}>{name}</Text>
+                    {o.market_type && o.market_type !== 'direct' && (
+                      <Label variant={o.market_type === 'auction' ? 'attention' : 'accent'} sx={{ fontSize: 0 }}>{MT_LABEL[o.market_type] ?? o.market_type}</Label>
+                    )}
                   </Box>
                 );
               },
@@ -609,10 +631,10 @@ export function MarketLots() {
               },
             },
             {
-              header: 'Тип', field: 'market_type',
+              header: 'Редкость', field: 'item_rarity',
               renderCell: o => {
-                const mt = o.market_type ?? 'direct';
-                return <Label variant={mt === 'auction' ? 'attention' : mt === 'negotiation' ? 'accent' : 'default'} sx={{ fontSize: 0 }}>{MT_LABEL[mt] ?? mt}</Label>;
+                const r = RARITY[o.item_rarity];
+                return r ? <Text sx={{ fontSize: 1, color: r.c, whiteSpace: 'nowrap' }}>{r.n}</Text> : <Text sx={{ fontSize: 1, color: 'fg.muted' }}>—</Text>;
               },
             },
             {
@@ -620,17 +642,14 @@ export function MarketLots() {
               renderCell: o => (
                 <Box>
                   <Price currency={o.listing_currency} value={o.display_price} />
+                  {o.purchase_limit != null && (
+                    <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>лимит {o.purchase_limit}{o.purchase_limit_type ? `/${LIMIT_PERIOD[o.purchase_limit_type] ?? o.purchase_limit_type}` : ''}</Text>
+                  )}
                   {o.market_type === 'auction' && o.current_bid != null && (
                     <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>ставка: <Price currency={o.listing_currency} value={o.current_bid} /></Text>
                   )}
                 </Box>
               ),
-            },
-            {
-              header: 'Лимит', field: 'purchase_limit',
-              renderCell: o => o.purchase_limit != null
-                ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{o.purchase_limit}{o.purchase_limit_type ? `/${LIMIT_PERIOD[o.purchase_limit_type] ?? o.purchase_limit_type}` : ''}</Text>
-                : <Text sx={{ fontSize: 0, color: 'fg.muted' }}>∞</Text>,
             },
             {
               header: 'Статус', field: 'status',
@@ -653,8 +672,8 @@ export function MarketLots() {
                 const escrow = !sold && !!o.available_at && new Date(o.available_at).getTime() > Date.now();
                 const mt = o.market_type ?? 'direct';
                 // Аукционы: своим тоже можно ставить ставки (боты набивают друг другу цену) — блок "Свой" их не касается
-                const btn = (mine && mt !== 'auction') ? <Button variant="default" disabled>Свой</Button>
-                  : sold ? <Button variant="default" disabled>Продано</Button>
+                const btn = (mine && mt !== 'auction') ? <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Свой лот</Text>
+                  : sold ? <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Продано</Text>
                   : mt === 'auction' ? <Button variant="primary" onClick={() => setBidOffer(o)}>Ставка</Button>
                   : mt === 'negotiation' ? <Button variant="primary" onClick={() => setNegOffer(o)}>Оффер</Button>
                   : <Button variant="primary" onClick={() => setBuyOffer(o)}>{escrow ? 'Снайп' : 'Купить'}</Button>;
@@ -677,8 +696,8 @@ export function MarketLots() {
       {bidOffer && <BidDialog offer={bidOffer} accounts={accounts} onClose={() => setBidOffer(null)} showFlash={showFlash} onDone={() => load()} />}
       {negOffer && <NegotiationDialog offer={negOffer} accounts={accounts} onClose={() => setNegOffer(null)} showFlash={showFlash} onDone={() => load()} />}
       {policyModal && <PolicyCardModal variants={offerPolicyVariants(policyModal, policyDefs)} onClose={() => setPolicyModal(null)} />}
-      {autoBuy && <AutoBuyManager accounts={accounts} onClose={() => setAutoBuy(false)} showFlash={showFlash} />}
-      {snipesOpen && <SnipeManager accounts={accounts} onClose={() => setSnipesOpen(false)} />}
+      {autoBuy && <AutoBuyManager accounts={accounts} onClose={() => { setAutoBuy(false); loadCounters(); }} showFlash={showFlash} />}
+      {snipesOpen && <SnipeManager accounts={accounts} onClose={() => { setSnipesOpen(false); loadCounters(); }} />}
     </Box>
   );
 }

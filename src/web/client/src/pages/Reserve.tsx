@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Box, Button, Flash, Heading, Spinner, Text, ToggleSwitch, Label,
-  TabNav, ButtonGroup, CounterLabel, ConfirmationDialog,
+  Box, Button, Flash, Spinner, Text, ToggleSwitch, Label,
+  TabNav, ButtonGroup, CounterLabel, ConfirmationDialog, ProgressBar,
 } from '@primer/react';
 import { DataTable, Table, Dialog } from '@primer/react/experimental';
 import {
@@ -13,6 +13,8 @@ import { StatCard } from '../components/StatCard';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CrystalValue } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
+import { useNarrow } from '../hooks/useNarrow';
 
 // ── Конфиг ставок ────────────────────────────────────────────────────────────
 
@@ -304,6 +306,7 @@ function StakeModal({
 // ── Основная страница ─────────────────────────────────────────────────────────
 
 export function Reserve() {
+  const narrow = useNarrow();
   const [entries, setEntries]     = useState<StakingEntryRow[]>([]);
   const [accounts, setAccounts]   = useState<StakingAccountInfo[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -387,17 +390,8 @@ export function Reserve() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Стейкинг</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <Button ref={openBtnRef} leadingVisual={PlusCircleIcon} variant="primary" onClick={() => setModalOpen(true)}>
-          Новый вклад
-        </Button>
-        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
-          Обновить
-        </Button>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 1 }}>
+      <PageHeader title="Стейкинг" actions={<>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 1 }}>
           <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Собранные</Text>
           {/* Primer ToggleSwitch в управляемом режиме (передан checked) реагирует на клик через
               onClick, а не onChange — onChange там только эффект на смену checked ИЗВНЕ. С onChange
@@ -405,15 +399,23 @@ export function Reserve() {
           <ToggleSwitch size="small" checked={showCollected} onClick={() => setShowCollected(v => !v)} aria-label="Показать собранные" />
         </Box>
         {ready.length > 0 && (
-          <Label variant="attention" sx={{ ml: 1 }}>
+          <Label variant="attention" sx={{ mr: 1 }}>
             <AlertIcon size={14} /> {ready.length} {ready.length === 1 ? 'вклад' : 'вклада'} готово
           </Label>
         )}
-      </Box>
+        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
+          Обновить
+        </Button>
+        <Button ref={openBtnRef} leadingVisual={PlusCircleIcon} variant="primary" onClick={() => setModalOpen(true)}>
+          Новый вклад
+        </Button>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+
 
       <>
           {active.length > 0 && (
-            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(185px, 1fr))', marginBottom: 20 }}>
+            <div className="stat-grid stat-grid--reserve">
               <StatCard label="Стейк монет" color="ton">
                 <div style={{ fontSize: 20, fontWeight: 700 }}><CoinValue value={fmt(totalStakedCoins)} /></div>
                 <div style={{ fontSize: 11, marginTop: 4, color: 'var(--fg-muted)' }}>{coins.length} из 3 слотов</div>
@@ -437,6 +439,41 @@ export function Reserve() {
             </div>
           )}
 
+          {narrow && data.length > 0 ? (
+            <Box>
+              <Text as="h3" sx={{ fontSize: 2, fontWeight: 'bold', mb: 2 }}>{showCollected ? 'Собранные вклады' : 'Активные вклады'}</Text>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {data.map(row => {
+                  const Val = row.currency === 'coins' ? CoinValue : CrystalValue;
+                  const start = new Date(row.created_at).getTime(), end = new Date(row.can_collect_at).getTime();
+                  const pct = row.collected || row._ready ? 100 : Math.max(0, Math.min(100, ((Date.now() - start) / Math.max(1, end - start)) * 100));
+                  const canCancel = row.currency === 'coins' && !row.collected && !row._ready;
+                  return (
+                    <Box key={row.entry_id} sx={{ border: '1px solid', borderColor: row._ready ? 'attention.muted' : 'border.default', borderRadius: 2, p: 2, px: 3, bg: 'canvas.default' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Text sx={{ fontWeight: 'bold', color: row._ready ? 'success.fg' : undefined }}>{row.account}</Text>
+                        <Text className="mono" sx={{ fontSize: 0, color: 'fg.muted' }}>{row._dur}д</Text>
+                        <Box sx={{ ml: 'auto' }}><StatusBadge canCollectAt={row.can_collect_at} collected={row.collected} /></Box>
+                      </Box>
+                      <Box className="mono" sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 2, fontSize: 1, minHeight: 28 }}>
+                        <Val value={fmt(row.amount_staked)} />
+                        <Text sx={{ color: 'fg.subtle' }}>→</Text>
+                        <Text sx={{ fontWeight: 600 }}><Val value={fmt(row.amount_to_collect)} /></Text>
+                        {canCancel && (
+                          <Button size="small" variant="invisible" sx={{ ml: 'auto', color: 'danger.fg' }}
+                            loading={!!cancelling[row.entry_id]} disabled={!!cancelling[row.entry_id]}
+                            onClick={() => setConfirmCancel(row)}>
+                            Отменить
+                          </Button>
+                        )}
+                      </Box>
+                      <ProgressBar progress={pct} barSize="small" bg={row._ready || row.collected ? 'success.emphasis' : 'accent.emphasis'} aria-label="До сбора" />
+                    </Box>
+                  );
+                })}
+              </Box>
+            </Box>
+          ) : (
           <Table.Container>
             <Table.Title as="h3" id="staking-table">
               {showCollected ? 'Собранные вклады' : 'Активные вклады'}
@@ -556,6 +593,7 @@ export function Reserve() {
               />
             )}
           </Table.Container>
+          )}
         </>
 
       {confirmCancel && (
