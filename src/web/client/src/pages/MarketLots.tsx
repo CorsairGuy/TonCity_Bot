@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, CounterLabel, Flash, Label, SegmentedControl, Spinner, Text, Select, Checkbox, TextInput, IconButton, ToggleSwitch, ActionMenu, ActionList } from '@primer/react';
+import { Box, Button, CounterLabel, Flash, Label, Spinner, Text, Select, Checkbox, TextInput, IconButton, ToggleSwitch, ActionMenu, ActionList, UnderlineNav } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, ZapIcon, PlusIcon, PencilIcon, TrashIcon, TelescopeIcon } from '@primer/octicons-react';
@@ -592,16 +592,19 @@ export function MarketLots() {
       />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
-      {/* фильтры одной строкой: категория — сегментами слева (на телефоне сворачивается в список),
-          уточняющие списки — справа */}
+      {/* категории — табы как на страницах логов и аудиториума (на узком экране лишние уходят в «Ещё») */}
+      <UnderlineNav aria-label="Категория" sx={{ mb: 3 }}>
+        {[{ value: 'all', label: 'Все' }, ...CATEGORIES].map(c => (
+          <UnderlineNav.Item key={c.value} href="#"
+            aria-current={(c.value === 'all' ? !pickedItem && category === 'all' : (pickedItem ? pickedItem.category : category) === c.value) ? 'page' : undefined}
+            onSelect={e => { e.preventDefault(); setItem('all'); setCategory(c.value); }}>
+            {c.label}
+          </UnderlineNav.Item>
+        ))}
+      </UnderlineNav>
+
+      {/* уточняющие списки */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-        <SegmentedControl aria-label="Категория" size="small" variant={{ narrow: 'dropdown', regular: 'default' }}
-          onChange={i => { setItem('all'); setCategory(i === 0 ? 'all' : CATEGORIES[i - 1].value); }}>
-          <SegmentedControl.Button selected={!pickedItem && category === 'all'}>Все</SegmentedControl.Button>
-          {CATEGORIES.map(c => (
-            <SegmentedControl.Button key={c.value} selected={(pickedItem ? pickedItem.category : category) === c.value}>{c.label}</SegmentedControl.Button>
-          ))}
-        </SegmentedControl>
         <Box sx={{ display: 'flex', gap: 2, ml: 'auto', flexWrap: 'wrap' }}>
           <Select size="small" value={item} onChange={e => setItem(e.target.value)}>
             <Select.Option value="all">Все предметы</Select.Option>
