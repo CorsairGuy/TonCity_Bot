@@ -838,7 +838,7 @@ export function CityMapCity() {
   const runFooter = queue.length > 0 && (
     <>
       <Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>
-        {executing && progress ? `Выполняется ${progress.done} из ${progress.total}…` : `Ждут выполнения: ${queue.length}`}
+        {executing && progress ? `Выполняется ${progress.done} из ${progress.total}…` : `Ждут: ${queue.length}`}
       </Text>
       <Button size="small" variant="invisible" disabled={executing} onClick={() => setQueue([])}>Очистить</Button>
       <Button size="small" variant="primary" leadingVisual={CheckIcon} loading={executing} disabled={executing} onClick={runQueue}>Выполнить</Button>
@@ -847,7 +847,7 @@ export function CityMapCity() {
   const footer = mode === 'upgrade'
     ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>Целей: {targets.length}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveTargets}>Сохранить</Button></>
     : mode === 'queue'
-      ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>{manualQueue.length ? <>Итого со скидками <CoinValue value={fmt(manualQueueTotal)} /></> : 'Очередь пуста'}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveManualQueue}>Сохранить</Button></>
+      ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>{manualQueue.length ? <>Итого <CoinValue value={fmt(manualQueueTotal)} /></> : 'Очередь пуста'}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveManualQueue}>Сохранить</Button></>
       : runFooter || undefined;
   const headActions = mode === 'boosters'
     ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Сверить с игрой" disabled={boostersChecking} onClick={checkBoosters} />
@@ -921,9 +921,9 @@ export function CityMapCity() {
       </Box>
 
       <Box sx={{
-        width: 360, flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
+        // ширина как у левого меню навигации — как было у прежнего сайдбара карты
+        width: 'var(--sidebar-w)', flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
         borderLeft: '1px solid', borderColor: 'border.default',
-        '@media (max-width: 1012px)': { width: 320 },
         '@media (max-width: 768px)': { width: '100%', height: '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default' },
       }}>
         <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={headActions} footer={footer}

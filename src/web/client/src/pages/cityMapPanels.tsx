@@ -22,7 +22,7 @@ export type PanelMode = Exclude<CityActionMode, 'skip'>;
 interface Tool { mode: PanelMode; icon: React.ElementType; title: string; danger?: boolean }
 export const CITY_TOOLS: Tool[][] = [
   [{ mode: 'view', icon: GraphIcon, title: 'Показатели' }],
-  [{ mode: 'upgrade', icon: GoalIcon, title: 'План' }, { mode: 'queue', icon: StackIcon, title: 'Очередь улучшений' }, { mode: 'forecast', icon: ClockIcon, title: 'Прогноз' }],
+  [{ mode: 'upgrade', icon: GoalIcon, title: 'План' }, { mode: 'queue', icon: StackIcon, title: 'Очередь' }, { mode: 'forecast', icon: ClockIcon, title: 'Прогноз' }],
   [{ mode: 'build', icon: PlusIcon, title: 'Строительство' }, { mode: 'move', icon: ArrowBothIcon, title: 'Перемещение' }, { mode: 'demolish', icon: TrashIcon, title: 'Снос', danger: true }],
   [{ mode: 'reconstruct', icon: IterationsIcon, title: 'Реконструкция' }, { mode: 'renovate', icon: StarIcon, title: 'Реновация' }, { mode: 'boosters', icon: ZapIcon, title: 'Ускорители' }],
   [{ mode: 'log', icon: LogIcon, title: 'Лог' }],
@@ -67,7 +67,7 @@ export function PanelShell({ mode, count, hint, actions, footer, children }: { m
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, bg: 'canvas.default' }}>
       <Box sx={{ height: 48, flexShrink: 0, px: 3, display: 'flex', alignItems: 'center', gap: 2, borderBottom: '1px solid', borderColor: 'border.default' }}>
         <Octicon icon={t.icon} sx={{ color: t.danger ? 'danger.fg' : 'fg.muted' }} />
-        <Text sx={{ fontWeight: 'semibold', flex: 1, minWidth: 0 }}>{t.title}</Text>
+        <Text sx={{ fontWeight: 'semibold', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</Text>
         {count != null && count > 0 && <CounterLabel>{count}</CounterLabel>}
         {actions}
         <IconButton size="small" variant="invisible" icon={QuestionIcon} aria-label="Подсказка" aria-pressed={help} onClick={() => setHelp(h => !h)}
@@ -150,7 +150,7 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
         <Box sx={{ display: 'flex', height: 8, borderRadius: '4px', overflow: 'hidden', gap: '2px', mt: 2, bg: 'neutral.muted' }}>
           {parts.filter(p => p[1] > 0).map(([k, v, , c]) => <Box key={k} sx={{ width: `${v / total * 100}%`, bg: c }} />)}
         </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 3, rowGap: 2, mt: 3 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 3 }}>
           {parts.map(([k, , v, c]) => (
             <Box key={k} sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
               <Box sx={{ width: 8, height: 8, borderRadius: '2px', bg: c, flexShrink: 0 }} />
@@ -172,7 +172,7 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
           const v = Math.round(s.serviceRatios[k] * 100);
           return (
             <Box key={k} title={`Покрытие: ${fmtStat(s.coverageByCat[k])}`} sx={{ display: 'flex', alignItems: 'center', gap: 3, height: 32 }}>
-              <Text sx={{ width: 80, fontSize: 1, flexShrink: 0 }}>{SERVICE_LABEL[k]}</Text>
+              <Text sx={{ width: 72, fontSize: 1, flexShrink: 0 }}>{SERVICE_LABEL[k]}</Text>
               <Box sx={{ flex: 1 }}><ProgressBar progress={Math.min(100, v)} barSize="small" bg={v < 90 ? 'attention.emphasis' : 'success.emphasis'} aria-label={SERVICE_LABEL[k]} /></Box>
               <Text sx={{ width: 40, textAlign: 'right', fontSize: 1, ...num }}>{v}%</Text>
             </Box>
@@ -213,7 +213,7 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
     <>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, minHeight: 32 }}>
-          <Text sx={{ color: 'fg.muted' }}>Кисть ставит уровень</Text>
+          <Text sx={{ color: 'fg.muted' }}>Уровень кисти</Text>
           <Stepper value={brushLevel} onChange={onBrushLevel} />
         </Box>
         {groups.length > 0 && <TextInput size="small" block leadingVisual={SearchIcon} placeholder="Здание или клетка" aria-label="Поиск по плану" value={q} onChange={e => setQ(e.target.value)} />}
@@ -228,19 +228,19 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
             return (
               <Box key={g.id} sx={{ borderRadius: '12px', bg: 'canvas.subtle' }}>
                 <Box role="button" tabIndex={0} aria-expanded={o} onClick={() => setOpen(o ? null : g.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o ? null : g.id); } }}
-                  sx={{ display: 'flex', alignItems: 'center', gap: 3, p: 2, pr: 1, cursor: 'pointer' }}>
-                  {g.id ? <Thumb id={g.id} bg="canvas.default" /> : <Box sx={{ width: 40, height: 40 }} />}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Text as="div" sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
-                      <Box sx={{ flex: 1 }}><ProgressBar progress={done / g.cells.length * 100} barSize="small" bg="success.emphasis" aria-label="Готово" /></Box>
-                      <Text sx={{ ...muted, ...num }}>{done}/{g.cells.length}</Text>
-                    </Box>
+                  sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 2, cursor: 'pointer' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
+                    <Text sx={{ flex: 1, minWidth: 0, fontWeight: 'semibold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
+                    <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
                   </Box>
-                  <Tooltip text={mixed ? 'У клеток разные цели — изменение выставит всем одну' : 'Цель для всех клеток'} direction="w">
-                    <Box><Stepper value={lvl} onChange={v => setGroupLevel(g.id, v)} /></Box>
-                  </Tooltip>
-                  <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', mr: 1 }} />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Box sx={{ flex: 1 }}><ProgressBar progress={done / g.cells.length * 100} barSize="small" bg="success.emphasis" aria-label="Готово" /></Box>
+                    <Text sx={{ ...muted, ...num }}>{done}/{g.cells.length}</Text>
+                    <Tooltip text={mixed ? 'У клеток разные цели — изменение выставит всем одну' : 'Цель для всех клеток'} direction="w">
+                      <Box><Stepper value={lvl} onChange={v => setGroupLevel(g.id, v)} /></Box>
+                    </Tooltip>
+                  </Box>
                 </Box>
                 {o && (
                   <Box sx={{ px: 2, pb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -296,16 +296,17 @@ export function QueuePanel({ queue, owned, labelFor, prices, onReorder, onRemove
           <Box key={i} draggable onDragStart={e => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { setDrag(null); setOver(null); }}
             onDragOver={e => { e.preventDefault(); if (over !== i) setOver(i); }} onDrop={e => onDrop(e, i)}
             sx={{
-              display: 'flex', alignItems: 'center', gap: 2, p: 2, pl: 1, borderRadius: '12px', border: '1px solid',
+              display: 'flex', alignItems: 'center', gap: 1, p: 2, pl: 1, pr: 1, borderRadius: '12px', border: '1px solid',
               borderColor: over === i && drag !== i ? 'accent.emphasis' : first ? 'accent.muted' : 'border.default',
               bg: first ? 'accent.subtle' : 'canvas.default', opacity: drag === i ? 0.5 : 1,
             }}>
             <Box sx={{ display: 'flex', cursor: 'grab', color: 'fg.subtle' }}><Octicon icon={GrabberIcon} /></Box>
-            <Text sx={{ width: 20, textAlign: 'center', fontSize: 3, fontWeight: 'semibold', color: first ? 'accent.fg' : 'fg.muted', ...num }}>{i + 1}</Text>
-            {b ? <Thumb id={b.id} size={36} /> : <Box sx={{ width: 36 }} />}
+            <Text sx={{ width: 16, textAlign: 'center', fontSize: 2, fontWeight: 'semibold', color: first ? 'accent.fg' : 'fg.muted', ...num }}>{i + 1}</Text>
+            {b ? <Thumb id={b.id} size={32} /> : <Box sx={{ width: 32 }} />}
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Text as="div" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b ? labelFor(b.id) : '—'}</Text>
-              <Text sx={{ ...muted, ...num }}>{q.x},{q.y}{from != null && ` · ${from}→${from + 1}`}{prices[i] != null && <> · <CoinValue value={fmt(prices[i]!)} /></>}</Text>
+              <Text as="div" sx={{ ...muted, ...num }}>{q.x},{q.y}{from != null && ` · ${from}→${from + 1}`}</Text>
+              {prices[i] != null && <Text as="div" sx={{ ...muted, ...num }}><CoinValue value={fmt(prices[i]!)} /></Text>}
             </Box>
             <IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemove(i)} />
           </Box>
@@ -376,13 +377,13 @@ export function RenovatePanel({ masterplans, items, onToggle, disabled }: {
       </Box>
       {items.length === 0 ? <Empty>Нет зданий, подходящих под реновацию</Empty> : items.map(it => (
         <Box key={`${it.x},${it.y}`} sx={{ borderRadius: '12px', bg: it.marked ? 'accent.subtle' : 'canvas.subtle', overflow: 'hidden' }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'end', p: 3, gap: 2, textAlign: 'center' }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}><BuildingSprite id={it.id} size={64} dim /><Text sx={{ fontSize: 0 }}>{it.name}</Text></Box>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'end', p: 2, gap: 1, textAlign: 'center' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}><BuildingSprite id={it.id} size={48} dim /><Text sx={{ fontSize: 0 }}>{it.name}</Text></Box>
             <Octicon icon={ArrowRightIcon} sx={{ color: 'fg.muted', mb: 4 }} />
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}><BuildingSprite id={it.nextId} size={64} /><Text sx={{ fontSize: 0, fontWeight: 'semibold' }}>{it.nextName}</Text></Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}><BuildingSprite id={it.nextId} size={48} /><Text sx={{ fontSize: 0, fontWeight: 'semibold' }}>{it.nextName}</Text></Box>
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 3, py: 2, bg: 'canvas.default', borderTop: '1px solid', borderColor: 'border.muted' }}>
-            <Text sx={{ ...muted, fontFamily: 'mono', flex: 1 }}>{it.x},{it.y}{it.cost != null && ` · −${it.cost} мастерплана`}</Text>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2, py: 2, bg: 'canvas.default', borderTop: '1px solid', borderColor: 'border.muted' }}>
+            <Box sx={{ flex: 1, minWidth: 0, ...muted }}><Text as="div" sx={{ fontFamily: 'mono' }}>{it.x},{it.y}</Text>{it.cost != null && <Text as="div">−{it.cost} мастерпл.</Text>}</Box>
             <Button size="small" variant={it.marked ? 'default' : 'default'} disabled={disabled} onClick={() => onToggle(it.x, it.y)}>{it.marked ? 'Снять' : 'Отметить'}</Button>
           </Box>
         </Box>
@@ -402,13 +403,12 @@ export function BoostersPanel({ boosters, loading, queue, activating, onAdd, onM
   return (
     <>
       {active.map(b => (
-        <Box key={b.name} sx={{ p: 3, borderRadius: '12px', bg: 'canvas.subtle', display: 'flex', alignItems: 'center', gap: 3 }}>
-          <Octicon icon={ZapIcon} size={24} sx={{ color: 'attention.fg' }} />
+        <Box key={b.name} sx={{ p: 2, borderRadius: '12px', bg: 'attention.subtle', display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Octicon icon={ZapIcon} size={20} sx={{ color: 'attention.fg', flexShrink: 0 }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Text as="div" sx={{ fontWeight: 'semibold' }}>{b.label}</Text>
-            <Text sx={muted}>{b.ends_at != null ? `осталось ${fmtTimeLeft(b.ends_at - Date.now())}` : 'активен'}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</Text>
+            <Text sx={muted}>{b.ends_at != null ? `активен, осталось ${fmtTimeLeft(b.ends_at - Date.now())}` : 'активен'}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</Text>
           </Box>
-          <Label variant="attention">активен</Label>
         </Box>
       ))}
       <Box>
@@ -429,13 +429,14 @@ export function BoostersPanel({ boosters, loading, queue, activating, onAdd, onM
           const k = queued(b.name);
           const canActivate = b.available > 0 && b.currently_active < b.active_limit && !b.blocked_by_other;
           return (
-            <Box key={b.name} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 2, borderTop: i ? '1px solid' : 0, borderColor: 'border.muted' }}>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box key={b.name} sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2, py: 2, borderTop: i ? '1px solid' : 0, borderColor: 'border.muted' }}>
+              <Box sx={{ flexBasis: '100%', minWidth: 0 }}>
                 <Text as="div" sx={{ fontSize: 1, fontWeight: 'semibold' }}>{b.label}</Text>
                 <Text sx={{ ...muted, color: b.blocked_by_other ? 'attention.fg' : 'fg.muted' }}>
                   {b.available} шт.{k > 0 && ` · в очереди ${k}`}{b.blocked_by_other && ' · ждёт другой ускоритель'}
                 </Text>
               </Box>
+              <Box sx={{ flex: 1 }} />
               <Tooltip text="Активировать сейчас" direction="w">
                 <IconButton size="small" variant="invisible" icon={ZapIcon} aria-label={`Активировать ${b.label} сейчас`} disabled={!canActivate || activating.has(b.name)} onClick={() => onActivate(b.name)} />
               </Tooltip>
