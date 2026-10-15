@@ -110,7 +110,7 @@ export function Journey() {
   const totalLevels = accounts.reduce((s, a) => s + a.levels.length, 0);
 
   return (
-    <Box sx={{ p: 3, maxWidth: 900 }}>
+    <Box sx={{ p: 3 }}>
       {/* Page header */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Heading as="h2" sx={{ fontSize: 3 }}>Путь Мэра</Heading>
