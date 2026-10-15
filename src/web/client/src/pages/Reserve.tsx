@@ -189,15 +189,15 @@ function StakeModal({
           </SectionLabel>
           <div className="rdlg-list">
             {accounts.map(acc => {
-              const sl = slots(acc);
+              const free = Math.max(0, 3 - slots(acc)); // slots() — занятые слоты, показываем свободные
               const ok = canStake(acc);
               const on = ok && !unpicked.has(acc.id);
               const res = results[acc.id];
               const why = res && !res.ok ? 'ошибка'
                 : res?.ok ? 'вложено'
-                : sl >= 3 ? 'нет слотов'
+                : free === 0 ? 'нет слотов'
                 : amount != null && balance(acc) < amount ? (currency === 'coins' ? 'мало монет' : 'мало кристаллов')
-                : `слоты ${sl}/3`;
+                : `слоты ${free}/3`;
               return (
                 <PickRow key={acc.id} on={on} off={!ok} onClick={() => togglePick(acc.id)}>
                   <Checkbox checked={on} disabled={!ok} onChange={() => togglePick(acc.id)} onClick={e => e.stopPropagation()} aria-label={acc.name} />
