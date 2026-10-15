@@ -159,7 +159,7 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
       /* 15.10.2026: вместо стандартного footerButtons (кнопки разной ширины в ряд, серая
          «Повысить уровень» выглядела оторванной) — свой футер: действия столбиком во всю ширину,
          причина недоступности текстом под кнопкой (на телефоне title не увидеть), «Расформировать»
-         отдельной тихой кнопкой ниже, чтобы не стояла вровень с основными */
+         последней, во всю ширину, как «Снять» */
       renderFooter={() => (
         <Dialog.Footer sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
           {actions.map(a => (
@@ -171,9 +171,8 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
               {a.reason && <Text sx={{ fontSize: 0, color: 'fg.muted', textAlign: 'center' }}>{a.reason[0].toUpperCase() + a.reason.slice(1)}</Text>}
             </Box>
           ))}
-          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-            <Button variant="invisible" size="small" leadingVisual={TrashIcon} loading={busy === 'dissolve'} disabled={!!busy}
-              sx={{ color: 'danger.fg' }}
+          <Box>
+            <Button block variant="danger" leadingVisual={TrashIcon} loading={busy === 'dissolve'} disabled={!!busy}
               // подтверждение отдельным окном: эпическая и выше — ВСЕГДА (редкие осколки, жалко сжечь
               // даже на 1 уровне), ниже эпической — только если уровень >1 (вложен стаж/осколки)
               onClick={() => (HIGH_RARITIES.has(policy.rarity) || policy.level > 1) ? setConfirmDissolve(true) : run('dissolve')}>
@@ -318,8 +317,11 @@ function ShardCard({ shard, onClick }: { shard: PolicyShardItem; onClick?: () =>
             // object-fit:cover (не contain, как в общем .item-card__img) — у картинок осколков
             // много прозрачных полей внутри самого файла, из-за contain бокс выглядел пустее и
             // мельче, чем у политик (там сплошная заливка + mdi-иконка, не файл с паддингом)
+            // 15.10.2026: камни реформ и запечатанные политики во весь бокс выглядели крупно и
+            // обрезались — уменьшены (камни 0.7, запечатанные 0.75), осколки — до 0.85
             ? <img className="item-card__img" src={itemImgSrc(meta.tag)} alt={meta.name}
-                style={{ width: 77, objectFit: 'cover' }}
+                style={shard.type === 'policy_shard' ? { width: 77, objectFit: 'cover', scale: '0.85' }
+                  : { scale: shard.type === 'mystery_policy' ? '0.75' : '0.7' }}
                 onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
             : <span style={{ fontSize: 10, textAlign: 'center', padding: 4 }}>{shard.type}</span>}
           {shard.qty > 1 && <span className="item-card__count">{shard.qty}</span>}
