@@ -318,9 +318,9 @@ function ShardCard({ shard, onClick }: { shard: PolicyShardItem; onClick?: () =>
             // много прозрачных полей внутри самого файла, из-за contain бокс выглядел пустее и
             // мельче, чем у политик (там сплошная заливка + mdi-иконка, не файл с паддингом)
             // 15.10.2026: камни реформ и запечатанные политики во весь бокс выглядели крупно и
-            // обрезались — уменьшены (камни 0.7, запечатанные 0.75), осколки — до 0.85
+            // обрезались — уменьшены (камни 0.7, запечатанные 0.75), осколки 0.75
             ? <img className="item-card__img" src={itemImgSrc(meta.tag)} alt={meta.name}
-                style={shard.type === 'policy_shard' ? { width: 77, objectFit: 'cover', scale: '0.85' }
+                style={shard.type === 'policy_shard' ? { width: 77, objectFit: 'cover', scale: '0.75' }
                   : { scale: shard.type === 'mystery_policy' ? '0.75' : '0.7' }}
                 onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
             : <span style={{ fontSize: 10, textAlign: 'center', padding: 4 }}>{shard.type}</span>}
