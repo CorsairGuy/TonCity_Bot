@@ -66,8 +66,10 @@ function StakeModal({
   onStaked: () => void;
 }) {
   const [currency, setCurrency] = useState<Currency>('coins');
-  const [amount, setAmount]     = useState<number | null>(null);
-  const [duration, setDuration] = useState<number | null>(null);
+  // По умолчанию — первые сумма и срок: SegmentedControl Primer без selected сам подсвечивает первую кнопку,
+  // поэтому null в состоянии выглядел как выбор, но аккаунты считались недоступными
+  const [amount, setAmount]     = useState<number | null>(AMOUNTS.coins[0]);
+  const [duration, setDuration] = useState<number | null>(DURATIONS.coins[0]);
   // снятые галочки (по умолчанию выбраны все подходящие аккаунты)
   const [unpicked, setUnpicked] = useState<Set<number>>(new Set());
   const [stakingAll, setStakingAll] = useState(false);
@@ -87,8 +89,8 @@ function StakeModal({
   // Сбросить выбор при смене валюты
   const switchCurrency = (c: Currency) => {
     setCurrency(c);
-    setAmount(null);
-    setDuration(null);
+    setAmount(AMOUNTS[c][0]);
+    setDuration(DURATIONS[c][0]);
     setUnpicked(new Set());
     setResults({});
   };
