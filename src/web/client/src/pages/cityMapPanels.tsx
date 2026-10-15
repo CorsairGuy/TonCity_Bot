@@ -13,6 +13,7 @@ import type { CityActionMode } from '../components/CityActionsCanvas';
 import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActionLogRow, ForecastEvent } from '../api';
 import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
+import { Scrollable } from '../components/Scrollable';
 import { CoinValue } from '../components/Icons';
 import { fmt } from '../utils';
 
@@ -65,7 +66,7 @@ export function PanelShell({ mode, count, hint, actions, footer, children }: { m
   const t = toolFor(mode);
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, bg: 'canvas.default' }}>
-      <Box sx={{ height: 48, flexShrink: 0, px: 3, display: 'flex', alignItems: 'center', gap: 2, borderBottom: '1px solid', borderColor: 'border.default' }}>
+      <Box sx={{ height: 48, flexShrink: 0, px: 2, display: 'flex', alignItems: 'center', gap: 2, borderBottom: '1px solid', borderColor: 'border.default' }}>
         <Octicon icon={t.icon} sx={{ color: t.danger ? 'danger.fg' : 'fg.muted' }} />
         <Text sx={{ fontWeight: 'semibold', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</Text>
         {count != null && count > 0 && <CounterLabel>{count}</CounterLabel>}
@@ -73,11 +74,14 @@ export function PanelShell({ mode, count, hint, actions, footer, children }: { m
         <IconButton size="small" variant="invisible" icon={QuestionIcon} aria-label="Подсказка" aria-pressed={help} onClick={() => setHelp(h => !h)}
           sx={help ? { bg: 'accent.subtle', '& svg': { color: 'accent.fg' } } : undefined} />
       </Box>
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', p: 3, display: 'flex', flexDirection: 'column', gap: 4, '& > *': { flexShrink: 0 } }}>
-        {help && <Text as="p" sx={{ m: 0, fontSize: 0, color: 'fg.muted', bg: 'canvas.subtle', py: 2, px: 3, borderRadius: 2 }}>{hint}</Text>}
-        {children}
-      </Box>
-      {footer && <Box sx={{ minHeight: 56, flexShrink: 0, px: 3, py: 2, display: 'flex', alignItems: 'center', gap: 2, borderTop: '1px solid', borderColor: 'border.default' }}>{footer}</Box>}
+      {/* полоса прокрутки поверх содержимого (как в прежнем сайдбаре) — отступ ровно 8px со всех сторон */}
+      <Scrollable>
+        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3, '& > *': { flexShrink: 0 } }}>
+          {help && <Text as="p" sx={{ m: 0, fontSize: 0, color: 'fg.muted', bg: 'canvas.subtle', p: 2, borderRadius: 2 }}>{hint}</Text>}
+          {children}
+        </Box>
+      </Scrollable>
+      {footer && <Box sx={{ minHeight: 56, flexShrink: 0, p: 2, display: 'flex', alignItems: 'center', gap: 2, borderTop: '1px solid', borderColor: 'border.default' }}>{footer}</Box>}
     </Box>
   );
 }
