@@ -122,7 +122,7 @@ const RARITY_RANK: Record<string, number> = Object.fromEntries(RARITY_ORDER.map(
 // мифическая (см. комментарий у .ic-mythic в global.css), "winter" — редкость ВЫШЕ мифической.
 const TAG_RARITY_OVERRIDE: Record<string, string> = {
   basic: 'common', advanced: 'uncommon', elite: 'rare', premium: 'epic', ultimate: 'legendary',
-  eternal: 'mythic', winter: 'eternal',
+  eternal: 'mythic', winter: 'eternal', blueprint_tome: 'legendary',
 };
 export function rarityRankFromTag(tag: string): number {
   const override = TAG_RARITY_OVERRIDE[tag];

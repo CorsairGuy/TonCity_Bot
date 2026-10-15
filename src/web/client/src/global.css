@@ -221,7 +221,7 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 .ic-uncommon,.ic-advanced,.ic-shard_uncommon,.ic-mystery_uncommon { background: rgba(39,174,96,.10); border: 1px solid rgba(39,174,96,.5); }
 .ic-rare,.ic-elite,.ic-shard_rare,.ic-mystery_rare,.ic-policy_pack_rare             { background: rgba(35,143,213,.12); border: 1px solid rgba(35,143,213,.5); }
 .ic-component,.ic-epic,.ic-reform_stone_epic,.ic-premium,.ic-shard_epic,.ic-mystery_epic,.ic-policy_pack_epic { background: rgba(169,47,220,.14); border: 1px solid rgba(169,47,220,.5); }
-.ic-legendary,.ic-reform_stone_legendary,.ic-ultimate,.ic-masterplan,.ic-shard_legendary,.ic-mystery_legendary,.ic-snowflake,.ic-policy_pack_legendary {
+.ic-legendary,.ic-reform_stone_legendary,.ic-ultimate,.ic-masterplan,.ic-blueprint_tome,.ic-shard_legendary,.ic-mystery_legendary,.ic-snowflake,.ic-policy_pack_legendary {
   background: linear-gradient(45deg, rgba(241,196,15,.16), rgba(241,196,15,.24) 50%, rgba(241,196,15,.16));
   border: 1px solid rgba(241,196,15,.55);
   animation: legendaryBorder 3s ease-in-out infinite;
@@ -532,7 +532,7 @@ html[data-theme="dark"] .ic-common,html[data-theme="dark"] .ic-basic,html[data-t
 html[data-theme="dark"] .ic-uncommon,html[data-theme="dark"] .ic-advanced,html[data-theme="dark"] .ic-shard_uncommon,html[data-theme="dark"] .ic-mystery_uncommon { background: rgba(39,174,96,.08); border-color: rgba(39,174,96,.4); }
 html[data-theme="dark"] .ic-rare,html[data-theme="dark"] .ic-elite,html[data-theme="dark"] .ic-shard_rare,html[data-theme="dark"] .ic-mystery_rare,html[data-theme="dark"] .ic-policy_pack_rare { background: rgba(35,143,213,.15); border-color: rgba(35,143,213,.4); }
 html[data-theme="dark"] .ic-component,html[data-theme="dark"] .ic-reform_stone_epic,html[data-theme="dark"] .ic-epic,html[data-theme="dark"] .ic-premium,html[data-theme="dark"] .ic-shard_epic,html[data-theme="dark"] .ic-mystery_epic,html[data-theme="dark"] .ic-policy_pack_epic { background: rgba(169,47,220,.2); border-color: rgba(169,47,220,.3); }
-html[data-theme="dark"] .ic-legendary,html[data-theme="dark"] .ic-reform_stone_legendary,html[data-theme="dark"] .ic-ultimate,html[data-theme="dark"] .ic-masterplan,html[data-theme="dark"] .ic-shard_legendary,html[data-theme="dark"] .ic-mystery_legendary,html[data-theme="dark"] .ic-snowflake,html[data-theme="dark"] .ic-policy_pack_legendary {
+html[data-theme="dark"] .ic-legendary,html[data-theme="dark"] .ic-reform_stone_legendary,html[data-theme="dark"] .ic-ultimate,html[data-theme="dark"] .ic-masterplan,html[data-theme="dark"] .ic-blueprint_tome,html[data-theme="dark"] .ic-shard_legendary,html[data-theme="dark"] .ic-mystery_legendary,html[data-theme="dark"] .ic-snowflake,html[data-theme="dark"] .ic-policy_pack_legendary {
   background: linear-gradient(45deg, rgba(241,196,15,.35), rgba(241,196,15,.45) 50%, rgba(241,196,15,.35));
 }
 html[data-theme="dark"] .ic-mythic,html[data-theme="dark"] .ic-reform_stone_mythic,html[data-theme="dark"] .ic-shard_mythic,html[data-theme="dark"] .ic-mystery_mythic,html[data-theme="dark"] .ic-policy_pack_mythic,html[data-theme="dark"] .ic-eternal {
