@@ -88,7 +88,7 @@ function AllItemsBlock({ byAccount, accValues, accIdByName, onItemClick }: {
                         onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
                     : <ItemThumb itemId={Number(agg.id)} item={fromGame} size={44} className="item-card__img" />
                   }
-                  {agg.totalQty > 1 && <span className="item-card__count">{agg.totalQty}</span>}
+                  {agg.totalQty > 0 && <span className="item-card__count">{agg.totalQty}</span>}
                   {agg.totalLocked > 0 && <span className="item-card__locked">{agg.totalLocked}</span>}
                 </div>
               </div>
