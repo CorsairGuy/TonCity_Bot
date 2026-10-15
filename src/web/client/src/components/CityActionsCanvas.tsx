@@ -4,7 +4,7 @@ import cityCoordsData from '../data/city-coords.json';
 import capitalCoordsData from '../data/capital-coords.json';
 import cityRoadMapData from '../data/road-map.json';
 import capitalRoadMapData from '../data/capital-road-map.json';
-import { getPreparedSprite, pickMip, requestSprite, onSpritesReady, spritesIdle } from './mapSprites';
+import { getPreparedSprite, pickMip, requestSprite, onSpritesReady } from './mapSprites';
 import { startFpsCounter, type FpsCounter } from './fpsCounter';
 
 // Рендер — из CityMapCanvas.tsx (реальная карта аккаунта, спрайты, badges). Hover-подсветка клетки,
@@ -65,17 +65,10 @@ function deviceDpr(): number {
   return Math.min(3, Math.max(1, window.devicePixelRatio || 1));
 }
 
-// Динамическое разрешение, как в играх: если во время свайпа/зума кадров стабильно меньше
-// MIN_SMOOTH_FPS, canvas переходит на следующую ступень плотности пикселей (3 → 2 → 1.5 → 1).
-// Число пикселей падает в 2–9 раз, и слабое устройство (или браузер без видеокарты, где всё
-// рисует процессор) снова успевает за 60 кадров/с. Ниже 1 не опускаемся — это резкость старой
-// карты. Ступень живёт до перезагрузки страницы. Спрайты при этом не пересобираются: их размер
-// считается от настоящей плотности экрана, нужный уровень детализации берётся из mip-уровней.
-const DPR_STEPS = [3, 2, 1.5, 1];
-const MIN_SMOOTH_FPS = 50;
-let dprCap = 3;
+// Плотность пикселей всегда настоящая. Динамическое снижение разрешения при просадках убрано:
+// пан и зум теперь делает композитор, а пониженная плотность заметно мылила карту.
 function getDpr(): number {
-  return Math.min(deviceDpr(), dprCap);
+  return deviceDpr();
 }
 
 interface DrawItem { x0: number; y0: number; x1: number; y1: number; draw: (ctx: CanvasRenderingContext2D, r: number) => void }
@@ -240,9 +233,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // на живом слое сейчас что-то нарисовано — его нужно перерисовать (или очистить) при сдвиге
     overlayUsed: false,
     zoomTimer: null as ReturnType<typeof setTimeout> | null,
-    interactingSince: 0,
-    interactingUntil: 0,
-    slowSamples: 0,
     // подписи бейджей — пересчёт только при смене зданий/целей/очереди/плана
     labels: new Map<string, string | null>(),
     labelsDirty: true,
@@ -363,10 +353,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   }
 
   function clampPan() {
-    // все пути пана и зума проходят здесь — отмечаем, что пользователь сейчас двигает карту
-    const now = performance.now(), st = state.current;
-    if (now > st.interactingUntil) st.interactingSince = now;
-    st.interactingUntil = now + 300;
     const wrap = wrapRef.current; if (!wrap) return;
     const W = wrap.clientWidth, H = wrap.clientHeight;
     const s = state.current;
@@ -586,7 +572,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const r = s.layerR;
     // контейнеры: translate(ox,oy) scale(desired/r) — до 1:1 к экрану, когда r === desired
     for (const [lr, el] of s.layers) {
-      const tf = `translate(${s.ox}px,${s.oy}px) scale(${desired / lr})`;
+      // сдвиг — в целых пикселях экрана: дробный заставил бы композитор пересэмплировать куски (мыло)
+      const tf = `translate(${Math.round(s.ox * s.dpr) / s.dpr}px,${Math.round(s.oy * s.dpr) / s.dpr}px) scale(${desired / lr})`;
       if (el.style.transform !== tf) el.style.transform = tf;
     }
     layerFor(r);
@@ -983,24 +970,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   useEffect(() => {
     const c = fpsRef.current;
     if (!c) return undefined;
-    const ctl = startFpsCounter(c, fps => {
-      // понижаем плотность пикселей только по честному замеру: свайп/зум шёл всё окно замера и
-      // спрайты уже подготовлены (их нарезка при открытии карты не в счёт). Сильная просадка (<35) —
-      // сразу, умеренная — после двух окон подряд. Ступень выбирается по оценке: число пикселей
-      // кадра пропорционально квадрату плотности, значит нужная плотность ≈ текущая·√(fps/60)
-      const s = state.current, now = performance.now();
-      const fullWindow = now <= s.interactingUntil && now - s.interactingSince >= 500;
-      if (!fullWindow || !spritesIdle()) { s.slowSamples = 0; return; }
-      s.slowSamples = fps < MIN_SMOOTH_FPS ? s.slowSamples + 1 : 0;
-      if (s.slowSamples < (fps < 35 ? 1 : 2)) return;
-      s.slowSamples = 0;
-      const cur = getDpr();
-      const want = cur * Math.sqrt(fps / 60);
-      const next = DPR_STEPS.find(d => d < cur - 0.01 && d <= want) ?? DPR_STEPS.find(d => d < cur - 0.01) ?? null;
-      if (next == null) return;
-      dprCap = next;
-      requestRedraw();
-    });
+    const ctl = startFpsCounter(c);
     fpsCtl.current = ctl;
     return () => { ctl.stop(); fpsCtl.current = null; };
   }, []);
