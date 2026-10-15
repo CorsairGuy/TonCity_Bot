@@ -3,12 +3,11 @@
 // сегменты, но с глухими прямыми углами), без шрифта — так они одинаковые на любом устройстве и
 // попадают точно в пиксели экрана.
 //
-// Считает кадры самой карты, а не «тики» браузера: requestAnimationFrame идёт 60 раз в секунду и
-// тогда, когда карта не успевает перерисоваться, поэтому прежний счётчик показывал 60 при заметных
-// рывках. Теперь каждая перерисовка карты отмечается (frame), и длительность кадра — это время от
-// предыдущего кадра (или от запроса перерисовки, если карта до этого стояла) до текущего. Зависание
-// на 100 мс внутри окна замера честно роняет число. Пока карта неподвижна, кадров нет и число не
-// меняется — показано последнее значение.
+// Считает кадры самой карты, а не «тики» браузера: requestAnimationFrame идёт и тогда, когда карта
+// не успевает перерисоваться. Каждая перерисовка карты отмечается (frame); длительность кадра — время
+// от прошлого кадра карты (по метке кадра браузера), если карта двигалась, или от запроса
+// перерисовки, если стояла. Потолка нет: на мониторе 165 Гц плавная карта даёт 165, зависание внутри
+// окна замера честно роняет число. Пока карта неподвижна, кадров нет и показано последнее значение.
 
 const COLOR = '#76b900';
 const OUTLINE = 'rgba(0,0,0,0.85)';
@@ -49,7 +48,8 @@ function draw(canvas: HTMLCanvasElement, value: number) {
 }
 
 const WINDOW_MS = 500;   // окно усреднения
-const MIN_FRAMES = 3;    // меньше кадров в окне — копим дальше, одиночный кадр ничего не говорит
+const MIN_FRAMES = 3;
+const IDLE_MS = 50;      // запрос позже этого после прошлого кадра — карта до него стояла    // меньше кадров в окне — копим дальше, одиночный кадр ничего не говорит
 
 export interface FpsCounter {
   request(): void;  // запрошена перерисовка карты (отсюда считается кадр, если карта стояла)
@@ -64,19 +64,35 @@ export function startFpsCounter(canvas: HTMLCanvasElement, onSample?: (fps: numb
   canvas.style.left = `${MARGIN}px`;
   canvas.style.top = `${MARGIN}px`;
   canvas.style.pointerEvents = 'none';
-  let reqAt = -1, last = -Infinity, frames = 0, sum = 0, winStart = performance.now(), shown = -1;
+  let reqAt = -1, last = -Infinity, frames = 0, sum = 0, winStart = -Infinity, shown = -1;
   // период обновления экрана: быстрее него карта показаться не может, даже если перерисовка
-  // запрошена за миллисекунду до кадра. Оценка — самый короткий интервал между кадрами подряд
+  // запрошена за миллисекунду до кадра. Оценка — самый короткий из последних интервалов между
+  // кадрами карты подряд (на 165 Гц — 6 мс). Окно скользящее: окно перетащили на монитор с другой
+  // частотой — оценка подстроится. Пока интервалов нет — 60 Гц
+  const recent: number[] = [];
   let vsync = 1000 / 60;
   draw(canvas, 0);
+  // время кадра: внутри requestAnimationFrame это метка кадра, выровненная по обновлению экрана
+  // (без дрожания момента вызова), вне его — текущее время
+  const nowTs = () => {
+    const t = document.timeline?.currentTime;
+    return typeof t === 'number' ? t : performance.now();
+  };
   const frame = () => {
-    const now = performance.now();
+    const now = Math.max(nowTs(), last);
+    const gap = now - last;
+    if (gap > 0.5 && gap < 50) {
+      recent.push(gap);
+      if (recent.length > 120) recent.shift();
+      vsync = Math.min(...recent);
+    }
+    // карта двигалась (запрос пришёл вскоре после прошлого кадра) — кадр от прошлого кадра: так в
+    // число попадает и зависание главного потока, во время которого события ввода тоже стоят.
+    // Карта стояла — кадр от запроса. Перерисовка по таймеру без запроса — один кадр экрана
     let dt: number;
-    if (reqAt >= 0 && reqAt > last) dt = now - reqAt;    // карта стояла — кадр от запроса
-    else if (reqAt >= 0) {                                // карта двигалась — кадр от прошлого кадра
-      dt = now - last;
-      if (dt >= 4 && dt < vsync) vsync = dt;
-    } else dt = Math.min(now - last, vsync);              // перерисовка по таймеру без запроса
+    if (reqAt >= 0 && reqAt - last > IDLE_MS) dt = now - reqAt;
+    else if (reqAt >= 0) dt = gap;
+    else dt = Math.min(gap, vsync);
     dt = Math.max(dt, vsync);
     reqAt = -1; last = now;
     frames++; sum += dt;
@@ -87,9 +103,11 @@ export function startFpsCounter(canvas: HTMLCanvasElement, onSample?: (fps: numb
       frames = 0; sum = 0; winStart = now;
     }
   };
+  // запрос — по настоящим часам: вне кадра метка анимации стоит на прошлом кадре, а у простоявшей
+  // карты могла давно не обновляться
   const request = () => { if (reqAt < 0) reqAt = performance.now(); };
   // время в фоновой вкладке — не кадр
-  const onVis = () => { reqAt = -1; last = -Infinity; frames = 0; sum = 0; winStart = performance.now(); };
+  const onVis = () => { reqAt = -1; last = -Infinity; frames = 0; sum = 0; winStart = nowTs(); };
   document.addEventListener('visibilitychange', onVis);
   return { frame, request, stop: () => document.removeEventListener('visibilitychange', onVis) };
 }
