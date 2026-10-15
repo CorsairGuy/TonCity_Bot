@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Label, Tooltip, ConfirmationDialog } from '@primer/react';
+import { Box, Button, Flash, Heading, Spinner, Text, Label, Tooltip, ConfirmationDialog, IconButton, TextInput } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
-import { SyncIcon, TrashIcon, CheckCircleIcon, XCircleIcon, StarIcon, ArrowUpIcon, type Icon } from '@primer/octicons-react';
+import { SyncIcon, TrashIcon, CheckCircleIcon, XCircleIcon, StarIcon, ArrowUpIcon, DashIcon, PlusIcon, UnlockIcon, PlusCircleIcon, type Icon } from '@primer/octicons-react';
 import { api, type PoliciesAccountData, type PolicyInstance, type PolicyShardItem, type PolicyActionName, type PolicyEconomy } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
@@ -154,7 +154,7 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
     <Dialog
       title={policyName(policy)}
       onClose={onClose}
-      width="large"
+      width="medium"
       position={{ narrow: 'bottom', regular: 'center' }}
       /* 15.10.2026: вместо стандартного footerButtons (кнопки разной ширины в ряд, серая
          «Повысить уровень» выглядела оторванной) — свой футер: действия столбиком во всю ширину,
@@ -205,14 +205,14 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
             <Text sx={{ fontSize: 0, color: 'fg.muted', fontWeight: 'bold', display: 'block', mb: 1 }}>Повышение</Text>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 1, py: '2px' }}>
               <Text sx={{ color: 'fg.muted' }}>Стаж</Text>
-              <Text className="mono" sx={{ color: prog.tenure_needed != null && prog.tenure_now >= prog.tenure_needed ? 'success.fg' : 'fg.default' }}>
+              <Text className="mono" sx={{ whiteSpace: 'nowrap', ml: 2, color: prog.tenure_needed != null && prog.tenure_now >= prog.tenure_needed ? 'success.fg' : 'fg.default' }}>
                 {prog.tenure_now}{prog.tenure_needed != null ? ` / ${prog.tenure_needed} дн.` : ' дн.'}
               </Text>
             </Box>
             {prog.level_shards_needed != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 1, py: '2px' }}>
                 <Text sx={{ color: 'fg.muted' }}>Осколков на уровень</Text>
-                <Text className="mono" sx={{ color: prog.have_shards >= prog.level_shards_needed ? 'success.fg' : 'danger.fg' }}>
+                <Text className="mono" sx={{ whiteSpace: 'nowrap', ml: 2, color: prog.have_shards >= prog.level_shards_needed ? 'success.fg' : 'danger.fg' }}>
                   {prog.have_shards} / {prog.level_shards_needed}
                 </Text>
               </Box>
@@ -222,7 +222,7 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
                 <Text sx={{ color: 'fg.muted' }}>
                   Осколков на редкость{prog.promote_target_rarity ? ` (${RARITY_NAME[prog.promote_target_rarity] ?? prog.promote_target_rarity})` : ''}
                 </Text>
-                <Text className="mono" sx={{ color: prog.have_shards >= prog.promote_shards_needed ? 'success.fg' : 'danger.fg' }}>
+                <Text className="mono" sx={{ whiteSpace: 'nowrap', ml: 2, color: prog.have_shards >= prog.promote_shards_needed ? 'success.fg' : 'danger.fg' }}>
                   {prog.have_shards} / {prog.promote_shards_needed}
                 </Text>
               </Box>
@@ -354,43 +354,73 @@ function ShardModal({ shard, accountId, locked, lockedReason, economy, onClose, 
   const craftCost = economy?.craft_costs?.[rarity] ?? null;
   const notEnough = !isMystery && craftCost != null && shard.qty < craftCost;
 
+  // 15.10.2026: тайных политик может быть несколько — выбираем, сколько открыть (по умолчанию 1)
+  const maxOpen = isMystery ? Math.max(1, shard.qty) : 1;
+  const [count, setCount] = useState(1);
+  const n = Math.min(Math.max(1, count || 1), maxOpen);
+
   const run = async () => {
     setBusy(true);
     try {
       const action: PolicyActionName = isMystery ? 'mystery-open' : 'mystery-craft';
-      const r = await api.policyAction(accountId, action, { rarity });
-      if (r.ok) { showFlash('Готово', true); onChanged(); }
+      const r = await api.policyAction(accountId, action, isMystery ? { rarity, count: n } : { rarity });
+      if (r.ok) {
+        // открытие отвечает инстансом политики (или списком при count>1) — показываем, что выпало
+        const res = r.result as { opened?: PolicyInstance[]; error?: string | null; instance?: PolicyInstance } | null;
+        const got = isMystery ? (res?.opened ?? [res?.instance ?? (res as PolicyInstance | null)]).filter((x): x is PolicyInstance => !!x?.def_id) : [];
+        const names = got.map(policyName).join(', ');
+        if (res?.error) showFlash(`Открыто ${got.length} из ${n}${names ? `: ${names}` : ''}. Остановилось на ошибке: ${res.error}`, false);
+        else showFlash(isMystery ? (names ? `Открыто: ${names}` : 'Открыто') : 'Тайная политика создана', true);
+        setCount(1);
+        onChanged();
+      }
       else showFlash(r.error ?? 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); }
     finally { setBusy(false); }
   };
 
+  const reason = locked ? (lockedReason ?? 'Недоступно')
+    : notEnough ? `Не хватает осколков: нужно ${craftCost}, есть ${shard.qty}`
+    : null;
+
   return (
     <Dialog
       title={meta?.name ?? shard.type}
       onClose={onClose}
-      width="medium"
+      width="small"
       position={{ narrow: 'bottom', regular: 'center' }}
-      footerButtons={[{
-        content: isMystery ? 'Открыть' : 'Создать тайную политику',
-        buttonType: 'primary',
-        loading: busy,
-        disabled: busy || locked || notEnough,
-        onClick: run,
-      }]}
+      /* футер в стиле окна политики: кнопка во всю ширину, причина недоступности текстом под ней */
+      renderFooter={() => (
+        <Dialog.Footer sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
+          {isMystery && maxOpen > 1 && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <IconButton icon={DashIcon} aria-label="Меньше" disabled={busy || n <= 1} onClick={() => setCount(n - 1)} />
+              <TextInput aria-label="Сколько открыть" type="number" min={1} max={maxOpen} value={String(count || '')}
+                onChange={e => setCount(Math.min(maxOpen, Math.max(0, Math.floor(Number(e.target.value) || 0))))}
+                onBlur={() => setCount(n)} disabled={busy}
+                sx={{ flex: 1, minWidth: 0 }} style={{ textAlign: 'center' }} />
+              <IconButton icon={PlusIcon} aria-label="Больше" disabled={busy || n >= maxOpen} onClick={() => setCount(n + 1)} />
+              <Button disabled={busy || n >= maxOpen} onClick={() => setCount(maxOpen)}>Все</Button>
+            </Box>
+          )}
+          <Button block variant="primary" leadingVisual={isMystery ? UnlockIcon : PlusCircleIcon} loading={busy}
+            disabled={busy || !!reason} onClick={run}>
+            {isMystery ? (n > 1 ? `Открыть ${n} шт.` : 'Открыть') : 'Создать тайную политику'}
+          </Button>
+          {reason && <Text sx={{ fontSize: 0, color: 'fg.muted', textAlign: 'center' }}>{reason}</Text>}
+        </Dialog.Footer>
+      )}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-        {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ width: '100%' }}>{flash.msg}</Flash>}
+        {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ width: '100%', fontSize: 1 }}>{flash.msg}</Flash>}
         <div className={`item-card__box${meta ? ` ic-${meta.tag}` : ' ic-common'}`} style={{ width: 96, height: 96 }}>
           {meta && <img className="item-card__img" src={itemImgSrc(meta.tag)} alt="" style={{ height: 96, scale: String(meta.scale) }}
             onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />}
         </div>
         <Label sx={{ bg: color, color: 'white', borderColor: 'transparent' }}>{RARITY_NAME[rarity] ?? rarity}</Label>
-        <Text sx={{ fontSize: 1, color: 'fg.muted' }}>
+        <Text sx={{ fontSize: 1, color: 'fg.muted', textAlign: 'center' }}>
           У аккаунта: {shard.qty} шт.{!isMystery && craftCost != null && <> · нужно: {craftCost} шт.</>}
         </Text>
-        {locked && <Flash variant="warning" sx={{ fontSize: 0, width: '100%', textAlign: 'center' }}>{lockedReason}</Flash>}
-        {notEnough && <Flash variant="warning" sx={{ fontSize: 0, width: '100%', textAlign: 'center' }}>Не хватает осколков (нужно {craftCost}, есть {shard.qty})</Flash>}
       </Box>
     </Dialog>
   );

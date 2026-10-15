@@ -200,7 +200,7 @@ module.exports=function(app,ctx){
 
   app.post('/api/policies/:accountId/action',async(req,res)=>{
     try{
-      const{action,instance_id,rarity}=req.body||{};
+      const{action,instance_id,rarity,count}=req.body||{};
       const endpoint=ACTION_ENDPOINTS[action];
       if(!endpoint)return res.status(400).json({ok:false,error:'Неизвестное действие: '+action});
       const{Account}=require('../../db/index');
@@ -248,7 +248,24 @@ module.exports=function(app,ctx){
           return res.status(409).json({ok:false,error:'Розыгрыш ещё не готов по факту в игре (оценка на странице устарела) — снимок обновлён'});
         }
       }
-      const result=await api.post(endpoint,body);
+      let result;
+      if(action==='mystery-open'&&Number(count)>1){
+        // 15.10.2026: открыть несколько тайных политик подряд. Игра открывает по одной на запрос
+        // (chunks/storage-*: POST /policies/mystery/open {rarity} → {instance}), поэтому шлём N
+        // запросов последовательно и останавливаемся на первой ошибке. Мутация — без повторов.
+        const n=Math.min(Math.floor(Number(count)),100);
+        const opened=[];
+        let stopError=null;
+        for(let i=0;i<n;i++){
+          try{const r=await api.post(endpoint,body);opened.push(r?.instance??r);}
+          catch(e){stopError=e?.message||String(e);break;}
+          if(i<n-1)await new Promise(r=>setTimeout(r,300));
+        }
+        if(!opened.length)throw new Error(stopError||'Не удалось открыть');
+        result={opened,requested:n,error:stopError};
+      }else{
+        result=await api.post(endpoint,body);
+      }
       // синхронизируем снимок в БД, чтобы страница сразу отражала актуальное состояние.
       // mystery-craft/open/levelup/promote/dissolve тратят или производят осколки (policy_shard/
       // mystery_policy) — они живут в таблице Inventory, которую пишет ТОЛЬКО runInventory, а не
