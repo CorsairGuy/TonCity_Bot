@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
+import { Box, Button, CounterLabel, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
 import { ChevronLeftIcon, SidebarExpandIcon, SyncIcon, XIcon } from '@primer/octicons-react';
 import { useRegisterPanelToggle } from '../contexts/PanelToggleContext';
 import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
@@ -1184,7 +1184,7 @@ export function CityMapCity() {
                                         есть в наличии, больше в очередь ставить бессмысленно */}
                                     <Button variant="primary" disabled={queuedCount(b.name) >= b.available}
                                       onClick={() => queueAdd(b.name)}>
-                                      В очередь{queuedCount(b.name) > 0 ? ` (${queuedCount(b.name)}/${b.available})` : ''}
+                                      В очередь{queuedCount(b.name) > 0 && <CounterLabel sx={{ ml: 1 }}>{queuedCount(b.name)}/{b.available}</CounterLabel>}
                                     </Button>
                                     <Button variant="invisible" disabled={!canActivate || activating} loading={activating}
                                       onClick={() => activateBooster(b.name)} sx={{ fontSize: 0 }}>Активировать сейчас</Button>
