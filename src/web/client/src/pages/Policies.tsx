@@ -154,7 +154,7 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
     <Dialog
       title={policyName(policy)}
       onClose={onClose}
-      width="medium"
+      width="large"
       position={{ narrow: 'bottom', regular: 'center' }}
       /* 15.10.2026: вместо стандартного footerButtons (кнопки разной ширины в ряд, серая
          «Повысить уровень» выглядела оторванной) — свой футер: действия столбиком во всю ширину,
@@ -220,7 +220,7 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
             {prog.promote_shards_needed != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 1, py: '2px' }}>
                 <Text sx={{ color: 'fg.muted' }}>
-                  Осколков на редкость{prog.promote_target_rarity ? ` (${RARITY_NAME[prog.promote_target_rarity] ?? prog.promote_target_rarity})` : ''}
+                  Осколков на редкость
                 </Text>
                 <Text className="mono" sx={{ whiteSpace: 'nowrap', ml: 2, color: prog.have_shards >= prog.promote_shards_needed ? 'success.fg' : 'danger.fg' }}>
                   {prog.have_shards} / {prog.promote_shards_needed}
@@ -400,7 +400,6 @@ function ShardModal({ shard, accountId, locked, lockedReason, economy, onClose, 
                 onBlur={() => setCount(n)} disabled={busy}
                 sx={{ flex: 1, minWidth: 0 }} style={{ textAlign: 'center' }} />
               <IconButton icon={PlusIcon} aria-label="Больше" disabled={busy || n >= maxOpen} onClick={() => setCount(n + 1)} />
-              <Button disabled={busy || n >= maxOpen} onClick={() => setCount(maxOpen)}>Все</Button>
             </Box>
           )}
           <Button block variant="primary" leadingVisual={isMystery ? UnlockIcon : PlusCircleIcon} loading={busy}
