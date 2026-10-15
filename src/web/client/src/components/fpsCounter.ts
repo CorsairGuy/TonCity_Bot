@@ -3,8 +3,12 @@
 // сегменты, но с глухими прямыми углами), без шрифта — так они одинаковые на любом устройстве и
 // попадают точно в пиксели экрана.
 //
-// Считает реальные кадры браузера (requestAnimationFrame), а не наши перерисовки: отрисовка карты
-// идёт в том же потоке, поэтому тяжёлый кадр сразу роняет и это число.
+// Считает кадры самой карты, а не «тики» браузера: requestAnimationFrame идёт 60 раз в секунду и
+// тогда, когда карта не успевает перерисоваться, поэтому прежний счётчик показывал 60 при заметных
+// рывках. Теперь каждая перерисовка карты отмечается (frame), и длительность кадра — это время от
+// предыдущего кадра (или от запроса перерисовки, если карта до этого стояла) до текущего. Зависание
+// на 100 мс внутри окна замера честно роняет число. Пока карта неподвижна, кадров нет и число не
+// меняется — показано последнее значение.
 
 const COLOR = '#76b900';
 const OUTLINE = 'rgba(0,0,0,0.85)';
@@ -44,29 +48,48 @@ function draw(canvas: HTMLCanvasElement, value: number) {
   for (const [x, y, rw, rh] of rects) ctx.fillRect(x, y, rw, rh);
 }
 
-// запускает счётчик на переданном canvas, возвращает функцию остановки
-// onSample получает каждое новое значение (раз в ~0,5 с)
-export function startFpsCounter(canvas: HTMLCanvasElement, onSample?: (fps: number) => void): () => void {
+const WINDOW_MS = 500;   // окно усреднения
+const MIN_FRAMES = 3;    // меньше кадров в окне — копим дальше, одиночный кадр ничего не говорит
+
+export interface FpsCounter {
+  request(): void;  // запрошена перерисовка карты (отсюда считается кадр, если карта стояла)
+  frame(): void;    // карта перерисована
+  stop(): void;
+}
+
+// запускает счётчик на переданном canvas; onSample получает каждое новое значение (раз в ~0,5 с
+// активности карты)
+export function startFpsCounter(canvas: HTMLCanvasElement, onSample?: (fps: number) => void): FpsCounter {
   canvas.style.position = 'absolute';
   canvas.style.left = `${MARGIN}px`;
   canvas.style.top = `${MARGIN}px`;
   canvas.style.pointerEvents = 'none';
-  let frames = 0, since = performance.now(), shown = -1, raf = 0;
+  let reqAt = -1, last = -Infinity, frames = 0, sum = 0, winStart = performance.now(), shown = -1;
+  // период обновления экрана: быстрее него карта показаться не может, даже если перерисовка
+  // запрошена за миллисекунду до кадра. Оценка — самый короткий интервал между кадрами подряд
+  let vsync = 1000 / 60;
   draw(canvas, 0);
-  const tick = (now: number) => {
-    frames++;
-    const dt = now - since;
-    if (dt >= 500) {
-      const fps = Math.round(frames * 1000 / dt);
+  const frame = () => {
+    const now = performance.now();
+    let dt: number;
+    if (reqAt >= 0 && reqAt > last) dt = now - reqAt;    // карта стояла — кадр от запроса
+    else if (reqAt >= 0) {                                // карта двигалась — кадр от прошлого кадра
+      dt = now - last;
+      if (dt >= 4 && dt < vsync) vsync = dt;
+    } else dt = Math.min(now - last, vsync);              // перерисовка по таймеру без запроса
+    dt = Math.max(dt, vsync);
+    reqAt = -1; last = now;
+    frames++; sum += dt;
+    if (frames >= MIN_FRAMES && now - winStart >= WINDOW_MS) {
+      const fps = Math.round(frames * 1000 / sum);
       if (fps !== shown) { shown = fps; draw(canvas, fps); }
       onSample?.(fps);
-      frames = 0; since = now;
+      frames = 0; sum = 0; winStart = now;
     }
-    raf = requestAnimationFrame(tick);
   };
-  raf = requestAnimationFrame(tick);
-  // после возврата во вкладку не показываем «провал» за время, пока rAF стоял
-  const onVis = () => { frames = 0; since = performance.now(); };
+  const request = () => { if (reqAt < 0) reqAt = performance.now(); };
+  // время в фоновой вкладке — не кадр
+  const onVis = () => { reqAt = -1; last = -Infinity; frames = 0; sum = 0; winStart = performance.now(); };
   document.addEventListener('visibilitychange', onVis);
-  return () => { cancelAnimationFrame(raf); document.removeEventListener('visibilitychange', onVis); };
+  return { frame, request, stop: () => document.removeEventListener('visibilitychange', onVis) };
 }
