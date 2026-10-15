@@ -11,7 +11,7 @@ export function PolicyIcon({ rarity, iconKey, size = 77, iconSize, radius, style
   const icon = (iconKey || 'mdi-script-text').replace(/^mdi-/, '');
   const box: CSSProperties = size === 77 ? { ...style } : { width: size, height: size, borderRadius: radius ?? Math.round(size / 5), ...style };
   return (
-    <div className={`item-card__box ic-${r} r-${r}`} style={box}>
+    <div className={`item-card__box pol-box ic-${r} r-${r}`} style={box}>
       <span className={`mdi mdi-${icon} pol-ic`} style={{ fontSize: iconSize ?? Math.round(size * 0.47) }} />
       {children}
     </div>
