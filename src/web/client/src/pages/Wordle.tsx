@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Label, Spinner, Text } from '@primer/react';
+import { Box, Button, CounterLabel, Flash, Label, Spinner, Text } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, PencilIcon } from '@primer/octicons-react';
@@ -7,19 +7,22 @@ import { api, type WordleRow } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { Scrollable } from '../components/Scrollable';
 import { PageHeader } from '../components/PageHeader';
+import { WordCells } from '../components/WordCells';
 
 // ── модалка ручного ввода слова на все аккаунты ──────────────────────────────
-function ManualWordDialog({ onClose, onDone, showFlash }: { onClose: () => void; onDone: () => void; showFlash: (m: string, ok: boolean) => void }) {
+// окно по ширине пяти ячеек: medium = 320px = 5×48 + 4×8 + по 24 слева/справа (8 тела + 16 центровки),
+// сверху/снизу те же 24 (8 тела + py 16)
+function ManualWordDialog({ pending, onClose, onDone, showFlash }: { pending?: number; onClose: () => void; onDone: () => void; showFlash: (m: string, ok: boolean) => void }) {
   const [word, setWord] = useState('');
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<{ name: string; ok: boolean; won?: boolean; skipped?: string; error?: string }[] | null>(null);
-  const valid = /^[а-яёa-z]{5}$/i.test(word.trim());
+  const valid = /^[а-яёa-z]{5}$/i.test(word);
 
   const submit = async () => {
-    if (!valid) { showFlash('Нужно слово из 5 букв', false); return; }
+    if (!valid || busy) return;
     setBusy(true); setResults(null);
     try {
-      const d = await api.wordleGuessAll(word.trim().toLowerCase());
+      const d = await api.wordleGuessAll(word.toLowerCase());
       if (d.ok) {
         setResults(d.results ?? []);
         const won = (d.results ?? []).filter(r => r.won).length;
@@ -34,39 +37,40 @@ function ManualWordDialog({ onClose, onDone, showFlash }: { onClose: () => void;
     <Dialog
       title="Ввести слово на все аккаунты"
       onClose={onClose}
-      width="large"
+      width="medium"
       position={{ narrow: 'bottom', regular: 'center' }}
-      footerButtons={[
-        { content: results ? 'Закрыть' : 'Отмена', onClick: onClose },
-        { content: 'Подать на все', buttonType: 'primary', disabled: !valid || busy, loading: busy, onClick: submit },
-      ]}
+      renderFooter={() => (
+        <Dialog.Footer sx={{ gap: 2 }}>
+          <Button block sx={{ flex: 1 }} onClick={onClose}>{results ? 'Закрыть' : 'Отмена'}</Button>
+          <Button
+            block
+            sx={{ flex: 1 }}
+            variant="primary"
+            disabled={!valid || busy}
+            loading={busy}
+            onClick={submit}
+            trailingVisual={pending != null ? () => (
+              <CounterLabel sx={{ bg: '#ffffff', color: 'success.emphasis', fontWeight: 'bold', border: 'none' }}>{pending}</CounterLabel>
+            ) : undefined}
+          >
+            Подать
+          </Button>
+        </Dialog.Footer>
+      )}
     >
-      <Box>
-        <Text sx={{ fontSize: 1, color: 'fg.muted', display: 'block', mb: 2 }}>
-          Слово (6-я попытка) будет подано на все аккаунты, которые ещё не выиграли и не исчерпали попытки.
-        </Text>
-        <input
-          autoFocus
-          value={word}
-          maxLength={5}
-          placeholder="слово из 5 букв"
-          onChange={e => setWord(e.target.value.replace(/[^а-яёa-z]/gi, ''))}
-          onKeyDown={e => { if (e.key === 'Enter' && valid && !busy) submit(); }}
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 18, letterSpacing: 4, textTransform: 'lowercase', fontFamily: 'monospace' }}
-        />
-        {results && (
-          <Scrollable style={{ marginTop: 24, maxHeight: '40vh', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {results.map(r => (
-              <Box key={r.name} sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 1, py: '2px', borderBottom: '1px solid', borderColor: 'border.muted' }}>
-                <Text sx={{ fontWeight: 'bold' }}>{r.name}</Text>
-                <Text sx={{ color: r.won ? 'success.fg' : r.ok ? 'fg.muted' : 'danger.fg' }}>
-                  {r.won ? '🏆 выиграл' : r.skipped ? r.skipped : r.ok ? 'подано' : (r.error || 'ошибка')}
-                </Text>
-              </Box>
-            ))}
-          </Scrollable>
-        )}
-      </Box>
+      <Box sx={{ py: 3 }}><WordCells value={word} onChange={setWord} onEnter={submit} disabled={busy} autoFocus /></Box>
+      {results && (
+        <Scrollable style={{ marginBottom: 16, maxHeight: '40vh', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {results.map(r => (
+            <Box key={r.name} sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, fontSize: 1, py: '2px', borderBottom: '1px solid', borderColor: 'border.muted' }}>
+              <Text sx={{ fontWeight: 'bold' }}>{r.name}</Text>
+              <Text sx={{ color: r.won ? 'success.fg' : r.ok ? 'fg.muted' : 'danger.fg', textAlign: 'right' }}>
+                {r.won ? '🏆 выиграл' : r.skipped ? r.skipped : r.ok ? 'подано' : (r.error || 'ошибка')}
+              </Text>
+            </Box>
+          ))}
+        </Scrollable>
+      )}
     </Dialog>
   );
 }
@@ -88,7 +92,9 @@ export function Wordle() {
 
   useEffect(() => { load(); }, [date]);
 
-  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
+  // полноэкранный спиннер только на первой загрузке: перезагрузка после подачи слова не должна
+  // размонтировать открытое окно (иначе пропадает список результатов)
+  if (loading && !rows.length) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
 
   const data = [...rows].sort((a, b) => a.account.localeCompare(b.account, 'ru', { numeric: true })).map((r, i) => ({
     id:        i,
@@ -98,6 +104,9 @@ export function Wordle() {
     _attempts: r.attempts ?? r.words?.length ?? 0,
     _won:      r.won ? 1 : 0,
   }));
+
+  // сколько аккаунтов получат слово: сегодня ещё не выиграли и попытки не кончились (по таблице)
+  const pending = date === new Date().toISOString().slice(0, 10) ? rows.filter(r => !r.won && (r.attempts ?? r.words?.length ?? 0) < 6).length : undefined;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -117,7 +126,7 @@ export function Wordle() {
       </>} />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
-      {manualOpen && <ManualWordDialog onClose={() => setManualOpen(false)} onDone={() => load()} showFlash={showFlash} />}
+      {manualOpen && <ManualWordDialog pending={pending} onClose={() => setManualOpen(false)} onDone={() => load()} showFlash={showFlash} />}
 
       <Table.Container>
         <DataTable
