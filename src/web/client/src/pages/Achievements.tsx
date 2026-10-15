@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Tooltip } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text, Tooltip } from '@primer/react';
 import { api, type AchievementEntry } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { fmt } from '../utils';
+import { PageHeader } from '../components/PageHeader';
 
 // Иконки и названия — как в игре (mdi-классы из клиента игры)
 const ACHIEV_META: Record<string, { name: string; mdi: string; secret?: boolean; fixedTier?: number }> = {
@@ -148,13 +149,12 @@ export function Achievements() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Достижения</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Достижения" actions={<>
         <Button onClick={refresh} disabled={refreshing} loading={refreshing}>
           ↻ Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {accounts.length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Нет данных — запустите бота</Text>

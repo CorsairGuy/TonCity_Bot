@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Label, Tooltip, ConfirmationDialog, IconButton, TextInput } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text, Label, Tooltip, ConfirmationDialog, IconButton, TextInput } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { SyncIcon, TrashIcon, CheckCircleIcon, XCircleIcon, StarIcon, ArrowUpIcon, DashIcon, PlusIcon, UnlockIcon, PlusCircleIcon, type Icon } from '@primer/octicons-react';
 import { api, type PoliciesAccountData, type PolicyInstance, type PolicyShardItem, type PolicyActionName, type PolicyEconomy } from '../api';
@@ -8,6 +8,8 @@ import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { StorageModal } from '../components/StorageModal';
 import { effectLabel, effectValue } from '../policyEffects';
+import { PageHeader } from '../components/PageHeader';
+import { PolicyIcon } from '../components/PolicyIcon';
 
 // цвет/название редкости — как в игре (Библиотека политик)
 const RARITY_COLOR: Record<string, string> = {
@@ -43,19 +45,16 @@ function policyName(p: PolicyInstance): string {
 // Тот же размер/каркас, что у карточки предмета склада (.item-card, 77×77) — единообразие
 // со страницами Предметы/Осколки/Тайные политики (ShardCard использует тот же класс).
 function PolicyBadge({ policy, enacted, onClick }: { policy: PolicyInstance; enacted?: boolean; onClick: () => void }) {
-  const color = RARITY_COLOR[policy.rarity] ?? '#6e7681';
-  const icon = (policy.definition?.icon_key || 'mdi-script-text').replace(/^mdi-/, '');
   // 13.10.2026: имя под карточкой убрано (разной длины строки ломали ровную сетку — то одна
   // строка, то две) — вместо него мгновенный Tooltip по наведению (noDelay, без стандартной
   // задержки браузерного title).
   return (
     <Tooltip text={policyName(policy)} direction="n" noDelay>
       <div className="item-card clickable" aria-label={policyName(policy)} onClick={onClick}>
-        <div className="item-card__box" style={{ background: color }}>
-          <span className={`mdi mdi-${icon}`} style={{ fontSize: 30, color: '#fff', lineHeight: 1 }} />
+        <PolicyIcon rarity={policy.rarity} iconKey={policy.definition?.icon_key}>
           {enacted && <div style={{ position: 'absolute', top: -3, right: -3, width: 13, height: 13, borderRadius: '50%', background: 'var(--green)', border: '2px solid var(--bg)' }} />}
-        </div>
-        <span style={{ fontSize: 10, color, fontWeight: 600 }}>Ур. {policy.level}</span>
+        </PolicyIcon>
+        <span className={`pol-lv r-${policy.rarity}`} style={{ fontSize: 10, fontWeight: 600 }}>Ур. {policy.level}</span>
       </div>
     </Tooltip>
   );
@@ -93,7 +92,6 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
   const [confirmReform, setConfirmReform] = useState(false);
   const { flash, showFlash } = useFlash();
   const color = RARITY_COLOR[policy.rarity] ?? '#6e7681';
-  const icon = (policy.definition?.icon_key || 'mdi-script-text').replace(/^mdi-/, '');
 
   const run = async (action: PolicyActionName) => {
     setBusy(action);
@@ -195,9 +193,7 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
       <Box>
         {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{flash.msg}</Flash>}
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-          <div style={{ width: 72, height: 72, borderRadius: 16, background: color, boxShadow: `0 0 14px ${color}66`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span className={`mdi mdi-${icon}`} style={{ fontSize: 36, color: '#fff' }} />
-          </div>
+          <PolicyIcon rarity={policy.rarity} iconKey={policy.definition?.icon_key} size={72} iconSize={38} radius={16} />
         </Box>
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center' }}>
           <Label sx={{ bg: color, color: 'white', borderColor: 'transparent' }}>{RARITY_NAME[policy.rarity] ?? policy.rarity}</Label>
@@ -603,14 +599,13 @@ export function Policies() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Политики</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Политики" actions={<>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
           Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+
 
       {accounts.length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Нет данных</Text>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Text, Label, Spinner } from '@primer/react';
+import { Box, Button, Flash, Text, Label, Spinner } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { ZapIcon, CheckIcon } from '@primer/octicons-react';
 import { api, type Account } from '../api';
@@ -7,6 +7,7 @@ import { fmt, sortByName } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useUtcMidnightReset } from '../hooks/useUtcMidnightReset';
 import { CoinValue } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
 
 interface Result { won?: boolean; skipped?: boolean; reward?: number | null; error?: string }
 
@@ -75,17 +76,16 @@ export function Minesweeper() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 1 }}>Сапёр</Heading>
+      <PageHeader mb={2} title="Сапёр" actions={<>
+        <Button variant="primary" leadingVisual={ZapIcon} loading={solvingAll} disabled={solvingAll} onClick={solveAll}>
+          Решить всем
+        </Button>
+      </>} />
       <Text sx={{ color: 'fg.muted', fontSize: 1, display: 'block', mb: 3 }}>
         Авто-решение ежедневного «Сапёра» с получением награды (~1M монет/аккаунт).
       </Text>
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-        <Button variant="primary" leadingVisual={ZapIcon} loading={solvingAll} disabled={solvingAll} onClick={solveAll}>
-          Решить всем
-        </Button>
-      </Box>
 
       <Table.Container>
         <DataTable

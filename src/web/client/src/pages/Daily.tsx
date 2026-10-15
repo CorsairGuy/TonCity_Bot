@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Text, Tooltip, Spinner } from '@primer/react';
+import { Box, Button, Flash, Text, Tooltip, Spinner } from '@primer/react';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type DailyRewardAccount, type DailyRewardDay } from '../api';
 import { fmt, sortByName, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
-import { CoinValue, CrystalValue } from '../components/Icons';
+import { CoinIcon, CrystalIcon } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
 
 // 13.10.2026: было таблицей на одну (последнюю) строку — переделано в карточки на весь 28-дневный
 // цикл, как на страницах Предметы/Политики. Один flex-wrap ряд на аккаунт — сам переносится по
@@ -22,9 +23,8 @@ function DayCard({ day }: { day: DailyRewardDay }) {
     <Tooltip text={tooltip} direction="n" noDelay>
       <div className="item-card" aria-label={tooltip}>
         <div
-          className={`item-card__box${meta ? ` ic-${meta.tag}` : ''}`}
+          className={`item-card__box${meta ? ` ic-${meta.tag}` : isItem ? '' : day.reward_type === 'crystals' ? ' dr-crystals' : ' dr-coins'}`}
           style={{
-            background: meta ? undefined : 'var(--bgColor-muted, #2d333b)',
             opacity: dimmed ? 0.55 : 1,
             outline: day.is_today ? '2px solid var(--accent)' : 'none',
             outlineOffset: 2,
@@ -37,9 +37,12 @@ function DayCard({ day }: { day: DailyRewardDay }) {
               ? <img className="item-card__img" src={itemImgSrc(meta.tag)} alt={meta.name} style={{ scale: String(meta.scale) }}
                   onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
               : <span style={{ fontSize: 9 }}>#{day.item_id}</span>)
-            : day.reward_type === 'crystals'
-              ? <CrystalValue value={fmt(day.amount)} />
-              : <CoinValue value={fmt(day.amount)} />}
+            // монеты/кристаллы — иконка над суммой на полупрозрачной подложке своего цвета (как у
+            // редкостей): читается и на светлой, и на тёмной теме, длинные суммы не обрезаются
+            : <>
+              {day.reward_type === 'crystals' ? <CrystalIcon size={26} /> : <CoinIcon size={26} />}
+              <span className="dr-amount">{fmt(day.amount)}</span>
+            </>}
         </div>
         <span style={{ fontSize: 10, color: day.is_today ? 'var(--accent)' : 'var(--fg-muted)', fontWeight: day.is_today ? 700 : 400 }}>
           День {day.day}
@@ -95,13 +98,12 @@ export function Daily() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Ежедневная награда</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Ежедневная награда" actions={<>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
           Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {loading
         ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><Spinner /></Box>

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Label, Spinner, Text } from '@primer/react';
+import { Box, Button, Flash, Label, Spinner, Text } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, PencilIcon } from '@primer/octicons-react';
 import { api, type WordleRow } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { Scrollable } from '../components/Scrollable';
+import { PageHeader } from '../components/PageHeader';
 
 // ── модалка ручного ввода слова на все аккаунты ──────────────────────────────
 function ManualWordDialog({ onClose, onDone, showFlash }: { onClose: () => void; onDone: () => void; showFlash: (m: string, ok: boolean) => void }) {
@@ -100,9 +101,7 @@ export function Wordle() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Wordle</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center' }}>
+      <PageHeader title="Wordle" actions={<>
         <input
           type="date"
           value={date}
@@ -115,7 +114,8 @@ export function Wordle() {
         <Button leadingVisual={PencilIcon} variant="primary" onClick={() => setManualOpen(true)}>
           Ввести слово
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {manualOpen && <ManualWordDialog onClose={() => setManualOpen(false)} onDone={() => load()} showFlash={showFlash} />}
 

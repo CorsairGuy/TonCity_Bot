@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Text, Spinner } from '@primer/react';
+import { Box, Button, Flash, Text, Spinner } from '@primer/react';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type InventoryItem } from '../api';
 import { useFlash } from '../hooks/useFlash';
@@ -24,6 +24,7 @@ import { ItemThumb } from '../components/ItemThumb';
 import { CoinValue, CrystalValue } from '../components/Icons';
 import { StorageModal } from '../components/StorageModal';
 import { StorageBulkModal, type BulkHolder } from '../components/StorageBulkModal';
+import { PageHeader } from '../components/PageHeader';
 
 interface AggItem {
   id: number;
@@ -71,7 +72,7 @@ function AllItemsBlock({ byAccount, accValues, accIdByName, onItemClick }: {
         </Box>
       </Box>
       <Box sx={{ p: 3 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        <div className="item-grid" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           {items.map(agg => {
             const meta = ITEMS_BY_ID[agg.id] ?? null;
             const fromGame = catalog.get(Number(agg.id));
@@ -140,13 +141,12 @@ export function Inventory() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Предметы</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Предметы" actions={<>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
           Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {modal && (
         <StorageModal
@@ -192,7 +192,7 @@ export function Inventory() {
                       {items.length === 0
                         ? <Text sx={{ color: 'fg.subtle', fontSize: 1 }}>Инвентарь пуст</Text>
                         : (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                          <div className="item-grid" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                             {[...items].sort((a, b) => compareItems(Number(a.id), Number(b.id), a.qty, b.qty)).map((item, i) => {
                               const meta = ITEMS_BY_ID[Number(item.id)] ?? null;
                               const fromGame = catalog.get(Number(item.id));

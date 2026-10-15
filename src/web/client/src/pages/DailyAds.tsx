@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Box, Button, Flash, Heading, Label } from '@primer/react';
+import { Box, Button, Flash, Label } from '@primer/react';
 import { ProgressBar } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { EyeIcon, SyncIcon } from '@primer/octicons-react';
@@ -8,6 +8,7 @@ import { fmt, sortByName } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
 
 interface LiveProgress { current: number; limit: number; }
 
@@ -142,17 +143,16 @@ export function DailyAds() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Ежедневная реклама</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-        <Button variant="primary" leadingVisual={EyeIcon} loading={watchingAll} disabled={watchingAll} onClick={watchAll}>
-          Смотреть всем
-        </Button>
+      <PageHeader title="Ежедневная реклама" actions={<>
         <Button leadingVisual={SyncIcon} loading={refreshing || verifying} disabled={refreshing || verifying} onClick={refresh}>
           Обновить
         </Button>
         {verifying && <span style={{ alignSelf: 'center', fontSize: 12, color: 'var(--fgColor-muted)' }}>уточняю статус у игры…</span>}
-      </Box>
+        <Button variant="primary" leadingVisual={EyeIcon} loading={watchingAll} disabled={watchingAll} onClick={watchAll}>
+          Смотреть всем
+        </Button>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       <Table.Container>
         <DataTable

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, Button, Flash, Heading, Text, Label, Spinner, ProgressBar } from '@primer/react';
+import { Box, Button, Flash, Text, Label, Spinner, ProgressBar } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { ZapIcon, CheckIcon } from '@primer/octicons-react';
 import { api, type Account } from '../api';
@@ -7,6 +7,7 @@ import { fmt, sortByName } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useUtcMidnightReset } from '../hooks/useUtcMidnightReset';
 import { CoinValue } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
 
 interface Result { won?: boolean; reward?: number | null; score?: number | null }
 interface Live { current: number; total: number }
@@ -156,17 +157,16 @@ export function Quiz() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 1 }}>Викторина</Heading>
+      <PageHeader mb={2} title="Викторина" actions={<>
+        <Button variant="primary" leadingVisual={ZapIcon} disabled={solving.size > 0} onClick={solveAll}>
+          Решить всем
+        </Button>
+      </>} />
       <Text sx={{ color: 'fg.muted', fontSize: 1, display: 'block', mb: 3 }}>
         Авто-решение ежедневной викторины. База ответов общая и самообучается — со временем больше монет. Раз в день на аккаунт, ~2.5 мин на каждый.
       </Text>
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-        <Button variant="primary" leadingVisual={ZapIcon} disabled={solving.size > 0} onClick={solveAll}>
-          Решить всем
-        </Button>
-      </Box>
 
       <Table.Container>
         <DataTable

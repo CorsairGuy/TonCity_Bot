@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Box, Button, CounterLabel, Flash, Heading, Text, Label } from '@primer/react';
+import { Box, Button, CounterLabel, Flash, Text, Label } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type FortuneRow, type Account, type FortuneCanDrawResult } from '../api';
@@ -8,6 +8,7 @@ import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CrystalValue, IC_CRYSTAL } from '../components/Icons';
 import { StatCard } from '../components/StatCard';
+import { PageHeader } from '../components/PageHeader';
 
 function unwrapReward(raw: FortuneRow['reward']): Record<string, unknown> {
   if (!raw) return {};
@@ -230,10 +231,7 @@ export function Fortune() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Колесо фортуны</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
+      <PageHeader title="Колесо фортуны" actions={<>
         <input
           type="date"
           value={date}
@@ -243,15 +241,6 @@ export function Fortune() {
         {isToday && (
           <>
             <Button
-              variant="primary"
-              leadingVisual={SyncIcon}
-              loading={spinningAll}
-              onClick={spinAll}
-              disabled={spinningAll || accounts.length === 0 || (canDrawMap.size > 0 && availableCount === 0)}
-            >
-              Крутить всем{availableCount > 0 && <CounterLabel sx={{ ml: 1, bg: 'white', color: 'success.fg' }}>{availableCount}</CounterLabel>}
-            </Button>
-            <Button
               variant="default"
               leadingVisual={SyncIcon}
               loading={loadingCanDraw}
@@ -260,9 +249,20 @@ export function Fortune() {
             >
               Обновить статус
             </Button>
+            <Button
+              variant="primary"
+              leadingVisual={SyncIcon}
+              loading={spinningAll}
+              onClick={spinAll}
+              disabled={spinningAll || accounts.length === 0 || (canDrawMap.size > 0 && availableCount === 0)}
+            >
+              Крутить всем{availableCount > 0 && <CounterLabel sx={{ ml: 1, bg: 'white', color: 'success.fg' }}>{availableCount}</CounterLabel>}
+            </Button>
           </>
         )}
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+
 
       {rows.length > 0 && (
         <div className="stat-grid" style={{ marginBottom: 16 }}>

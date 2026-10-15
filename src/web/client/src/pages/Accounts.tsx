@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Box, Button, Flash, Label, Text, TextInput } from '@primer/react';
-import { DataTable, Table } from '@primer/react/experimental';
-import { TrashIcon } from '@primer/octicons-react';
+import { DataTable, Dialog, Table } from '@primer/react/experimental';
+import { PlusIcon, SyncIcon, TrashIcon } from '@primer/octicons-react';
+import { PageHeader } from '../components/PageHeader';
 import { api, type Account } from '../api';
 import { sortByName } from '../utils';
 
@@ -12,6 +13,7 @@ export function Accounts() {
   const [removing, setRemoving] = useState<Set<number>>(new Set());
   const [addUrl, setAddUrl] = useState('');
   const [adding, setAdding] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [flash, setFlash] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const showFlash = (msg: string, ok: boolean) => {
@@ -36,6 +38,7 @@ export function Accounts() {
       if (d.ok) {
         showFlash(`Аккаунт ${d.name} ${d.created ? 'добавлен' : 'обновлён'}`, true);
         setAddUrl('');
+        setAddOpen(false);
         await load();
       } else showFlash(d.error ?? 'Ошибка', false);
     } finally { setAdding(false); }
@@ -60,8 +63,45 @@ export function Accounts() {
     .sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true }))
     .map(a => ({ ...a, _status: a.hasToken ? STATUS_RANK[a.sessionStatus] : -1 }));
 
+  // проблемные — без токена или с протухшей сессией (то же, что красный статус в таблице)
+  const problemCount = accounts.filter(a => !a.hasToken || a.sessionStatus === 'dead').length;
+
   return (
     <Box sx={{ p: 3 }}>
+      <PageHeader
+        title="Аккаунты"
+        sub={accounts.length > 0 && <>
+          {accounts.length}
+          {problemCount > 0 && <Text sx={{ color: 'danger.fg' }}> · {problemCount} требу{problemCount === 1 ? 'ет' : 'ют'} внимания</Text>}
+        </>}
+        actions={<>
+          <Button leadingVisual={SyncIcon} loading={loading} disabled={loading} onClick={load}>Обновить</Button>
+          <Button variant="primary" leadingVisual={PlusIcon} onClick={() => setAddOpen(true)}>Добавить аккаунт</Button>
+        </>}
+      />
+      {addOpen && (
+        <Dialog
+          title="Добавить аккаунт"
+          onClose={() => setAddOpen(false)}
+          position={{ narrow: 'bottom', regular: 'center' }}
+          footerButtons={[
+            { content: 'Отмена', onClick: () => setAddOpen(false) },
+            { content: 'Добавить', buttonType: 'primary', loading: adding, disabled: adding || !addUrl.trim(), onClick: addAccount },
+          ]}
+        >
+          <Text sx={{ fontSize: 1, color: 'fg.muted', display: 'block', mb: 2 }}>
+            Вставьте ссылку из игры вида https://game.toncity.io/auth?t=...
+          </Text>
+          <TextInput
+            autoFocus
+            block
+            value={addUrl}
+            onChange={e => setAddUrl(e.target.value)}
+            placeholder="https://game.toncity.io/auth?t=..."
+            onKeyDown={e => e.key === 'Enter' && addAccount()}
+          />
+        </Dialog>
+      )}
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {duplicateGroups.length > 0 && (
@@ -95,23 +135,6 @@ export function Accounts() {
           ))}
         </Box>
       )}
-
-      <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, mb: 3, p: 3, bg: 'canvas.subtle' }}>
-        <Text sx={{ fontSize: 1, fontWeight: 'bold', display: 'block', mb: 1 }}>Добавить аккаунт</Text>
-        <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 2 }}>
-          Вставьте ссылку из игры вида https://game.toncity.io/auth?t=...
-        </Text>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <TextInput
-            value={addUrl}
-            onChange={e => setAddUrl(e.target.value)}
-            placeholder="https://game.toncity.io/auth?t=..."
-            onKeyDown={e => e.key === 'Enter' && addAccount()}
-            sx={{ flex: 1 }}
-          />
-          <Button variant="primary" onClick={addAccount} loading={adding}>+ Добавить</Button>
-        </Box>
-      </Box>
 
       <Table.Container>
         <DataTable

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Text, Label, Spinner, Select } from '@primer/react';
+import { Box, Button, Flash, Text, Label, Spinner, Select } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { ZapIcon, CheckIcon } from '@primer/octicons-react';
 import { api, type Account } from '../api';
@@ -7,6 +7,7 @@ import { fmt, sortByName } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useUtcMidnightReset } from '../hooks/useUtcMidnightReset';
 import { CoinValue } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
 
 interface Result { won?: boolean; skipped?: boolean; reward?: number | null; error?: string }
 
@@ -84,20 +85,19 @@ export function Sudoku() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 1 }}>Судоку</Heading>
-      <Text sx={{ color: 'fg.muted', fontSize: 1, display: 'block', mb: 3 }}>
-        Авто-решение ежедневного «Судоку» с получением награды (раз в день на аккаунт).
-      </Text>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
+      <PageHeader mb={2} title="Судоку" actions={<>
         <Select value={difficulty} onChange={e => setDifficulty(e.target.value)} disabled={solvingAll}>
           {DIFFICULTIES.map(d => <Select.Option key={d.value} value={d.value}>{d.label}</Select.Option>)}
         </Select>
         <Button variant="primary" leadingVisual={ZapIcon} loading={solvingAll} disabled={solvingAll} onClick={solveAll}>
           Решить всем
         </Button>
-      </Box>
+      </>} />
+      <Text sx={{ color: 'fg.muted', fontSize: 1, display: 'block', mb: 3 }}>
+        Авто-решение ежедневного «Судоку» с получением награды (раз в день на аккаунт).
+      </Text>
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+
 
       <Table.Container>
         <DataTable

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner } from '@primer/react';
+import { Box, Button, Flash, Spinner } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type TownhallAccount } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { PageHeader } from '../components/PageHeader';
 
 const DIST_KEYS = ['city', 'activity', 'friends', 'transactions', 'achievements'] as const;
 const DIST_LABELS: Record<string, string> = {
@@ -56,13 +57,12 @@ export function ThDistribution() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>Распределение (Airdrop)</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <PageHeader title="Распределение (Airdrop)" actions={<>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
           Обновить
         </Button>
-      </Box>
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {data.length === 0
         ? <Box sx={{ p: 4, color: 'fg.muted', textAlign: 'center' }}>Нет данных airdrop</Box>

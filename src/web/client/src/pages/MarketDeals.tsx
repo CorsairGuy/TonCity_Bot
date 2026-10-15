@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Label, Select, Checkbox } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text, Label, Select, Checkbox } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, PlusIcon } from '@primer/octicons-react';
@@ -11,6 +11,7 @@ import { CoinValue, CrystalValue } from '../components/Icons';
 import { Scrollable } from '../components/Scrollable';
 import { PolicyCardModal } from '../components/PolicyCardModal';
 import { useItemCatalog, knownItemName } from '../hooks/useItemCatalog';
+import { PageHeader } from '../components/PageHeader';
 
 type DealType = 'listings' | 'purchases' | 'sales';
 
@@ -471,12 +472,7 @@ export function MarketDeals({ type }: { type: DealType }) {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 3 }}>{TITLE[type]}</Heading>
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>Обновить</Button>
-        {type === 'listings' && <Button variant="primary" leadingVisual={PlusIcon} onClick={() => setSellOpen(true)}>Выставить предмет</Button>}
-        {type === 'listings' && <Button leadingVisual={PlusIcon} onClick={() => setSellSpecialOpen(true)}>Выставить политику/осколок</Button>}
+      <PageHeader title={TITLE[type]} actions={<>
         {type === 'listings' && sorted.length > 0 && (
           <Button variant="danger" loading={cancelingAll} disabled={cancelingAll} onClick={cancelAll}>
             {account === 'all' ? 'Отменить все лоты' : `Отменить лоты ${account}`}
@@ -487,7 +483,11 @@ export function MarketDeals({ type }: { type: DealType }) {
           {accounts.map(a => <Select.Option key={a} value={a}>{a}</Select.Option>)}
         </Select>
         <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Всего: {sorted.length}</Text>
-      </Box>
+        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>Обновить</Button>
+        {type === 'listings' && <Button leadingVisual={PlusIcon} onClick={() => setSellSpecialOpen(true)}>Выставить политику/осколок</Button>}
+        {type === 'listings' && <Button variant="primary" leadingVisual={PlusIcon} onClick={() => setSellOpen(true)}>Выставить предмет</Button>}
+      </>} />
+      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {sorted.length === 0
         ? <Box sx={{ p: 4, color: 'fg.muted', textAlign: 'center' }}>Нет данных — нажмите «Обновить»</Box>
