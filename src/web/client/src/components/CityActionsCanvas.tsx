@@ -4,6 +4,8 @@ import cityCoordsData from '../data/city-coords.json';
 import capitalCoordsData from '../data/capital-coords.json';
 import cityRoadMapData from '../data/road-map.json';
 import capitalRoadMapData from '../data/capital-road-map.json';
+import { getPreparedSprite, pickMip, requestSprite, onSpritesReady, spritesIdle } from './mapSprites';
+import { startFpsCounter } from './fpsCounter';
 
 // Рендер — из CityMapCanvas.tsx (реальная карта аккаунта, спрайты, badges). Hover-подсветка клетки,
 // drag-select прямоугольником ("кисть") и математика сетки — из MapEditor.tsx. ЛКМ-drag в режимах,
@@ -36,6 +38,53 @@ let spriteMapCache: Record<string, { pngUrl: string; frame: { x: number; y: numb
 
 const TW = 90;
 const TH = Math.round(TW * 434 / 753); // 52
+const MIN_SCALE = 0.3, MAX_SCALE = 2;
+
+// Отрисовка рассчитана на 60 кадров/с при быстром свайпе на любом устройстве: неподвижная часть
+// карты (земля, дороги, здания) рисуется кусками CHUNK×CHUNK device-px в отдельные canvas и
+// кэшируется; кадр пана — это десяток drawImage готовых кусков плюс бейджи/подсветка поверх.
+// Куски рисуются в масштабе layerR (device-px на мировой px); пока идёт зум, старые куски
+// растягиваются, а через ZOOM_SETTLE_MS после последнего шага зума перерисовываются в точном
+// масштабе. Недостающие куски дорисовываются в пределах бюджета кадра (FRAME_BUDGET_MS), при
+// свободном времени — заранее по кольцу вокруг экрана.
+const CHUNK = 512;
+const FRAME_BUDGET_MS = 6;
+// время кусков на видеокарте JS-таймером не видно (отрисовка уходит в GPU асинхронно), поэтому
+// бюджет ограничен ещё и числом кусков за кадр: видимых — до 3, заранее по кольцу — 1
+const MAX_VISIBLE_CHUNKS_PER_FRAME = 3;
+const MAX_RING_CHUNKS_PER_FRAME = 1;
+const ZOOM_SETTLE_MS = 180;
+// фон карты: куски и сам canvas непрозрачные (alpha:false) — без смешивания с подложкой GPU
+// заливает кадр заметно быстрее, особенно на ретине, где пикселей в 4–9 раз больше
+const MAP_BG = '#d8d8d8';
+
+function deviceDpr(): number {
+  return Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+}
+
+// Динамическое разрешение, как в играх: если во время свайпа/зума кадров стабильно меньше
+// MIN_SMOOTH_FPS, canvas переходит на следующую ступень плотности пикселей (3 → 2 → 1.5 → 1).
+// Число пикселей падает в 2–9 раз, и слабое устройство (или браузер без видеокарты, где всё
+// рисует процессор) снова успевает за 60 кадров/с. Ниже 1 не опускаемся — это резкость старой
+// карты. Ступень живёт до перезагрузки страницы. Спрайты при этом не пересобираются: их размер
+// считается от настоящей плотности экрана, нужный уровень детализации берётся из mip-уровней.
+const DPR_STEPS = [3, 2, 1.5, 1];
+const MIN_SMOOTH_FPS = 50;
+let dprCap = 3;
+function getDpr(): number {
+  return Math.min(deviceDpr(), dprCap);
+}
+
+interface DrawItem { x0: number; y0: number; x1: number; y1: number; draw: (ctx: CanvasRenderingContext2D, r: number) => void }
+// готовый кусок — ImageBitmap (неизменяемый: рисуется в кадр без снимка содержимого canvas, который
+// браузер делает при каждом drawImage из canvas); без OffscreenCanvas — обычный canvas
+interface Chunk { img: ImageBitmap | HTMLCanvasElement; ver: number }
+const HAS_OFFSCREEN = typeof OffscreenCanvas !== 'undefined' && typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function';
+
+function releaseChunk(ch: Chunk) {
+  if (ch.img instanceof HTMLCanvasElement) { ch.img.width = 0; ch.img.height = 0; }
+  else ch.img.close();
+}
 
 const MAP_CAT_COLORS: Record<string, { fill: string; stroke: string }> = {
   COM: { fill: 'rgba(0,152,234,.35)',   stroke: 'rgba(0,152,234,.85)' },
@@ -171,7 +220,29 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
 
   const state = useRef({
     spriteMap: (spriteMapCache || {}) as Record<string, { pngUrl: string; frame: { x: number; y: number; w: number; h: number } }>,
-    imgCache: {} as Record<string, HTMLImageElement>,
+    dpr: 1,
+    // слой неподвижной карты: draw-list в порядке художника, версия содержимого (любая смена зданий/
+    // режима/спрайтов увеличивает ver — куски старой версии ещё рисуются, пока не перерисованы),
+    // кэш кусков (Map в порядке последнего использования — LRU) и пул освободившихся canvas
+    drawList: [] as DrawItem[],
+    listDirty: true,
+    world: { x0: 0, y0: 0, x1: 0, y1: 0 },
+    ver: 1,
+    nextEndMs: Infinity,
+    layerR: 0,
+    prevR: 0,
+    chunks: new Map<string, Chunk>(),
+    chunkCanvas: null as OffscreenCanvas | null,
+    zoomTimer: null as ReturnType<typeof setTimeout> | null,
+    interactingSince: 0,
+    interactingUntil: 0,
+    slowSamples: 0,
+    // подписи бейджей (пересчёт только при смене зданий/целей/очереди/плана) и готовые картинки
+    // бейджей с тенью в масштабе badgeR — shadowBlur на каждый бейдж в каждом кадре слишком дорог
+    labels: new Map<string, string | null>(),
+    labelsDirty: true,
+    badgeCache: new Map<string, { img: HTMLCanvasElement; w: number; h: number }>(),
+    badgeR: 0,
     roadMap: ROAD_MAP[type],
     bmap: {} as Record<string, MapBuilding>,
     x0: 0, y0: 0, cols: 0, rows: 0,
@@ -282,12 +353,16 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // без этого центр съезжал влево на TW/2, из-за чего слева и справа было по-разному пусто
     const totalW = (s.cols + s.rows - 2) * TW / 2 + TW;
     const totalH = (s.cols + s.rows - 2) * TH / 2 + TH;
-    s.scale = Math.max(0.3, Math.min(2, Math.min(W / totalW, H / totalH) * 0.88));
+    s.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min(W / totalW, H / totalH) * 0.88));
     s.ox = W / 2 - totalW / 2 * s.scale;
     s.oy = H / 2 - totalH / 2 * s.scale;
   }
 
   function clampPan() {
+    // все пути пана и зума проходят здесь — отмечаем, что пользователь сейчас двигает карту
+    const now = performance.now(), st = state.current;
+    if (now > st.interactingUntil) st.interactingSince = now;
+    st.interactingUntil = now + 300;
     const wrap = wrapRef.current; if (!wrap) return;
     const W = wrap.clientWidth, H = wrap.clientHeight;
     const s = state.current;
@@ -298,17 +373,279 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     s.oy = Math.min(s.oy, H - m); s.oy = Math.max(s.oy, m - mapH);
   }
 
-  function getImg(url: string): HTMLImageElement | null {
+  // ширина спрайта под максимальный зум этого экрана: на MAX_SCALE пиксель спрайта = пиксель экрана
+  function spriteTargetW(drawW: number): number {
+    return Math.ceil(drawW * MAX_SCALE * deviceDpr());
+  }
+
+  // рисует подготовленный спрайт (см. mapSprites.ts); false — ещё не готов, нужна заглушка
+  function drawSprite(ctx: CanvasRenderingContext2D, id: string, drawW: number, r: number, dx: number, dy: number, dw: number, dh: number): boolean {
     const s = state.current;
-    const cached = s.imgCache[url];
-    if (cached) return cached.complete && cached.naturalWidth > 0 ? cached : null;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => requestRedraw();
-    img.onerror = () => { (img as any)._error = true; };
-    img.src = url;
-    s.imgCache[url] = img;
-    return null;
+    const info = s.spriteMap[id];
+    if (!info) return false;
+    const tw = spriteTargetW(drawW);
+    const sp = getPreparedSprite(id, tw);
+    if (!sp) { requestSprite(id, info, tw); return false; }
+    ctx.drawImage(pickMip(sp, dw * r), dx, dy, dw, dh);
+    return true;
+  }
+
+  // draw-list неподвижного слоя: те же три вида клеток и тот же порядок художника (по диагоналям),
+  // что раньше рисовались прямо в кадре. У каждого элемента — мировой bbox, по нему кусок берёт
+  // только пересекающиеся с ним клетки.
+  function buildDrawList() {
+    const s = state.current;
+    const items: DrawItem[] = [];
+    const want: [string, number][] = [];
+    const nowMs = Date.now();
+    let nextEnd = Infinity;
+    for (let d = 0; d <= (s.cols - 1) + (s.rows - 1); d++) {
+      for (let col = 0; col <= d; col++) {
+        const row = d - col;
+        if (col >= s.cols || row >= s.rows) continue;
+        const gx = s.x0 + col, gy = s.y0 + row;
+        const { x: sx, y: sy } = isoToScreen(col, row);
+        const b = s.bmap[`${gx}_${gy}`];
+        const valid = s.coords.size === 0 || s.coords.has(`${gx}_${gy}`);
+        const lockedSectionId = s.lockedCells.get(`${gx}_${gy}`);
+        if (lockedSectionId) {
+          // закрытая секция — тёмный тайл с замком вместо обычной травы/построек (там их и не может
+          // быть, пока секция не открыта); клик по клетке ловится отдельно, см. onMouseUp/onTouchEnd
+          items.push({ x0: sx, y0: sy, x1: sx + TW, y1: sy + TH, draw: ctx => drawTile(ctx, sx, sy, 'rgba(8,8,12,.62)', 'rgba(255,255,255,.15)', '🔒') });
+        } else if (b) {
+          const cat = buildingCat(b.id);
+          const cc = MAP_CAT_COLORS[cat] || { fill: 'rgba(100,100,100,.3)', stroke: 'rgba(150,150,150,.6)' };
+          // здание в процессе стройки/улучшения — игра подменяет тайл на один из общих спрайтов
+          // стройки (не рисует своё готовое здание), см. constructionSpriteId — сверено с бандлом
+          const endMs = b.end ? new Date(b.end).getTime() : 0;
+          const underConstruction = endMs > nowMs;
+          if (underConstruction && endMs < nextEnd) nextEnd = endMs;
+          const spriteId = underConstruction ? constructionSpriteId(b.id, s.type) : b.id;
+          const sp = s.spriteMap[spriteId];
+          // в режимах "Реконструкция"/"Реновация"/"Улучшение"/"План" прячем (сильно затемняем) здания,
+          // к которым действие неприменимо — так на карте видны только реально подходящие кандидаты,
+          // не нужно самому вычислять required_lvl/is_reconstructible/занятость стройкой на глаз
+          const hideAsInapplicable = DIM_INAPPLICABLE_MODES.has(s.mode) && !s.validSet.has(`${gx}_${gy}`);
+          const RS = 1.025, dw = TW * RS;
+          const dh = sp ? sp.frame.h * TW / 753 * RS : TH;
+          const dx = sx - (dw - TW) / 2, dy = sy + TH - dh;
+          want.push([spriteId, dw]);
+          items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: sy + TH, draw: (ctx, r) => {
+            if (hideAsInapplicable) ctx.globalAlpha = 0.12;
+            if (!drawSprite(ctx, spriteId, dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, cc.fill, cc.stroke, buildingLabel(b.id));
+            if (hideAsInapplicable) ctx.globalAlpha = 1;
+          } });
+        } else if (valid) {
+          const empSp = s.spriteMap['empty.png'];
+          const RS = 1.025, dw = TW * RS;
+          const dh0 = empSp ? empSp.frame.h * TW / 753 : TH, dh = dh0 * RS;
+          const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
+          want.push(['empty.png', dw]);
+          items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: Math.max(sy + TH, dy + dh), draw: (ctx, r) => {
+            if (!drawSprite(ctx, 'empty.png', dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.18)');
+          } });
+        } else {
+          const env = s.roadMap[`${gx}_${gy}`] || null;
+          const envSp = env ? s.spriteMap[env.asset] : null;
+          if (env && envSp) {
+            const f = envSp.frame;
+            if (env.big) {
+              const dw = Math.round(TW * 2), dh = Math.round(f.h * TW / 753 * 2);
+              const dx = Math.round(sx), dy = Math.round(sy + 3 * TH / 2 - dh);
+              want.push([env.asset, dw]);
+              items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
+            } else {
+              const RS = 1.05, dh0 = f.h * TW / 753;
+              const dw = TW * RS, dh = dh0 * RS;
+              const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
+              want.push([env.asset, dw]);
+              items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
+            }
+          }
+        }
+      }
+    }
+    const w = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    for (const it of items) {
+      if (it.x0 < w.x0) w.x0 = it.x0; if (it.y0 < w.y0) w.y0 = it.y0;
+      if (it.x1 > w.x1) w.x1 = it.x1; if (it.y1 > w.y1) w.y1 = it.y1;
+    }
+    if (!items.length) { w.x0 = w.y0 = 0; w.x1 = w.y1 = 1; }
+    s.drawList = items;
+    s.world = w;
+    s.nextEndMs = nextEnd;
+    s.listDirty = false;
+    // сразу ставим в очередь подготовку всех спрайтов карты, не дожидаясь, пока до них доскроллят
+    for (const [id, drawW] of want) {
+      const info = s.spriteMap[id];
+      if (info) requestSprite(id, info, spriteTargetW(drawW));
+    }
+  }
+
+  // служебный контекст 1×1 — только для measureText при сборке картинок бейджей
+  let probe: CanvasRenderingContext2D | null = null;
+  function probeCtx(): CanvasRenderingContext2D {
+    if (!probe) { const c = document.createElement('canvas'); c.width = 1; c.height = 1; probe = c.getContext('2d')!; }
+    return probe;
+  }
+
+  function invalidateLayer() {
+    state.current.ver++;
+    requestRedraw();
+  }
+
+  function renderChunk(r: number, cx: number, cy: number, reuse?: Chunk): Chunk {
+    const s = state.current;
+    let canvas: OffscreenCanvas | HTMLCanvasElement;
+    if (HAS_OFFSCREEN) {
+      // один общий offscreen-холст: рисуем кусок и забираем его как ImageBitmap
+      if (!s.chunkCanvas) s.chunkCanvas = new OffscreenCanvas(CHUNK, CHUNK);
+      canvas = s.chunkCanvas;
+    } else {
+      canvas = reuse && reuse.img instanceof HTMLCanvasElement ? reuse.img : document.createElement('canvas');
+      if (canvas.width !== CHUNK || canvas.height !== CHUNK) { canvas.width = CHUNK; canvas.height = CHUNK; }
+    }
+    const ctx = canvas.getContext('2d', { alpha: false }) as CanvasRenderingContext2D;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = MAP_BG;
+    ctx.fillRect(0, 0, CHUNK, CHUNK);
+    // 'low' = обычная билинейная выборка: нужный mip-уровень уже выбран (сжатие не больше 2:1), а
+    // 'high' заставляет GPU строить свои mip-цепочки для каждого спрайта при каждой отрисовке куска
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'low';
+    const cw = CHUNK / r;
+    // запас 2 мировых px: обводка тайла и сглаживание краёв спрайта выходят за bbox на полпикселя
+    const wx0 = cx * cw - 2, wy0 = cy * cw - 2, wx1 = (cx + 1) * cw + 2, wy1 = (cy + 1) * cw + 2;
+    ctx.setTransform(r, 0, 0, r, -cx * CHUNK, -cy * CHUNK);
+    for (const it of s.drawList) {
+      if (it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1) continue;
+      it.draw(ctx, r);
+    }
+    if (canvas instanceof HTMLCanvasElement) return { img: canvas, ver: s.ver };
+    if (reuse) releaseChunk(reuse);
+    return { img: (canvas as OffscreenCanvas).transferToImageBitmap(), ver: s.ver };
+  }
+
+  function evictChunks(limit: number) {
+    const s = state.current;
+    while (s.chunks.size > limit) {
+      const [k, ch] = s.chunks.entries().next().value as [string, Chunk];
+      s.chunks.delete(k);
+      releaseChunk(ch);
+    }
+  }
+
+  // рисует неподвижный слой в кадр (ctx в device-px, единичная трансформация)
+  function drawLayer(ctx: CanvasRenderingContext2D, Wd: number, Hd: number): boolean {
+    const s = state.current;
+    const desired = s.scale * s.dpr;
+    const oxd = s.ox * s.dpr, oyd = s.oy * s.dpr;
+    const t0 = performance.now();
+    // видимая область в мировых координатах, обрезанная по содержимому карты
+    const vx0 = Math.max(-oxd / desired, s.world.x0), vy0 = Math.max(-oyd / desired, s.world.y0);
+    const vx1 = Math.min((Wd - oxd) / desired, s.world.x1), vy1 = Math.min((Hd - oyd) / desired, s.world.y1);
+    if (vx1 <= vx0 || vy1 <= vy0) return false;
+
+    const range = (r: number, ring: number) => {
+      const cw = CHUNK / r;
+      return {
+        cx0: Math.floor(vx0 / cw) - ring, cx1: Math.floor(vx1 / cw) + ring,
+        cy0: Math.floor(vy0 / cw) - ring, cy1: Math.floor(vy1 / cw) + ring,
+      };
+    };
+    const place = (r: number, cx: number, cy: number) => {
+      const k = desired / r;
+      const x0 = Math.round(oxd + cx * CHUNK * k), y0 = Math.round(oyd + cy * CHUNK * k);
+      const x1 = Math.round(oxd + (cx + 1) * CHUNK * k), y1 = Math.round(oyd + (cy + 1) * CHUNK * k);
+      return { x0, y0, w: x1 - x0, h: y1 - y0 };
+    };
+
+    const r = s.layerR;
+    const vr = range(r, 0);
+    const need: { cx: number; cy: number; d: number }[] = [];
+    let anyMissing = false;
+    const ccx = (vr.cx0 + vr.cx1) / 2, ccy = (vr.cy0 + vr.cy1) / 2;
+    for (let cy = vr.cy0; cy <= vr.cy1; cy++) for (let cx = vr.cx0; cx <= vr.cx1; cx++) {
+      const ch = s.chunks.get(`${r}:${cx}:${cy}`);
+      if (!ch) anyMissing = true;
+      if (!ch || ch.ver !== s.ver) need.push({ cx, cy, d: Math.hypot(cx - ccx, cy - ccy) });
+    }
+    // пока кусков нового масштаба не хватает — подкладываем куски прежнего масштаба
+    if (anyMissing && s.prevR && s.prevR !== r) {
+      const pr = range(s.prevR, 0);
+      for (let cy = pr.cy0; cy <= pr.cy1; cy++) for (let cx = pr.cx0; cx <= pr.cx1; cx++) {
+        const ch = s.chunks.get(`${s.prevR}:${cx}:${cy}`);
+        if (!ch) continue;
+        const p = place(s.prevR, cx, cy);
+        ctx.drawImage(ch.img, p.x0, p.y0, p.w, p.h);
+      }
+    }
+    // недостающие и устаревшие видимые куски — от центра экрана, в пределах бюджета кадра
+    need.sort((a, b) => a.d - b.d);
+    let left = need.length;
+    for (const n of need) {
+      if (left < need.length && (performance.now() - t0 > FRAME_BUDGET_MS || need.length - left >= MAX_VISIBLE_CHUNKS_PER_FRAME)) break;
+      const key = `${r}:${n.cx}:${n.cy}`;
+      const old = s.chunks.get(key);
+      const ch = renderChunk(r, n.cx, n.cy, old);
+      s.chunks.delete(key); s.chunks.set(key, ch);
+      left--;
+    }
+    for (let cy = vr.cy0; cy <= vr.cy1; cy++) for (let cx = vr.cx0; cx <= vr.cx1; cx++) {
+      const key = `${r}:${cx}:${cy}`;
+      const ch = s.chunks.get(key);
+      if (!ch) continue;
+      s.chunks.delete(key); s.chunks.set(key, ch); // отметка использования для LRU
+      const p = place(r, cx, cy);
+      ctx.drawImage(ch.img, p.x0, p.y0, p.w, p.h);
+    }
+    // время осталось — заранее готовим кольцо кусков вокруг экрана, чтобы быстрый свайп не упирался
+    // в отрисовку
+    let pending = left > 0;
+    let ringLeft = MAX_RING_CHUNKS_PER_FRAME;
+    if (!pending) {
+      const rr = range(r, 1);
+      outer: for (let cy = rr.cy0; cy <= rr.cy1; cy++) for (let cx = rr.cx0; cx <= rr.cx1; cx++) {
+        const cw = CHUNK / r;
+        if ((cx + 1) * cw < s.world.x0 || cx * cw > s.world.x1 || (cy + 1) * cw < s.world.y0 || cy * cw > s.world.y1) continue;
+        const key = `${r}:${cx}:${cy}`;
+        const old = s.chunks.get(key);
+        if (old && old.ver === s.ver) continue;
+        if (ringLeft <= 0 || performance.now() - t0 > FRAME_BUDGET_MS) { pending = true; break outer; }
+        s.chunks.delete(key); s.chunks.set(key, renderChunk(r, cx, cy, old));
+        ringLeft--;
+      }
+    }
+    const visible = (vr.cx1 - vr.cx0 + 1) * (vr.cy1 - vr.cy0 + 1);
+    evictChunks(Math.max(24, visible * 3));
+    return pending;
+  }
+
+  // бейдж уровня с тенью — один раз в offscreen-canvas на масштаб badgeR, дальше только копия
+  function badgeImage(label: string, fsz: number): { img: HTMLCanvasElement; w: number; h: number } {
+    const s = state.current;
+    const cached = s.badgeCache.get(label);
+    if (cached) return cached;
+    const pad = 8; // место под тень
+    const mctx = probeCtx();
+    mctx.font = `bold ${fsz}px sans-serif`;
+    const bw = Math.max(mctx.measureText(label).width + 8, fsz + 6), bh = fsz + 5;
+    const w = bw + 2 * pad, h = bh + 2 * pad, R = s.badgeR;
+    const img = document.createElement('canvas');
+    img.width = Math.ceil(w * R); img.height = Math.ceil(h * R);
+    const c = img.getContext('2d')!;
+    c.scale(img.width / w, img.height / h);
+    drawLevelBadge(c, pad + bw / 2, pad + bh / 2, label, fsz);
+    const res = { img, w, h };
+    s.badgeCache.set(label, res);
+    return res;
+  }
+
+  // подписи бейджей для всех зданий — badgeFor раньше считался на каждое здание в каждом кадре
+  function rebuildLabels() {
+    const s = state.current;
+    s.labels = new Map();
+    for (const b of s.blist) s.labels.set(`${b.x}_${b.y}`, badgeFor(b));
+    s.labelsDirty = false;
   }
 
   function drawTile(ctx: CanvasRenderingContext2D, sx: number, sy: number, fill: string, stroke: string, label?: string | null) {
@@ -420,80 +757,51 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     if (!wrap || !canvas) return;
     const W = wrap.clientWidth, H = wrap.clientHeight;
     if (!W || !H) return;
-    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; state.current.needsCenter = true; }
     const s = state.current;
-    if (s.needsCenter && W > 0 && H > 0) { centerOnBuildings(); s.needsCenter = false; }
-    const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, W, H);
-    if (!s.cols || !s.rows) return;
-    ctx.save();
-    ctx.translate(s.ox, s.oy);
-    ctx.scale(s.scale, s.scale);
-
-    // проход 1 — тайлы и спрайты
-    for (let d = 0; d <= (s.cols - 1) + (s.rows - 1); d++) {
-      for (let col = 0; col <= d; col++) {
-        const row = d - col;
-        if (col >= s.cols || row >= s.rows) continue;
-        const gx = s.x0 + col, gy = s.y0 + row;
-        const { x: sx, y: sy } = isoToScreen(col, row);
-        const b = s.bmap[`${gx}_${gy}`];
-        const valid = s.coords.size === 0 || s.coords.has(`${gx}_${gy}`);
-        const lockedSectionId = s.lockedCells.get(`${gx}_${gy}`);
-        if (lockedSectionId) {
-          // закрытая секция — тёмный тайл с замком вместо обычной травы/построек (там их и не может
-          // быть, пока секция не открыта); клик по клетке ловится отдельно, см. onMouseUp/onTouchEnd
-          drawTile(ctx, sx, sy, 'rgba(8,8,12,.62)', 'rgba(255,255,255,.15)', '🔒');
-        } else if (b) {
-          const cat = buildingCat(b.id);
-          const cc = MAP_CAT_COLORS[cat] || { fill: 'rgba(100,100,100,.3)', stroke: 'rgba(150,150,150,.6)' };
-          // здание в процессе стройки/улучшения — игра подменяет тайл на один из общих спрайтов
-          // стройки (не рисует своё готовое здание), см. constructionSpriteId — сверено с бандлом
-          const underConstruction = !!b.end && new Date(b.end).getTime() > Date.now();
-          const spriteId = underConstruction ? constructionSpriteId(b.id, s.type) : b.id;
-          const sp = s.spriteMap[spriteId];
-          const img = sp ? getImg(sp.pngUrl) : null;
-          // в режимах "Реконструкция"/"Реновация"/"Улучшение"/"План" прячем (сильно затемняем) здания,
-          // к которым действие неприменимо — так на карте видны только реально подходящие кандидаты,
-          // не нужно самому вычислять required_lvl/is_reconstructible/занятость стройкой на глаз
-          const hideAsInapplicable = DIM_INAPPLICABLE_MODES.has(s.mode) && !s.validSet.has(`${gx}_${gy}`);
-          if (hideAsInapplicable) ctx.globalAlpha = 0.12;
-          if (img) {
-            const f = sp!.frame, RS = 1.025, dh0 = f.h * TW / 753;
-            const dw = TW * RS, dh = dh0 * RS;
-            ctx.drawImage(img, f.x, f.y, f.w, f.h, sx - (dw - TW) / 2, sy + TH - dh, dw, dh);
-          } else {
-            drawTile(ctx, sx, sy, cc.fill, cc.stroke, buildingLabel(b.id));
-          }
-          if (hideAsInapplicable) ctx.globalAlpha = 1;
-        } else if (valid) {
-          const empSp = s.spriteMap['empty.png'];
-          const empImg = empSp ? getImg(empSp.pngUrl) : null;
-          if (empImg) {
-            const f = empSp!.frame, RS = 1.025, dh0 = f.h * TW / 753;
-            const dw = TW * RS, dh = dh0 * RS;
-            ctx.drawImage(empImg, f.x, f.y, f.w, f.h, sx - (dw - TW) / 2, sy + TH - dh + (dh - dh0) / 2, dw, dh);
-          } else {
-            drawTile(ctx, sx, sy, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.18)');
-          }
-        } else {
-          const env = s.roadMap[`${gx}_${gy}`] || null;
-          const envSp = env ? s.spriteMap[env.asset] : null;
-          const envImg = envSp ? getImg(envSp.pngUrl) : null;
-          if (envImg && env) {
-            const f = envSp!.frame;
-            if (env.big) {
-              const dw = Math.round(TW * 2), dh = Math.round(f.h * TW / 753 * 2);
-              ctx.drawImage(envImg, f.x, f.y, f.w, f.h, Math.round(sx), Math.round(sy + 3 * TH / 2 - dh), dw, dh);
-            } else {
-              const RS = 1.05, dh0 = f.h * TW / 753;
-              const dw = TW * RS, dh = dh0 * RS;
-              ctx.drawImage(envImg, f.x, f.y, f.w, f.h, sx - (dw - TW) / 2, sy + TH - dh + (dh - dh0) / 2, dw, dh);
-            }
-          }
-        }
-      }
+    // canvas в физических пикселях экрана — на ретине раньше рисовалось в половинном разрешении
+    const dpr = getDpr();
+    if (dpr !== s.dpr) { s.dpr = dpr; s.listDirty = true; s.ver++; for (const ch of s.chunks.values()) releaseChunk(ch); s.chunks.clear(); s.badgeCache.clear(); s.layerR = 0; }
+    const Wd = Math.round(W * dpr), Hd = Math.round(H * dpr);
+    if (canvas.width !== Wd || canvas.height !== Hd) {
+      canvas.width = Wd; canvas.height = Hd;
+      canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
+      s.needsCenter = true;
     }
+    if (s.needsCenter && W > 0 && H > 0) { centerOnBuildings(); s.needsCenter = false; }
+    const ctx = canvas.getContext('2d', { alpha: false })!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = MAP_BG;
+    ctx.fillRect(0, 0, Wd, Hd);
+    if (!s.cols || !s.rows) return;
+
+    // стройка закончилась по времени — здание снова рисуется своим спрайтом
+    if (Date.now() >= s.nextEndMs) { s.listDirty = true; s.ver++; }
+    if (s.listDirty) buildDrawList();
+    if (s.labelsDirty) rebuildLabels();
+
+    // масштаб кусков: сразу точный при первом кадре и при большом скачке зума, иначе — после паузы
+    const desired = s.scale * dpr;
+    if (!s.layerR) s.layerR = desired;
+    else if (s.layerR !== desired) {
+      const k = desired / s.layerR;
+      if (k < 0.5 || k > 1.6) { s.prevR = s.layerR; s.layerR = desired; }
+      if (s.zoomTimer) clearTimeout(s.zoomTimer);
+      s.zoomTimer = setTimeout(() => {
+        s.zoomTimer = null;
+        const want = s.scale * s.dpr;
+        if (s.layerR !== want) { s.prevR = s.layerR; s.layerR = want; requestRedraw(); }
+      }, ZOOM_SETTLE_MS);
+    }
+    if (s.badgeR !== s.layerR) { s.badgeR = s.layerR; s.badgeCache.clear(); }
+
+    // проход 1 — неподвижный слой (тайлы и спрайты) из кэша кусков
+    const layerPending = drawLayer(ctx, Wd, Hd);
+
+    ctx.save();
+    ctx.setTransform(desired, 0, 0, desired, s.ox * dpr, s.oy * dpr);
+    // видимая область в мировых координатах — бейджи за экраном не рисуем
+    const vx0 = -s.ox / s.scale - TW, vy0 = -s.oy / s.scale - TH;
+    const vx1 = (W - s.ox) / s.scale + TW, vy1 = (H - s.oy) / s.scale + TH;
 
     // проход 2 — бейджи уровней (текущий, либо "текущий→целевой" при активной цели улучшения), либо
     // живой прогресс-бар стройки для зданий, у которых b.end ещё в будущем (см. drawProgressPill)
@@ -508,8 +816,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const { x: sx, y: sy } = isoToScreen(col, row);
       const bx = sx + TW / 2, by = sy + TH / 2;
       const endMs = b.end ? new Date(b.end).getTime() : 0;
+      if (endMs > nowMs && s.labels.get(`${b.x}_${b.y}`) != null) anyUnderConstruction = true;
+      if (bx < vx0 || bx > vx1 || by < vy0 || by > vy1) continue;
       if (endMs > nowMs) {
-        const label = badgeFor(b);
+        const label = s.labels.get(`${b.x}_${b.y}`) ?? null;
         if (label == null) continue; // здание нельзя улучшить (special) — прогресс не рисуем
         anyUnderConstruction = true;
         // start — реальное время начала стройки, отдаёт сама игра (см. api.ts MapBuilding.start,
@@ -528,8 +838,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         const hovered = s.badgeHoverGx === b.x && s.badgeHoverGy === b.y;
         drawProgressBadge(ctx, bx, by, label, fsz, progress, fmtTimeLeft(endMs - nowMs), hovered);
       } else {
-        const label = badgeFor(b);
-        if (label) drawLevelBadge(ctx, bx, by, label, fsz);
+        const label = s.labels.get(`${b.x}_${b.y}`);
+        if (label) {
+          const bi = badgeImage(label, fsz);
+          ctx.drawImage(bi.img, bx - bi.w / 2, by - bi.h / 2, bi.w, bi.h);
+        }
       }
     }
 
@@ -634,14 +947,46 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // живой тик прогресс-бара стройки — раз в секунду достаточно (не 60кадр/с, тексту минут не нужно)
     if (s.liveTimer) { clearTimeout(s.liveTimer); s.liveTimer = null; }
     if (anyUnderConstruction) s.liveTimer = setTimeout(() => { s.liveTimer = null; redraw(); }, 1000);
+    // куски, не успевшие в бюджет кадра, дорисовываются в следующих кадрах
+    if (layerPending) requestRedraw();
   }
 
   useEffect(() => {
     const s = state.current;
+    // готовые спрайты — перерисовать куски (старые остаются на экране, пока не перерисованы)
+    const off = onSpritesReady(() => invalidateLayer());
     return () => {
+      off();
       if (s.liveTimer) clearTimeout(s.liveTimer);
       if (s.rafId) cancelAnimationFrame(s.rafId);
+      if (s.zoomTimer) clearTimeout(s.zoomTimer);
+      for (const ch of s.chunks.values()) releaseChunk(ch);
+      s.chunks.clear(); s.chunkCanvas = null; s.badgeCache.clear();
     };
+  }, []);
+
+  const fpsRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = fpsRef.current;
+    if (!c) return undefined;
+    return startFpsCounter(c, fps => {
+      // понижаем плотность пикселей только по честному замеру: свайп/зум шёл всё окно замера и
+      // спрайты уже подготовлены (их нарезка при открытии карты не в счёт). Сильная просадка (<35) —
+      // сразу, умеренная — после двух окон подряд. Ступень выбирается по оценке: число пикселей
+      // кадра пропорционально квадрату плотности, значит нужная плотность ≈ текущая·√(fps/60)
+      const s = state.current, now = performance.now();
+      const fullWindow = now <= s.interactingUntil && now - s.interactingSince >= 500;
+      if (!fullWindow || !spritesIdle()) { s.slowSamples = 0; return; }
+      s.slowSamples = fps < MIN_SMOOTH_FPS ? s.slowSamples + 1 : 0;
+      if (s.slowSamples < (fps < 35 ? 1 : 2)) return;
+      s.slowSamples = 0;
+      const cur = getDpr();
+      const want = cur * Math.sqrt(fps / 60);
+      const next = DPR_STEPS.find(d => d < cur - 0.01 && d <= want) ?? DPR_STEPS.find(d => d < cur - 0.01) ?? null;
+      if (next == null) return;
+      dprCap = next;
+      requestRedraw();
+    });
   }, []);
 
   // roadMap/coords — статические импортированные данные (см. COORDS/ROAD_MAP выше), доступны
@@ -654,10 +999,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     s.roadMap = ROAD_MAP[type];
     s.coordsList = COORDS[type];
     s.coords = new Set(s.coordsList.map(c => `${c.x}_${c.y}`));
+    s.listDirty = true; s.ver++;
     if (Object.keys(s.spriteMap).length === 0) {
       if (spriteMapCache) {
         s.spriteMap = spriteMapCache;
-        requestRedraw();
+        s.listDirty = true; invalidateLayer();
       } else {
         fetch('/sprites/sprite-map.json').then(r => r.json()).then(sm => {
           const map: typeof s.spriteMap = {};
@@ -666,7 +1012,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           }
           spriteMapCache = map;
           s.spriteMap = map;
-          requestRedraw();
+          s.listDirty = true; invalidateLayer();
         });
       }
     }
@@ -690,21 +1036,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       s.needsCenter = true;
     }
 
-    const needed = new Set(['empty.png', 'construction.png', 'construction2.png']);
-    if (type === 'capital') needed.add('CAP_level0.png');
-    for (const v of Object.values(s.roadMap)) needed.add(v.asset);
-    for (const b of buildings) if (s.spriteMap[b.id]) needed.add(b.id);
-    const urls = new Set<string>();
-    for (const id of needed) { const sp = s.spriteMap[id]; if (sp) urls.add(sp.pngUrl); }
-    const preloads = [...urls].map(url => new Promise<void>(res => {
-      const cached = s.imgCache[url];
-      if (cached && cached.complete && cached.naturalWidth > 0) return res();
-      const img = new Image(); img.crossOrigin = 'anonymous';
-      img.onload = () => { requestRedraw(); res(); };
-      img.onerror = () => res();
-      img.src = url; s.imgCache[url] = img;
-    }));
-    Promise.all(preloads).then(() => requestRedraw());
+    // спрайты (в т.ч. общие спрайты стройки) заказываются при сборке draw-list, см. buildDrawList
+    s.listDirty = true; s.labelsDirty = true; s.ver++;
 
     let attempts = 0;
     const waitCenter = () => {
@@ -715,8 +1048,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     waitCenter();
   }, [buildings, type, mapKey]);
 
-  // перерисовать при смене режима / valid-set / picked-set / целей (даже без движения мыши)
-  useEffect(() => { requestRedraw(); }, [mode, validSet, pickedSet, targets, globalPlan, requestRedraw]);
+  // режим и valid-set меняют затемнение зданий — это неподвижный слой; picked-set и цели/очередь/
+  // план — только подсветку и бейджи поверх него
+  useEffect(() => { state.current.listDirty = true; invalidateLayer(); }, [mode, validSet, lockedCells]);
+  useEffect(() => { state.current.labelsDirty = true; requestRedraw(); }, [pickedSet, targets, queue, globalPlan, requestRedraw]);
 
   useEffect(() => {
     const wrap = wrapRef.current; if (!wrap) return;
@@ -736,7 +1071,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const rect = wrap.getBoundingClientRect();
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-      const newScale = Math.max(0.3, Math.min(2, s.scale * factor));
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s.scale * factor));
       s.ox = mx + (s.ox - mx) * (newScale / s.scale);
       s.oy = my + (s.oy - my) * (newScale / s.scale);
       s.scale = newScale;
@@ -865,7 +1200,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         const rect = wrap.getBoundingClientRect();
         const dist = touchDist(e.touches), mid = touchMid(e.touches, rect);
         const factor = dist / s.pinchDist;
-        const newScale = Math.max(0.3, Math.min(2, s.scale * factor));
+        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s.scale * factor));
         // зум, привязанный к текущей средней точке двух пальцев (она не "уезжает" на экране)
         s.ox = mid.x + (s.ox - mid.x) * (newScale / s.scale);
         s.oy = mid.y + (s.oy - mid.y) * (newScale / s.scale);
@@ -965,8 +1300,9 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   const cursor = mode !== 'view' ? 'crosshair' : 'grab';
 
   return (
-    <div ref={wrapRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor, background: '#d8d8d8', border: '1px solid var(--border)', touchAction: 'none' }}>
+    <div ref={wrapRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor, background: MAP_BG, border: '1px solid var(--border)', touchAction: 'none' }}>
       <canvas ref={canvasRef} style={{ display: 'block' }} />
+      <canvas ref={fpsRef} />
     </div>
   );
 }
