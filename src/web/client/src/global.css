@@ -601,6 +601,9 @@ html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
 .dr-coins    { --rc: #d4a017; background: rgba(212,160,23,.13); border: 1px solid rgba(212,160,23,.5); gap: 4px; }
 .dr-crystals { --rc: #2ea043; background: rgba(46,160,67,.12);  border: 1px solid rgba(46,160,67,.5);  gap: 4px; }
 .dr-amount   { font-size: 12px; font-weight: 600; color: var(--fgColor-default, var(--fg)); line-height: 1; white-space: nowrap; }
+/* текущий день — мягкий ореол цвета редкости (кольцо без размытия, статичное), будущие дни приглушены */
+html .item-card__box.dr-today { border-color: var(--rc, var(--accent)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--rc, var(--accent)) 28%, transparent); }
+.dr-future { opacity: .45; }
 
 /* Иконки политик (components/PolicyIcon.tsx): цвет редкости в --rc — насыщеннее на светлой теме,
    светлее на тёмной; иконка с градиентом и мягкой тенью того же цвета */
