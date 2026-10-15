@@ -451,6 +451,9 @@ body:has([data-portal-root] [role=dialog]) .sidebar { z-index: 0 !important; }
     transform: translateX(100%);
     transition: transform .25s ease;
     will-change: transform;
+    /* как у левого меню: почти непрозрачный стеклянный фон, иначе карта просвечивает сквозь текст */
+    background: rgb(255 255 255 / 98%);
+    backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
   }
   .map-panel.open { transform: translateX(0); }
 
@@ -541,6 +544,9 @@ html[data-theme="dark"] .ic-shard_eternal,html[data-theme="dark"] .ic-mystery_et
 
 /* карта и редактор */
 html[data-theme="dark"] .map-panel { background: rgba(22,27,34,.7); border-left-color: var(--border); }
+@media (max-width: 768px), (max-height: 480px) {
+  html[data-theme="dark"] .map-panel { background: rgb(22 27 34 / 82%); }
+}
 html[data-theme="dark"] #map-cat-tabs { background: #161b22; border-color: #30363d; }
 html[data-theme="dark"] .map-cat-tab.active::before { background: #21262d; border-color: #30363d; }
 html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
