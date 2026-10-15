@@ -61,6 +61,17 @@ function PolicyBadge({ policy, enacted, onClick }: { policy: PolicyInstance; ena
   );
 }
 
+// Причина, почему кнопка недоступна, — тултипом Primer поверх кнопки. Обёртка нужна: у disabled-
+// кнопки нет событий мыши, а тултип срабатывает на наведение на сам контейнер.
+function ReasonTooltip({ reason, children }: { reason: string | null; children: React.ReactNode }) {
+  if (!reason) return <>{children}</>;
+  return (
+    <Tooltip text={reason[0].toUpperCase() + reason.slice(1)} direction="n" wrap sx={{ display: 'block' }}>
+      {children}
+    </Tooltip>
+  );
+}
+
 // ── Модалка политики: просмотр + действия ────────────────────────────────────
 // enact/unequip/levelup/promote/dissolve — payload {instance_id} (enact ещё сам подбирает
 // свободный слот кабинета на сервере) — подтверждено реверсом chunks/storage-*.
@@ -158,18 +169,17 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
       position={{ narrow: 'bottom', regular: 'center' }}
       /* 15.10.2026: вместо стандартного footerButtons (кнопки разной ширины в ряд, серая
          «Повысить уровень» выглядела оторванной) — свой футер: действия столбиком во всю ширину,
-         причина недоступности текстом под кнопкой (на телефоне title не увидеть), «Расформировать»
+         причина недоступности — в тултипе Primer (ReasonTooltip), «Расформировать»
          последней, во всю ширину, как «Снять» */
       renderFooter={() => (
         <Dialog.Footer sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
           {actions.map(a => (
-            <Box key={a.key} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <ReasonTooltip key={a.key} reason={a.reason}>
               <Button block variant={a.variant} leadingVisual={a.icon} loading={a.loading}
                 disabled={!!busy || !!a.reason} onClick={a.onClick}>
                 {a.label}
               </Button>
-              {a.reason && <Text sx={{ fontSize: 0, color: 'fg.muted', textAlign: 'center' }}>{a.reason[0].toUpperCase() + a.reason.slice(1)}</Text>}
-            </Box>
+            </ReasonTooltip>
           ))}
           <Box>
             <Button block variant="danger" leadingVisual={TrashIcon} loading={busy === 'dissolve'} disabled={!!busy}
@@ -227,8 +237,10 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
                 </Text>
               </Box>
             )}
-            {!enacted && freeSlots > 0 && (
-              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>Свободных слотов кабинета: {freeSlots}</Text>
+            {!enacted && (
+              <Text sx={{ fontSize: 0, color: freeSlots > 0 ? 'fg.muted' : 'attention.fg', display: 'block', mt: 1 }}>
+                {freeSlots > 0 ? `Свободных слотов кабинета: ${freeSlots}` : 'Нет свободных слотов кабинета — «Применить» недоступно'}
+              </Text>
             )}
             {!enacted && prog.tenure_needed != null && (
               <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>
@@ -389,7 +401,7 @@ function ShardModal({ shard, accountId, locked, lockedReason, economy, onClose, 
       onClose={onClose}
       width="small"
       position={{ narrow: 'bottom', regular: 'center' }}
-      /* футер в стиле окна политики: кнопка во всю ширину, причина недоступности текстом под ней */
+      /* футер в стиле окна политики: кнопка во всю ширину, причина недоступности в тултипе */
       renderFooter={() => (
         <Dialog.Footer sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
           {isMystery && maxOpen > 1 && (
@@ -402,11 +414,12 @@ function ShardModal({ shard, accountId, locked, lockedReason, economy, onClose, 
               <IconButton icon={PlusIcon} aria-label="Больше" disabled={busy || n >= maxOpen} onClick={() => setCount(n + 1)} />
             </Box>
           )}
-          <Button block variant="primary" leadingVisual={isMystery ? UnlockIcon : PlusCircleIcon} loading={busy}
-            disabled={busy || !!reason} onClick={run}>
-            {isMystery ? (n > 1 ? `Открыть ${n} шт.` : 'Открыть') : 'Создать тайную политику'}
-          </Button>
-          {reason && <Text sx={{ fontSize: 0, color: 'fg.muted', textAlign: 'center' }}>{reason}</Text>}
+          <ReasonTooltip reason={reason}>
+            <Button block variant="primary" leadingVisual={isMystery ? UnlockIcon : PlusCircleIcon} loading={busy}
+              disabled={busy || !!reason} onClick={run}>
+              {isMystery ? (n > 1 ? `Открыть ${n} шт.` : 'Открыть') : 'Создать тайную политику'}
+            </Button>
+          </ReasonTooltip>
         </Dialog.Footer>
       )}
     >
