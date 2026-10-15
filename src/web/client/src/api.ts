@@ -15,7 +15,7 @@ export const api = {
   maintenance: () => req<{ ok: boolean; active: boolean; since: number | null; retryInMs: number }>('/api/maintenance'),
 
   // проверка новой версии бота на GitHub (только чтение)
-  build: () => req<{ ok: boolean; commit: string | null; startedAt: number; busy: boolean }>('/api/build'),
+  build: () => req<{ ok: boolean; commit: string | null; startedAt: number; busy: boolean; update?: UpdateStage | null }>('/api/build'),
   version: (force = false) => req<VersionInfo>('/api/version' + (force ? '?force=1' : '')),
   // обновление или смена канала через обновлятель (tag не задан — свежий образ текущего канала);
   // если образ новый, бот перезапустится раньше ответа
@@ -2180,9 +2180,15 @@ export interface VersionInfo {
   startedAt?: number;
   auto?: boolean;
   updater?: { alive: boolean; busy?: boolean; heartbeatAt: string | null; version: number | null; mode?: string | null;
-    last: { id: string; state: string; tag: string; message: string; at: string } | null };
+    last: { id: string; state: string; tag: string; message: string; at: string; progress?: PullProgress } | null };
   history?: { commit: string; ref: string | null; tag: string; at: string }[];
   checkedAt: number;
   // ответ из кэша сервера (ручная проверка повторена раньше чем через 10 с)
   cached?: boolean;
 }
+
+// прогресс скачивания образа обновлятелем (Docker Engine API, сумма по слоям; estTotal — с оценкой
+// размера ещё не начатых слоёв)
+export interface PullProgress { layers: number; downloaded: number; extracted: number; cur: number; total: number; estTotal: number }
+// этап идущего обновления из GET /api/build
+export interface UpdateStage { state: string; message: string | null; progress: PullProgress | null }

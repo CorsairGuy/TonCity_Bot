@@ -9,6 +9,8 @@ import {
 } from '@primer/octicons-react';
 import { api, VersionInfo, UpdateRelease } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
+import { useBuildState } from '../hooks/useBuildWatcher';
+import { UpdateProgress } from './UpdateProgress';
 
 const SmallSpinner = () => <Spinner size="small" sx={{ width: 14, height: 14 }} />;
 
@@ -81,6 +83,7 @@ export function UpdatesCard() {
   const [confirm, setConfirm] = useState<null | { tag: string; title: string; rollback?: boolean }>(null);
   const [showAll, setShowAll] = useState(false);
   const upd = useSelfUpdate();
+  const build = useBuildState();
   const ref = useRef<HTMLDivElement>(null);
   const location = useLocation();
 
@@ -298,7 +301,7 @@ export function UpdatesCard() {
               Вернуться на {short(prev.commit)}{prev.ref ? ` (${prev.ref})` : ''}
             </Button>
           )}
-          {upd.updating && <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}><Spinner size="small" /><Text sx={{ color: 'fg.muted' }}>Скачиваю образ и перезапускаю бота…</Text></Box>}
+          {(upd.updating || build.busy) && <Box sx={{ maxWidth: 420 }}><UpdateProgress stage={build.update} fallback="Скачиваю образ и перезапускаю бота…" /></Box>}
         </Box>
         {note && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{note}</Text>}
         {upd.msg && <Flash variant="warning">{upd.msg}</Flash>}
