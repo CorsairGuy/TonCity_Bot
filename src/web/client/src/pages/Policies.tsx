@@ -246,12 +246,22 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, onClos
 // Клик открывает модалку с действием (создать/открыть), кнопка внутри недоступна,
 // если условие фичи не выполнено (1 000 000 населения) — не сама карточка.
 
-function ShardCard({ shard, onClick }: { shard: PolicyShardItem; onClick: () => void }) {
+// от самой редкой к самой частой; редкость — из тега предмета (shard_epic, mystery_rare, reform_stone_mythic)
+function shardRarityRank(s: PolicyShardItem): number {
+  const meta = ITEMS_BY_ID[Number(s.id)];
+  return meta ? (RARITY_RANK[rarityFromTag(meta.tag)] ?? 99) : 99;
+}
+function byRarityDesc(list: PolicyShardItem[]): PolicyShardItem[] {
+  return [...list].sort((a, b) => shardRarityRank(a) - shardRarityRank(b) || Number(a.id) - Number(b.id));
+}
+
+// onClick не передан — карточка только для просмотра (камни реформ: действий с ними на странице нет)
+function ShardCard({ shard, onClick }: { shard: PolicyShardItem; onClick?: () => void }) {
   const meta = ITEMS_BY_ID[Number(shard.id)] ?? null;
   const name = meta?.name ?? shard.type;
   return (
     <Tooltip text={name} direction="n" noDelay>
-      <div className="item-card clickable" aria-label={name} onClick={onClick}>
+      <div className={onClick ? 'item-card clickable' : 'item-card'} aria-label={name} onClick={onClick}>
         <div className={`item-card__box${meta ? ` ic-${meta.tag}` : ' ic-common'}`}>
           {/* 13.10.2026: карточки осколков выглядели заметно мельче карточек политик (та же
               item-card__box, 77×77, но картинка внутри уменьшалась через scale) — без подписи снизу
@@ -350,6 +360,11 @@ function AccountBlock({ accountName, accountId, data, onOpenPolicy, onOpenShard 
   const enactedIds = new Set(
     (data.cabinet.slots ?? []).map(s => s.instance?.id).filter((x): x is number => x != null)
   );
+  // раньше сортировка шла по RARITY_RANK[тег], а тег у осколков — shard_common/mystery_rare,
+  // ранг всегда выходил 99, и линия оставалась в порядке БД (от обычных к редким)
+  const stones = byRarityDesc(data.reform_stones ?? []);
+  const sealed = byRarityDesc(data.shards.filter(s => s.type === 'mystery_policy'));
+  const shards = byRarityDesc(data.shards.filter(s => s.type !== 'mystery_policy'));
 
   return (
     <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, mb: 3, overflow: 'hidden' }}>
@@ -364,12 +379,29 @@ function AccountBlock({ accountName, accountId, data, onOpenPolicy, onOpenShard 
         </Text>
       </Box>
       <Box sx={{ p: 3 }}>
-        {data.list.length === 0 && data.shards.length === 0
+        {data.list.length === 0 && data.shards.length === 0 && stones.length === 0
           ? <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Нет данных — политики ещё не открыты или не синхронизированы</Text>
           : (
-            <>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {/* 15.10.2026: четыре линии — камни реформ → запечатанные (тайные) политики → осколки →
+                  политики; в каждой от самой редкой к самой частой */}
+              {stones.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {stones.map(s => <ShardCard key={s.id} shard={s} />)}
+                </div>
+              )}
+              {sealed.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {sealed.map(s => <ShardCard key={s.id} shard={s} onClick={() => onOpenShard(accountId, s)} />)}
+                </div>
+              )}
+              {shards.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {shards.map(s => <ShardCard key={s.id} shard={s} onClick={() => onOpenShard(accountId, s)} />)}
+                </div>
+              )}
               {data.list.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: data.shards.length ? 16 : 0 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                   {/* 13.10.2026: сначала применённые (в кабинете мэра), затем по редкости от вечной к обычной,
                       внутри одной редкости — одинаковые политики (def_id) рядом друг с другом */}
                   {[...data.list]
@@ -383,17 +415,7 @@ function AccountBlock({ accountName, accountId, data, onOpenPolicy, onOpenShard 
                     ))}
                 </div>
               )}
-              {data.shards.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                  {/* от самой редкой к самой частой — тот же порядок, что и у карточек политик выше */}
-                  {[...data.shards]
-                    .sort((a, b) => (RARITY_RANK[ITEMS_BY_ID[Number(a.id)]?.tag] ?? 99) - (RARITY_RANK[ITEMS_BY_ID[Number(b.id)]?.tag] ?? 99))
-                    .map(s => (
-                      <ShardCard key={s.id} shard={s} onClick={() => onOpenShard(accountId, s)} />
-                    ))}
-                </div>
-              )}
-            </>
+            </Box>
           )}
       </Box>
     </Box>

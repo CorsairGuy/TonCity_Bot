@@ -1583,6 +1583,7 @@ export interface PoliciesAccountData {
   cabinet: PolicyCabinet;
   economy: PolicyEconomy | null;
   shards: PolicyShardItem[];
+  reform_stones?: PolicyShardItem[]; // камни реформ (id 36-38) — только просмотр
   updated_at: string | null;
   population: number | null;
   policies_unlocked: boolean;

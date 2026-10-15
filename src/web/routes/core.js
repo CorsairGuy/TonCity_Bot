@@ -337,9 +337,11 @@ module.exports=function(app,ctx){
       let totalItems=0;
       const accValues={};
       // осколки политик/тайные политики живут на странице "Политики", не среди обычных предметов
+      // (с 15.10.2026 туда же ушли камни реформ, id 36-38)
       const POLICY_ITEM_TYPES=new Set(['policy_shard','mystery_policy']);
+      const REFORM_STONE_IDS=new Set(['36','37','38']);
       for(const r of rows){
-        if(POLICY_ITEM_TYPES.has(r.type))continue;
+        if(POLICY_ITEM_TYPES.has(r.type)||REFORM_STONE_IDS.has(String(r.name)))continue;
         if(!byAccount[r.account])byAccount[r.account]=[];
         const qty=Number(r.marketable||0)+Number(r.locked||0);
         const free=Number(r.marketable||0);
