@@ -1184,7 +1184,7 @@ export function CityMapCity() {
                                         есть в наличии, больше в очередь ставить бессмысленно */}
                                     <Button variant="primary" disabled={queuedCount(b.name) >= b.available}
                                       onClick={() => queueAdd(b.name)}>
-                                      В очередь{queuedCount(b.name) > 0 && <CounterLabel sx={{ ml: 1 }}>{queuedCount(b.name)}/{b.available}</CounterLabel>}
+                                      В очередь{queuedCount(b.name) > 0 && <CounterLabel sx={{ ml: 1, bg: 'fg.onEmphasis', color: 'btn.primary.bg' }}>{queuedCount(b.name)}/{b.available}</CounterLabel>}
                                     </Button>
                                     <Button variant="invisible" disabled={!canActivate || activating} loading={activating}
                                       onClick={() => activateBooster(b.name)} sx={{ fontSize: 0 }}>Активировать сейчас</Button>
