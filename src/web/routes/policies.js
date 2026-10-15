@@ -11,6 +11,8 @@
 //   POST /policies/levelup          {instance_id}
 //   POST /policies/promote          {instance_id}
 //   POST /policies/dissolve         {instance_id}
+//   POST /policies/reroll           {instance_id}  — «Провести реформу» за Камень реформ своей редкости
+//                                    (15.10.2026, chunks/storage-*: ответ — новый инстанс политики)
 //   POST /policies/mystery/craft    {rarity}
 //   POST /policies/mystery/open     {rarity}
 //   POST /policies/civic-draw/claim {}  (пустое тело)
@@ -21,6 +23,7 @@ const ACTION_ENDPOINTS={
   levelup:'/policies/levelup',
   promote:'/policies/promote',
   dissolve:'/policies/dissolve',
+  reroll:'/policies/reroll',
   'mystery-craft':'/policies/mystery/craft',
   'mystery-open':'/policies/mystery/open',
   'civic-draw-claim':'/policies/civic-draw/claim',
@@ -219,7 +222,7 @@ module.exports=function(app,ctx){
           body={instance_id:Number(instance_id),slot:free.slot};
           break;
         }
-        case 'unequip':case 'levelup':case 'promote':case 'dissolve':
+        case 'unequip':case 'levelup':case 'promote':case 'dissolve':case 'reroll':
           if(instance_id==null)return res.status(400).json({ok:false,error:'instance_id обязателен'});
           body={instance_id:Number(instance_id)};
           break;

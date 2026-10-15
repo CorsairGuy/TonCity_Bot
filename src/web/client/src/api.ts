@@ -1593,7 +1593,7 @@ export interface PoliciesAccountData {
 }
 
 export type PolicyActionName =
-  | 'enact' | 'unequip' | 'levelup' | 'promote' | 'dissolve'
+  | 'enact' | 'unequip' | 'levelup' | 'promote' | 'dissolve' | 'reroll'
   | 'mystery-craft' | 'mystery-open' | 'civic-draw-claim';
 
 export interface PolicyActionResponse {
