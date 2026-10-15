@@ -8,6 +8,7 @@ import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { CrystalValue } from '../components/Icons';
 import { PolicyCardModal, RARITY_COLOR } from '../components/PolicyCardModal';
+import { PolicyIcon } from '../components/PolicyIcon';
 import { Scrollable } from '../components/Scrollable';
 import { useItemCatalog, itemName, knownItemName } from '../hooks/useItemCatalog';
 import { ItemThumb } from '../components/ItemThumb';
@@ -597,21 +598,19 @@ export function MarketLots() {
                 // политику можно открыть карточкой (как в библиотеке)
                 const clickable = !!pol;
                 // иконка политики из игры (mdi-*) на фоне цвета редкости — как в библиотеке
-                const polColor = pol ? (RARITY_COLOR[o.item_rarity] ?? '#6e7681') : null;
                 const polIcon = pol ? (pol.icon_key || 'mdi-script-text').replace(/^mdi-/, '') : null;
                 return (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, cursor: clickable ? 'pointer' : undefined }} title={clickable ? 'Открыть карточку политики' : effTitle}
                     onClick={clickable ? () => setPolicyModal(o) : undefined}>
-                    <Box sx={{ width: 30, height: 30, borderRadius: '6px', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bg: (!meta && polColor) ? undefined : 'canvas.subtle' }}
-                      style={(!meta && polColor) ? { background: polColor } : undefined}>
+                    {!meta && polIcon
+                      ? <PolicyIcon rarity={o.item_rarity || 'common'} iconKey={pol?.icon_key} size={30} iconSize={19} radius={6} style={{ flexShrink: 0 }} />
+                      : <Box sx={{ width: 30, height: 30, borderRadius: '6px', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bg: 'canvas.subtle' }}>
                       {meta
                         ? <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 24, height: 24, objectFit: 'contain' }}
                             onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
-                        : polIcon
-                          ? <span className={`mdi mdi-${polIcon}`} style={{ fontSize: 20, color: '#fff', lineHeight: 1 }} />
-                          : o.item_category === 'shard' ? <span style={{ fontSize: 14 }}>🔷</span>
+                        : o.item_category === 'shard' ? <span style={{ fontSize: 14 }}>🔷</span>
                           : <ItemThumb itemId={o.item_id} item={catalog.get(o.item_id)} size={24} style={{ fontSize: 8, padding: 0 }} />}
-                    </Box>
+                    </Box>}
                     <Text sx={{ fontSize: 1, whiteSpace: 'nowrap', minWidth: 0 }}>{name}</Text>
                     {o.market_type && o.market_type !== 'direct' && (
                       <Label variant={o.market_type === 'auction' ? 'attention' : 'accent'} sx={{ fontSize: 0 }}>{MT_LABEL[o.market_type] ?? o.market_type}</Label>

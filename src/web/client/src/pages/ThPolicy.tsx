@@ -5,6 +5,7 @@ import { api, type PolicyDefEntry } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { PolicyCardModal, RARITY_COLOR, RARITY_NAME, RARITY_ORDER, defName } from '../components/PolicyCardModal';
+import { PolicyIcon } from '../components/PolicyIcon';
 import { PageHeader } from '../components/PageHeader';
 
 // "Библиотека политик" — каталог описаний, собранный со всех аккаунтов бота.
@@ -18,14 +19,10 @@ import { PageHeader } from '../components/PageHeader';
 // со страницами Предметы/Осколки/Политики. Константы редкости/имени и модалка — в общем
 // компоненте components/PolicyCardModal (переиспользуется и на странице лотов рынка).
 function DefBadge({ def, onClick }: { def: PolicyDefEntry; onClick: () => void }) {
-  const color = RARITY_COLOR[def.rarity] ?? '#6e7681';
-  const icon = (def.icon_key || 'mdi-script-text').replace(/^mdi-/, '');
   return (
     <Tooltip text={defName(def)} direction="n" noDelay>
       <div className="item-card clickable" aria-label={defName(def)} onClick={onClick}>
-        <div className="item-card__box" style={{ background: color }}>
-          <span className={`mdi mdi-${icon}`} style={{ fontSize: 30, color: '#fff', lineHeight: 1 }} />
-        </div>
+        <PolicyIcon rarity={def.rarity} iconKey={def.icon_key} />
       </div>
     </Tooltip>
   );

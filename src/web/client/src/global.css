@@ -585,3 +585,19 @@ html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
 .dr-coins    { background: rgba(212,160,23,.13); border: 1px solid rgba(212,160,23,.5); gap: 4px; }
 .dr-crystals { background: rgba(46,160,67,.12);  border: 1px solid rgba(46,160,67,.5);  gap: 4px; }
 .dr-amount   { font-size: 12px; font-weight: 600; color: var(--fgColor-default, var(--fg)); line-height: 1; white-space: nowrap; }
+
+/* Иконки политик (components/PolicyIcon.tsx): цвет редкости в --rc — насыщеннее на светлой теме,
+   светлее на тёмной; иконка с градиентом и мягкой тенью того же цвета */
+.r-common{--rc:#57606a}.r-uncommon{--rc:#1f8a4c}.r-rare{--rc:#1f6fb2}.r-epic{--rc:#8a2fc0}
+.r-legendary{--rc:#b8860b}.r-mythic,.r-eternal{--rc:#c0392b}
+html[data-theme="dark"] .r-common{--rc:#adbac7}html[data-theme="dark"] .r-uncommon{--rc:#3fd07a}
+html[data-theme="dark"] .r-rare{--rc:#58aef0}html[data-theme="dark"] .r-epic{--rc:#c77dff}
+html[data-theme="dark"] .r-legendary{--rc:#f2c94c}html[data-theme="dark"] .r-mythic,html[data-theme="dark"] .r-eternal{--rc:#ff6b5b}
+.pol-ic {
+  line-height: 1; color: transparent;
+  background: linear-gradient(160deg, var(--rc), color-mix(in srgb, var(--rc) 55%, #000));
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 2px 2px color-mix(in srgb, var(--rc) 40%, transparent));
+}
+html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 60%, #fff), var(--rc)); -webkit-background-clip: text; background-clip: text; }
+.pol-lv { color: var(--rc); }

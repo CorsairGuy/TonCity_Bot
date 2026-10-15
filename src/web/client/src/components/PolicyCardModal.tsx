@@ -1,4 +1,5 @@
 import { Box, Label, Text } from '@primer/react';
+import { PolicyIcon } from './PolicyIcon';
 import { Dialog } from '@primer/react/experimental';
 import { type PolicyDefEntry } from '../api';
 import { effectLabel, effectValue } from '../policyEffects';
@@ -55,16 +56,12 @@ function VariantCard({ def, multi }: { def: PolicyDefEntry; multi: boolean }) {
 export function PolicyCardModal({ variants, onClose }: { variants: PolicyDefEntry[]; onClose: () => void }) {
   if (!variants.length) return null;
   const primary = variants[0];
-  const color = RARITY_COLOR[primary.rarity] ?? '#6e7681';
-  const icon = (primary.icon_key || 'mdi-script-text').replace(/^mdi-/, '');
   const sorted = [...variants].sort((a, b) => RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity));
   return (
     <Dialog title={defName(primary)} onClose={onClose} width="large" position={{ narrow: 'bottom', regular: 'center' }}>
       <Box>
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-          <div style={{ width: 72, height: 72, borderRadius: 16, background: color, boxShadow: `0 0 14px ${color}66`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span className={`mdi mdi-${icon}`} style={{ fontSize: 36, color: '#fff' }} />
-          </div>
+          <PolicyIcon rarity={primary.rarity} iconKey={primary.icon_key} size={72} iconSize={38} radius={16} />
         </Box>
         {sorted.length > 1 && (
           <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', textAlign: 'center', mb: 2 }}>
