@@ -592,20 +592,26 @@ export function MarketLots() {
       />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
-      {/* категории — табы как на страницах логов и аудиториума (на узком экране лишние уходят в «Ещё») */}
-      <UnderlineNav aria-label="Категория" sx={{ mb: 3 }}>
-        {[{ value: 'all', label: 'Все' }, ...CATEGORIES].map(c => (
-          <UnderlineNav.Item key={c.value} href="#"
-            aria-current={(c.value === 'all' ? !pickedItem && category === 'all' : (pickedItem ? pickedItem.category : category) === c.value) ? 'page' : undefined}
-            onSelect={e => { e.preventDefault(); setItem('all'); setCategory(c.value); }}>
-            {c.label}
-          </UnderlineNav.Item>
-        ))}
-      </UnderlineNav>
-
-      {/* уточняющие списки */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Box sx={{ display: 'flex', gap: 2, ml: 'auto', flexWrap: 'wrap' }}>
+      {/* категории — табы как на страницах логов и аудиториума, фильтры справа в той же линии
+          (на узком экране лишние табы уходят в «Ещё», фильтры переносятся строкой ниже) */}
+      <Box sx={{
+        display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap',
+        // линия под табами — родная линия UnderlineNav (тот же цвет и толщина); на широком экране
+        // она продолжена под фильтрами, на телефоне фильтры переносятся ниже неё
+        '@media (min-width: 768px)': { boxShadow: (t: { colors: { border: { muted: string } } }) => `inset 0 -1px 0 ${t.colors.border.muted}` },
+      }}>
+        <Box sx={{ flex: '1 1 320px', minWidth: 0 }}>
+          <UnderlineNav aria-label="Категория">
+            {[{ value: 'all', label: 'Все' }, ...CATEGORIES].map(c => (
+              <UnderlineNav.Item key={c.value} href="#"
+                aria-current={(c.value === 'all' ? !pickedItem && category === 'all' : (pickedItem ? pickedItem.category : category) === c.value) ? 'page' : undefined}
+                onSelect={e => { e.preventDefault(); setItem('all'); setCategory(c.value); }}>
+                {c.label}
+              </UnderlineNav.Item>
+            ))}
+          </UnderlineNav>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 2, ml: 'auto', flexWrap: 'wrap', py: 1 }}>
           <Select size="small" value={item} onChange={e => setItem(e.target.value)}>
             <Select.Option value="all">Все предметы</Select.Option>
             {ITEM_FILTERS.map(f => <Select.Option key={f.id} value={String(f.id)}>{ITEMS_BY_ID[f.id]?.name ?? `#${f.id}`}</Select.Option>)}
@@ -660,13 +666,14 @@ export function MarketLots() {
                     onClick={clickable ? () => setPolicyModal(o) : undefined}>
                     {!meta && polIcon
                       ? <PolicyIcon rarity={o.item_rarity || 'common'} iconKey={pol?.icon_key} size={30} iconSize={19} radius={6} style={{ flexShrink: 0 }} />
-                      : <Box sx={{ width: 30, height: 30, borderRadius: '6px', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bg: 'canvas.subtle' }}>
+                      : <div className={`item-card__box ic-${meta?.tag ?? (o.item_category === 'shard' ? `shard_${o.item_rarity || 'common'}` : (o.item_rarity || 'common'))}`}
+                          style={{ width: 30, height: 30, borderRadius: 6, flexShrink: 0 }}>
                       {meta
                         ? <img src={itemImgSrc(meta.tag)} alt="" style={{ width: 24, height: 24, objectFit: 'contain' }}
                             onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
                         : o.item_category === 'shard' ? <span style={{ fontSize: 14 }}>🔷</span>
                           : <ItemThumb itemId={o.item_id} item={catalog.get(o.item_id)} size={24} style={{ fontSize: 8, padding: 0 }} />}
-                    </Box>}
+                    </div>}
                     <Text sx={{ fontSize: 1, whiteSpace: 'nowrap', minWidth: 0 }}>{name}</Text>
                     {o.market_type && o.market_type !== 'direct' && (
                       <Label variant={o.market_type === 'auction' ? 'attention' : 'accent'} sx={{ fontSize: 0 }}>{MT_LABEL[o.market_type] ?? o.market_type}</Label>
