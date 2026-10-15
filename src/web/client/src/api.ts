@@ -96,8 +96,9 @@ export const api = {
   promoHistory: () => req<{ ok: boolean; accounts: PromoAccount[] }>('/api/promo-log'),
   promoActivate: (accountId: number, code: string) =>
     req<{ ok: boolean; success?: boolean; reward?: unknown; error?: string }>('/api/promo/activate', post({ account_id: accountId, code })),
-  promoActivateAll: (code: string) =>
-    req<{ ok: boolean; results: { name: string; ok: boolean; success?: boolean; reward?: unknown; error?: string }[] }>('/api/promo/activate-all', post({ code })),
+  // accountIds — только эти аккаунты («Активировать оставшимся»); без них — все
+  promoActivateAll: (code: string, accountIds?: number[]) =>
+    req<{ ok: boolean; results: { name: string; ok: boolean; success?: boolean; reward?: unknown; error?: string }[] }>('/api/promo/activate-all', post({ code, account_ids: accountIds })),
 
   // builders — server: {id, name, count, price_coins, price_stars}
   builders: () => req<{ ok: boolean; rows: BuilderRow[] }>('/api/builders'),

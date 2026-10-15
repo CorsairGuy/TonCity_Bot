@@ -154,11 +154,12 @@ module.exports=function(app,ctx){
 
   app.post('/api/promo/activate-all',async(req,res)=>{
     try{
-      const{code}=req.body||{};
+      const{code,account_ids}=req.body||{};
       if(!code)return res.status(400).json({ok:false,error:'code обязателен'});
       const{Account,PromoLog}=require('../../db/index');
-      const ApiClient=require('../../api/client');
-      const accs=await Account.findAll({order:[['id','ASC']]});
+      // account_ids — только эти аккаунты (кнопка «Активировать оставшимся»), иначе все
+      const where=Array.isArray(account_ids)?{id:account_ids.map(Number).filter(Number.isFinite)}:{};
+      const accs=await Account.findAll({where,order:[['id','ASC']]});
       const results=[];
       for(const acc of accs){
         if(!acc.access_token){results.push({name:acc.name,ok:false,error:'no token'});continue;}
