@@ -35,13 +35,10 @@ const citySnapshotRow=(name,buildings,prog)=>{
 // проверка раз в сутки: "всегда держать активным" требует знать ТОЧНОЕ время, когда освобождается
 // слот, иначе город простаивает без буста часами.
 //
-// ВАЖНО: цикл НЕ опрашивает игру (никакого GET /boosters/active на таймере) — время окончания
-// известно нам САМИМИ, из end_time ответа игры на наш же POST /boosters/activate (см. ниже и
-// web/routes/cityStrategy.js POST .../activate) — точно так же, как страница "Ускорители" читает
-// только БД (booster_active_until/booster_currently_active в Inventory). Единственный живой
-// запрос ко всему разделу — сама активация (POST) и ручная кнопка "Проверить" на вкладке
-// (см. getEndsByType ниже — используется ТОЛЬКО этой кнопкой, не фоновым циклом), которая нужна,
-// только если игрок активировал ускоритель напрямую в игре, а не через бота.
+// Опрос игры минимальный: пустая очередь — ни одного запроса; иначе один GET /boosters/active на
+// проход, а проход случается, только когда освобождается слот (сон до окончания ближайшего
+// инстанса) или очередь изменили в панели. Страница "Ускорители" читает только БД
+// (booster_active_until/booster_currently_active в Inventory), цикл её заодно освежает.
 const FALLBACK_POLL_MS=15*60*1000; // если у аккаунта вообще нет включённой автоактивации/активных бустов
 
 let _rarityToId=null;
@@ -57,12 +54,17 @@ function rarityToId(){
 }
 
 // живой GET /boosters/active → Map<тип, [end_time ms, ...]> — группировка активных записей по типу
-// ускорителя (id из каталога) через поле rarity (совпадает с "tag" в config/items.json). Используется
-// ТОЛЬКО ручной кнопкой "Проверить" (web/routes/cityStrategy.js POST .../boosters/check) — разовая
-// сверка по запросу пользователя, НЕ фоновым циклом (см. комментарий выше).
+// ускорителя (id из каталога) через поле rarity (совпадает с "tag" в config/items.json). Используют
+// кнопка «Обновить с игры», ручная активация и цикл очереди (раз на проход, только при непустой очереди).
 async function getEndsByType(api){
+  return(await fetchEndsByType(api))||new Map();
+}
+// то же, но сбой запроса → null (а не «ничего не активно»): циклу нужно отличать одно от другого,
+// иначе при недоступной игре он попробовал бы включить другой тип поверх активного
+async function fetchEndsByType(api){
   const rMap=rarityToId();
-  const raw=await api.get('/boosters/active').catch(()=>[]);
+  let raw;
+  try{raw=await api.get('/boosters/active');}catch(_){return null;}
   const active=Array.isArray(raw)?raw:(raw?.boosters||[]);
   const endsByType=new Map();
   for(const a of active){
@@ -126,15 +128,27 @@ async function runBoosterAutomationLoop(api,name,accountId){
 
       const rows=await Inventory.findAll({where:{account:name,type:'booster'}});
       const now=Date.now();
-      // "ещё активен" — целиком из БД (booster_active_until пишем сами при активации), без единого
-      // живого запроса к игре. Если игрок активировал что-то напрямую в игре — это увидит только
-      // ручная кнопка "Проверить" на вкладке (web/routes/cityStrategy.js POST .../boosters/check).
-      const isStillActive=r=>r.booster_active_until&&new Date(r.booster_active_until).getTime()>now;
+      // СЛОТЫ — по РЕАЛЬНЫМ инстансам из игры (GET /boosters/active), один запрос на проход, и только
+      // когда очередь не пуста. Раньше считали по БД: там лишь МАКСИМАЛЬНОЕ время окончания типа, а
+      // booster_currently_active сам не уменьшается. У эпика 4 слота, и они освобождаются ПО ОДНОМУ
+      // (активно 3, осталось 18ч → освободился слот → ставим ещё один, снова 24ч), а цикл видел 4/4
+      // до конца последнего и спал до него. Не ответила игра — запасной вариант из БД, как раньше.
+      const live=await fetchEndsByType(api);
+      const endsOf=new Map();   // тип → [end ms] живых инстансов; дополняем своими активациями
+      for(const r of rows){
+        let arr;
+        if(live)arr=(live.get(String(r.name))||[]).filter(t=>t>now);
+        else{
+          const until=r.booster_active_until?new Date(r.booster_active_until).getTime():0;
+          arr=until>now?Array(Math.max(1,r.booster_currently_active??0)).fill(until):[];
+        }
+        endsOf.set(r.name,arr);
+      }
       // ПРАВИЛО ИГРЫ (подтверждено пользователем вживую): пока активен ХОТЬ ОДИН ускоритель, можно
       // активировать ТОЛЬКО ТОТ ЖЕ тип (если он стакается, т.е. active_limit>1) — любой ДРУГОЙ тип
-      // заблокирован целиком, независимо от его собственного active_limit.
+      // заблокирован целиком до окончания ВСЕХ инстансов активного, независимо от своего active_limit.
       let activeTypeName=null;
-      for(const r of rows)if(isStillActive(r)){activeTypeName=r.name;break;}
+      for(const[n,arr]of endsOf)if(arr.length){activeTypeName=n;break;}
 
       let activatedAny=false,soonest=null;
       // идём ПО ОЧЕРЕДИ, а не по инвентарю: порядок позиций и есть приоритет
@@ -142,18 +156,16 @@ async function runBoosterAutomationLoop(api,name,accountId){
         const row=rows.find(r=>r.name===qrow.booster_name);
         if(!row){await qrow.destroy().catch(()=>{});continue;} // типа нет в инвентаре — позиция мертва
         const activeLimit=row.booster_active_limit??0;
-        const stillActive=isStillActive(row);
-        const untilMs=row.booster_active_until?new Date(row.booster_active_until).getTime():0;
-        const currentlyActive=stillActive?(row.booster_currently_active??0):0;
         if(activeTypeName!=null&&activeTypeName!==row.name){
-          // заблокировано ДРУГИМ активным типом — блокировка снимется, когда закончится он
+          // заблокировано ДРУГИМ активным типом — снимется, когда закончится его ПОСЛЕДНИЙ инстанс.
           // Дальше по очереди НЕ идём: иначе следующая позиция того же типа, что активен сейчас,
           // обходила бы стоящую впереди («лега, эпик×4» при активном эпике включал эпик, а лега ждала)
-          const blocker=rows.find(r=>r.name===activeTypeName);
-          if(blocker?.booster_active_until)soonest=Math.min(soonest??Infinity,new Date(blocker.booster_active_until).getTime());
+          const blockerEnds=endsOf.get(activeTypeName)||[];
+          if(blockerEnds.length)soonest=Math.min(soonest??Infinity,Math.max(...blockerEnds));
           break;
         }
-        if(currentlyActive<activeLimit){
+        const alive=endsOf.get(row.name)||[];
+        if(alive.length<activeLimit){
           if(boosterStock(row)<=0){await qrow.destroy().catch(()=>{});continue;} // запас кончился — позиция мертва
           let endTime=null;
           const ok=await runAction(name,`booster activate ${row.name}`,async()=>{
@@ -163,11 +175,12 @@ async function runBoosterAutomationLoop(api,name,accountId){
           });
           if(ok){
             activatedAny=true;
-            const prevUntil=stillActive?untilMs:0;
+            alive.push(endTime||Date.now()+60000);   // без end_time — слот занят хотя бы до следующей проверки
+            endsOf.set(row.name,alive);
             await row.update({
               ...spendOne(row),
-              booster_currently_active:Math.min(currentlyActive+1,activeLimit),
-              booster_active_until:endTime?new Date(Math.max(endTime,prevUntil)):row.booster_active_until,
+              booster_currently_active:alive.length,
+              booster_active_until:new Date(Math.max(...alive)),
             });
             await logAction(name,'booster_activate',{building_id:row.name,detail:JSON.stringify({auto:true,queue:true})});
             await qrow.destroy().catch(()=>{});   // позиция израсходована
@@ -177,9 +190,19 @@ async function runBoosterAutomationLoop(api,name,accountId){
           }
           break;   // не удалось — повторим ту же позицию в следующий проход, следующие не трогаем
         }
-        // на лимите — ждём именно эту позицию: ближайшее освобождение = конец уже активного этого типа
-        if(stillActive)soonest=Math.min(soonest??Infinity,untilMs);
+        // все слоты типа заняты — ждём именно эту позицию: слот освободится с окончанием РАННЕГО инстанса
+        if(alive.length)soonest=Math.min(soonest??Infinity,Math.min(...alive));
         break;
+      }
+      // свежие слоты из игры — в БД, чтобы вкладка «Ускорители» показывала «Активно N/M» как есть
+      if(live){
+        for(const r of rows){
+          const arr=endsOf.get(r.name)||[];
+          const until=arr.length?new Date(Math.max(...arr)):null;
+          const prevUntil=r.booster_active_until?new Date(r.booster_active_until).getTime():null;
+          if((r.booster_currently_active??0)!==arr.length||prevUntil!==(until?until.getTime():null))
+            await r.update({booster_currently_active:arr.length,booster_active_until:until}).catch(()=>{});
+        }
       }
 
       if(activatedAny){
