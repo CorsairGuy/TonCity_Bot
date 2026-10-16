@@ -298,18 +298,16 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
                           const tip = `${c.key} · ${c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`}`;
                           // под курсором полоса краснеет; клик помечает клетку к удалению (бледнеет и перечёркнута), повторный — возвращает
                           return (
-                            <Tooltip key={c.key} text={tip} direction="n">
-                              <Box as="button" type="button" aria-label={tip} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)} {...hover([c.key])}
-                                sx={{
-                                  position: 'relative', display: 'flex', alignItems: 'center', height: 22, p: 0, border: 0, bg: 'transparent', cursor: 'pointer',
-                                  '&:hover .bar .pb-fill': off ? undefined : { bg: 'danger.emphasis' },
-                                }}>
-                                <Box className="bar" sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
-                                  <PlanBar done={c.done} wip={c.wip} span={c.span} />
-                                </Box>
-                                {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
+                            <Box key={c.key} as="button" type="button" aria-label={tip} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)} {...hover([c.key])}
+                              sx={{
+                                position: 'relative', display: 'flex', alignItems: 'center', height: 22, p: 0, border: 0, bg: 'transparent', cursor: 'pointer',
+                                '&:hover .bar .pb-fill': off ? undefined : { bg: 'danger.emphasis' },
+                              }}>
+                              <Box className="bar" sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
+                                <PlanBar done={c.done} wip={c.wip} span={c.span} />
                               </Box>
-                            </Tooltip>
+                              {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
+                            </Box>
                           );
                         })}
                       </Box>

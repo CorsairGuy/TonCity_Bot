@@ -244,6 +244,7 @@ export function CityMapCity() {
   const [manualQueue, setManualQueue] = useState<CityStrategyQueueItem[]>([]);
   const [reconstructPlan, setReconstructPlan] = useState<CityStrategyQueueItem[]>([]);
   const [planHover, setPlanHover] = useState<string[] | null>(null); // "x_y" клеток под курсором в «Плане»
+  const planFocus = useMemo(() => planHover ? new Set(planHover) : null, [planHover]);
   // клетки плана ("x,y"), помеченные к удалению — уходят из целей только при «Сохранить»
   const [planRemoved, setPlanRemoved] = useState<Set<string>>(() => new Set());
   const markPlanRemoved = useCallback((keys: string[], on: boolean) => setPlanRemoved(prev => {
@@ -516,7 +517,7 @@ export function CityMapCity() {
     if (executing) return new Set<string>();
     switch (mode) {
       // наведение на клетку/здание в «Плане» — видны только они (как в реконструкции)
-      case 'upgrade': return planHover ? new Set(planHover) : upgradeableSet;
+      case 'upgrade': return upgradeableSet;
       case 'queue': return upgradeableSet;
       case 'build': return buildFamily ? emptySet : new Set<string>();
       case 'move': return moveFrom ? emptySet : occupiedSet;
@@ -525,7 +526,7 @@ export function CityMapCity() {
       case 'renovate': return renovatableSet;
       default: return new Set<string>();
     }
-  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct, planHover]);
+  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct]);
 
   // подсветка нужна только для переходного "откуда" при перемещении — всё остальное уже видно по
   // самому превью (построенное/снесённое/перемещённое здание меняется прямо на карте)
@@ -923,6 +924,7 @@ export function CityMapCity() {
                 sections={sections}
                 unlockedSections={unlockedSections ?? undefined}
                 onUnlockCell={onUnlockCell}
+                focusSet={mode === 'upgrade' ? planFocus : null}
               />
           }
           <Box sx={{ position: 'absolute', left: 2, right: 2, bottom: 3, display: 'flex', justifyContent: 'center', pointerEvents: 'none', '& > *': { pointerEvents: 'auto' } }}>
