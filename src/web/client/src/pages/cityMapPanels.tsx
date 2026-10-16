@@ -209,12 +209,6 @@ function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: n
     </ProgressBar>
   );
 }
-// где показывать ✕ на полосе клетки под курсором (место под него справа не резервируется)
-const X_STYLE = 'right' as 'right' | 'left' | 'inside' | 'none';
-const X_BADGE = X_STYLE === 'inside'
-  ? { right: '3px', color: 'danger.fg' }
-  : { [X_STYLE === 'left' ? 'left' : 'right']: '-2px', width: 18, height: 18, borderRadius: '50%', bg: 'canvas.default', boxShadow: 'shadow.small' };
-const X_ROW = X_STYLE === 'inside' ? { '&:hover .bar > span': { height: '12px' } } : {};
 const cellsWord = (n: number) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'клетка' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'клетки' : 'клеток'; };
 export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, onHover, removed, onMarkRemoved }: {
   targets: CityStrategyTarget[]; owned: MapBuilding[]; labelFor: (id: string) => string;
@@ -302,21 +296,18 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
                         {g.cells.map(c => {
                           const off = removed.has(c.key);
                           const tip = `${c.key} · ${c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`}`;
-                          // клик помечает клетку к удалению (полоса бледнеет и перечёркнута), повторный — возвращает
+                          // под курсором полоса краснеет; клик помечает клетку к удалению (бледнеет и перечёркнута), повторный — возвращает
                           return (
                             <Tooltip key={c.key} text={tip} direction="n">
                               <Box as="button" type="button" aria-label={tip} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)} {...hover([c.key])}
                                 sx={{
                                   position: 'relative', display: 'flex', alignItems: 'center', height: 22, p: 0, border: 0, bg: 'transparent', cursor: 'pointer',
-                                  '& .x': { display: 'none' }, '&:hover .x': off ? undefined : { display: 'flex' },
                                   '&:hover .bar .pb-fill': off ? undefined : { bg: 'danger.emphasis' },
-                                  ...X_ROW,
                                 }}>
                                 <Box className="bar" sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
                                   <PlanBar done={c.done} wip={c.wip} span={c.span} />
                                 </Box>
                                 {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
-                                {X_STYLE !== 'none' && <Box className="x" sx={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', alignItems: 'center', justifyContent: 'center', color: 'danger.fg', ...X_BADGE }}><Octicon icon={XIcon} size={X_STYLE === 'inside' ? 10 : 12} /></Box>}
                               </Box>
                             </Tooltip>
                           );
