@@ -730,6 +730,15 @@ export function CityMapCity() {
   // цена каждого апгрейда в ручной очереди — та же формула, что использует бот (upgradeStep ·
   // множитель политик · скидка гильдии, см. modules/progress.js pickStrategyTargets), с уровня
   // fromLvl (текущий уровень здания + число более ранних повторов той же клетки в очереди)
+  // монет на улучшения клетки с fromLvl до toLvl — для «Плана», та же формула и множитель
+  const planUpgradeCost = useCallback((id: string, fromLvl: number, toLvl: number) => {
+    const info = buildingParamMap.get(id);
+    if (!info) return 0;
+    let sum = 0;
+    for (let l = Math.max(1, fromLvl); l < toLvl; l++) sum += upgradeStep(info, l);
+    return Math.round(sum * upgradeCostMultiplier);
+  }, [buildingParamMap, upgradeCostMultiplier]);
+
   const manualQueuePrices = useMemo(() => manualQueue.map((q, i) => {
     const b = owned.find(o => o.x === q.x && o.y === q.y);
     const info = b ? buildingParamMap.get(b.id) : undefined;
@@ -946,7 +955,7 @@ export function CityMapCity() {
 
           {mode === 'upgrade' && (
             <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
-              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
+              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
           )}
 
           {mode === 'queue' && (

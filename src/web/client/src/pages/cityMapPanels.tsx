@@ -190,11 +190,11 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
 // Шкала клетки — от 1-го уровня до цели: (уровень−1)/(цель−1), уровень выше цели = 100%.
 // Пока идёт стройка, игра уже подняла level (realLevel = level−1), строящийся уровень — синий сегмент.
 // Прогресс здания и всего плана — сумма пройденных уровней к сумме нужных.
-interface PlanCell { key: string; level: number; target: number; done: number; wip: number; span: number }
-interface PlanSum { done: number; wip: number; span: number; ready: number; building: number }
+interface PlanCell { key: string; level: number; target: number; done: number; wip: number; span: number; cost: number }
+interface PlanSum { done: number; wip: number; span: number; ready: number; building: number; cost: number }
 function planSum(cells: PlanCell[]): PlanSum {
-  const r = { done: 0, wip: 0, span: 0, ready: 0, building: 0 };
-  for (const c of cells) { r.done += c.done; r.wip += c.wip; r.span += c.span; if (c.done >= c.span) r.ready++; if (c.wip) r.building++; }
+  const r = { done: 0, wip: 0, span: 0, ready: 0, building: 0, cost: 0 };
+  for (const c of cells) { r.done += c.done; r.wip += c.wip; r.span += c.span; r.cost += c.cost; if (c.done >= c.span) r.ready++; if (c.wip) r.building++; }
   return r;
 }
 const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
@@ -210,8 +210,9 @@ function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: n
   );
 }
 const cellsWord = (n: number) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'клетка' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'клетки' : 'клеток'; };
-export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, onHover, removed, onMarkRemoved }: {
+export function PlanPanel({ targets, owned, labelFor, upgradeCost, brushLevel, onBrushLevel, onHover, removed, onMarkRemoved }: {
   targets: CityStrategyTarget[]; owned: MapBuilding[]; labelFor: (id: string) => string;
+  upgradeCost: (id: string, fromLvl: number, toLvl: number) => number; // монет на улучшения fromLvl → toLvl
   brushLevel: number; onBrushLevel: (v: number) => void;
   onHover: (cells: string[] | null) => void; // "x_y" — на карте остаются видны только эти клетки
   // клетки ("x,y"), помеченные к удалению: остаются в списке бледными, из плана уходят при «Сохранить»
@@ -219,6 +220,7 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  const [hot, setHot] = useState<string | null>(null); // клетка под курсором: вместо полосы — уровни и цена
   useEffect(() => () => onHover(null), [onHover]); // ушли со вкладки — карта снова целиком
   const groups = useMemo(() => {
     const now = Date.now();
@@ -232,7 +234,9 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
       const span = Math.max(1, t.target_level - 1);
       const done = Math.max(0, Math.min(level, t.target_level) - 1);
       if (!m.has(id)) m.set(id, { id, name: id ? labelFor(id) : 'Пустая клетка', cells: [] });
-      m.get(id)!.cells.push({ x: t.x, y: t.y, key: `${t.x},${t.y}`, level, target: t.target_level, done, wip: building && level < t.target_level ? 1 : 0, span });
+      // строящийся уровень уже оплачен — цена считается со следующего
+      const cost = id ? upgradeCost(id, building ? level + 1 : level, t.target_level) : 0;
+      m.get(id)!.cells.push({ x: t.x, y: t.y, key: `${t.x},${t.y}`, level, target: t.target_level, done, wip: building && level < t.target_level ? 1 : 0, span, cost });
     }
     // помеченные к удалению в прогресс не входят — после сохранения их в плане не будет
     return [...m.values()].map(g => {
@@ -240,7 +244,7 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
       const kept = g.cells.filter(c => !removed.has(c.key));
       return { ...g, sum: planSum(kept), marked: g.cells.length - kept.length };
     }).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  }, [targets, owned, labelFor, removed]);
+  }, [targets, owned, labelFor, upgradeCost, removed]);
   const all = useMemo(() => planSum(groups.flatMap(g => g.cells.filter(c => !removed.has(c.key)))), [groups, removed]);
   const keptCount = targets.length - groups.reduce((n, g) => n + g.marked, 0);
   const ql = q.trim().toLowerCase();
@@ -259,11 +263,15 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
       {groups.length === 0 ? <Empty>Целей пока нет. Кликните здание на карте или проведите кистью.</Empty> : (
         <>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2, borderRadius: '12px', bg: 'success.subtle' }}>
-            <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2 }}>
-              <Text sx={{ fontSize: 5, lineHeight: 1, fontWeight: 'semibold', color: 'success.fg', ...num }}>{Math.floor(allPct)}%</Text>
-              <Box sx={{ flex: 1, ...muted, lineHeight: 1.3 }}>
-                <Text as="div">плана выполнено</Text>
-                <Text as="div" sx={num}>осталось {all.span - all.done} ур.</Text>
+            {/* две плитки: сколько плана пройдено и сколько монет нужно до цели */}
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Box sx={{ flex: 1, minWidth: 0, p: 2, borderRadius: '8px', bg: 'canvas.default' }}>
+                <Text as="div" sx={{ fontSize: 3, lineHeight: 1.1, fontWeight: 'semibold', color: 'success.fg', ...num }}>{Math.floor(allPct)}%</Text>
+                <Text as="div" sx={muted}>плана выполнено</Text>
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0, p: 2, borderRadius: '8px', bg: 'canvas.default' }}>
+                <Text as="div" sx={{ fontSize: 3, lineHeight: 1.1, fontWeight: 'semibold', ...num }}><CoinValue value={fmt(all.cost)} /></Text>
+                <Text as="div" sx={muted}>монет до цели</Text>
               </Box>
             </Box>
             <PlanBar done={all.done} wip={all.wip} span={all.span} size="large" bg="canvas.default" />
@@ -286,7 +294,10 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
                       backgroundImage: `linear-gradient(90deg, ${FILL_DONE} 0 ${a}%, ${FILL_WIP} ${a}% ${b}%, transparent ${b}%)`,
                     }}>
                     {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
-                    <Text sx={{ flex: 1, minWidth: 0, fontWeight: 'semibold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
+                    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                      <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
+                      <Text sx={{ ...muted, ...num, whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: 'success.fg' }}>готово</Text>}</Text>
+                    </Box>
                     <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
                   </Box>
                   {o && (
@@ -295,18 +306,25 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
                       <Box sx={{ display: 'flex', flexDirection: 'column', my: '-3px' }}>
                         {g.cells.map(c => {
                           const off = removed.has(c.key);
-                          const tip = `${c.key} · ${c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`}`;
-                          // под курсором полоса краснеет; клик помечает клетку к удалению (бледнеет и перечёркнута), повторный — возвращает
+                          const levels = c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`;
+                          const k = c.key.replace(',', '_');
+                          // под курсором полоса сменяется строкой «уровень → цель · цена»; клик помечает клетку к удалению
+                          // (полоса бледнеет и перечёркнута), повторный — возвращает
                           return (
-                            <Box key={c.key} as="button" type="button" aria-label={tip} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)} {...hover([c.key])}
-                              sx={{
-                                position: 'relative', display: 'flex', alignItems: 'center', height: 22, p: 0, border: 0, bg: 'transparent', cursor: 'pointer',
-                                '&:hover .bar .pb-fill': off ? undefined : { bg: 'danger.emphasis' },
-                              }}>
-                              <Box className="bar" sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
-                                <PlanBar done={c.done} wip={c.wip} span={c.span} />
-                              </Box>
-                              {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
+                            <Box key={c.key} as="button" type="button" aria-label={`${c.key} · ${levels}`} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)}
+                              onMouseEnter={() => { setHot(c.key); onHover([k]); }} onMouseLeave={() => { setHot(h => h === c.key ? null : h); onHover(null); }}
+                              sx={{ position: 'relative', display: 'flex', alignItems: 'center', height: 22, p: 0, border: 0, bg: 'transparent', cursor: 'pointer', fontFamily: 'inherit', color: 'fg.default' }}>
+                              {hot === c.key && !off
+                                ? <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, height: 20, px: 2, borderRadius: '4px', bg: 'canvas.default', fontSize: '11px', ...num }}>
+                                    <Text sx={{ color: 'fg.muted', whiteSpace: 'nowrap' }}>{levels}</Text>
+                                    {c.cost > 0 && <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>}
+                                  </Box>
+                                : <>
+                                    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
+                                      <PlanBar done={c.done} wip={c.wip} span={c.span} />
+                                    </Box>
+                                    {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
+                                  </>}
                             </Box>
                           );
                         })}
