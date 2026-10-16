@@ -9,7 +9,7 @@ import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { fmt, itemImgSrc } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, PanelShell, StatsPanel, PlanPanel, QueuePanel, PendingList, DemolishPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode } from './cityMapPanels';
+import { MapPalette, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, QueuePanel, PendingList, DemolishPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode } from './cityMapPanels';
 
 // ключ карты эффектов политики: та же схема, что cw(stat,scopeKind,target) в бандле игры —
 // scope_kind==="global" (или без target) — суффикса нет, иначе "scopeKind:target"
@@ -243,6 +243,12 @@ export function CityMapCity() {
   const [targets, setTargets] = useState<CityStrategyTarget[]>([]);
   const [manualQueue, setManualQueue] = useState<CityStrategyQueueItem[]>([]);
   const [reconstructPlan, setReconstructPlan] = useState<CityStrategyQueueItem[]>([]);
+  const [planHover, setPlanHover] = useState<string[] | null>(null); // "x_y" клеток под курсором в «Плане»
+  // клетки плана ("x,y"), помеченные к удалению — уходят из целей только при «Сохранить»
+  const [planRemoved, setPlanRemoved] = useState<Set<string>>(() => new Set());
+  const markPlanRemoved = useCallback((keys: string[], on: boolean) => setPlanRemoved(prev => {
+    const n = new Set(prev); for (const k of keys) { if (on) n.add(k); else n.delete(k); } return n;
+  }), []);
   const [schedulingReconstruct, setSchedulingReconstruct] = useState(false);
   // запас компонентов/мастерпланов (вкладки "Реконструкция"/"Реновация") — из БД, подгружаем при
   // смене аккаунта, обновляем после каждой реконструкции/реновации (они тратят/дают эти предметы)
@@ -330,7 +336,7 @@ export function CityMapCity() {
     ]).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
       if (c.ok) setRows(c.rows);
       if (b.ok) setBuildingsCatalog(b.buildings);
-      if (t.ok) { setTargets(t.targets); setManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); }
+      if (t.ok) { setTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); }
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
       const accRow = accs.ok ? accs.accounts.find(a => a.name === account) : undefined;
       setBalance(accRow?.balance ?? 0);
@@ -509,7 +515,9 @@ export function CityMapCity() {
   const validSet = useMemo(() => {
     if (executing) return new Set<string>();
     switch (mode) {
-      case 'upgrade': case 'queue': return upgradeableSet;
+      // наведение на клетку/здание в «Плане» — видны только они (как в реконструкции)
+      case 'upgrade': return planHover ? new Set(planHover) : upgradeableSet;
+      case 'queue': return upgradeableSet;
       case 'build': return buildFamily ? emptySet : new Set<string>();
       case 'move': return moveFrom ? emptySet : occupiedSet;
       case 'demolish': return occupiedSet;
@@ -517,7 +525,7 @@ export function CityMapCity() {
       case 'renovate': return renovatableSet;
       default: return new Set<string>();
     }
-  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct]);
+  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct, planHover]);
 
   // подсветка нужна только для переходного "откуда" при перемещении — всё остальное уже видно по
   // самому превью (построенное/снесённое/перемещённое здание меняется прямо на карте)
@@ -538,6 +546,7 @@ export function CityMapCity() {
       // цель привязана к КОНКРЕТНОЙ клетке, не к семье — иначе клик по одному зданию задавал бы
       // цель сразу всем экземплярам той же семьи на карте
       setTargets(prev => [...prev.filter(t => !(t.x === gx && t.y === gy)), { x: gx, y: gy, target_level: lvl }]);
+      markPlanRemoved([`${gx},${gy}`], false); // новая цель на помеченной клетке снимает пометку
     } else if (mode === 'queue') {
       const b = displayBuildings.find(o => o.x === gx && o.y === gy);
       if (b && buildingParamMap.get(b.id)?.category === 'special') return;
@@ -675,8 +684,10 @@ export function CityMapCity() {
   const saveTargets = async () => {
     setBusy(true);
     try {
-      const r = await api.saveCityStrategy(account, targets);
+      const keep = targets.filter(t => !planRemoved.has(`${t.x},${t.y}`));
+      const r = await api.saveCityStrategy(account, keep);
       showFlash(r.ok ? 'Сохранено' : (r.error ?? 'Ошибка'), !!r.ok);
+      if (r.ok) { setTargets(keep); setPlanRemoved(new Set()); }
       // сервер сразу подтягивает актуальную карту построек с игры при сохранении целей (см.
       // cityStrategy.js) — обновляем отображение, не дожидаясь планового цикла бота
       if (r.ok) refreshMap();
@@ -845,7 +856,7 @@ export function CityMapCity() {
     </>
   );
   const footer = mode === 'upgrade'
-    ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>Целей: {targets.length}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveTargets}>Сохранить</Button></>
+    ? <PlanSaveButton count={targets.filter(t => !planRemoved.has(`${t.x},${t.y}`)).length} busy={busy} onClick={saveTargets} />
     : mode === 'queue'
       ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>{manualQueue.length ? <>Итого <CoinValue value={fmt(manualQueueTotal)} /></> : 'Очередь пуста'}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveManualQueue}>Сохранить</Button></>
       : runFooter || undefined;
@@ -927,13 +938,13 @@ export function CityMapCity() {
         '@media (max-width: 768px)': { width: '100%', height: '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default' },
       }}>
         <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={headActions} footer={footer}
-          count={mode === 'upgrade' ? targets.length : mode === 'queue' ? manualQueue.length : mode === 'boosters' ? boosterQueue.length : undefined}>
+          count={mode === 'queue' ? manualQueue.length : mode === 'boosters' ? boosterQueue.length : undefined}>
 
           {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
 
           {mode === 'upgrade' && (
             <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
-              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} onTargets={setTargets} />
+              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
           )}
 
           {mode === 'queue' && (
