@@ -12,26 +12,34 @@ export default defineConfig({
       // проверяет sw.js на новизну не чаще раза в 24ч при обычной навигации — этого мало для PWA,
       // которое подолгу не перезагружается)
       injectRegister: null,
-      includeAssets: ['pwa-icon.svg'],
+      includeAssets: ['pwa-icon.svg','apple-touch-icon.png'],
       manifest: {
-        name: 'TonCity Bot',
-        short_name: 'TonCity',
+        id: '/',
+        name: 'TON City Bot',
+        short_name: 'TON City',
         description: 'Панель управления ботом TON City',
+        lang: 'ru',
         start_url: '/',
+        scope: '/',
         display: 'standalone',
         background_color: '#0d1117',
         theme_color: '#0d1117',
         icons: [
-          { src: '/pwa-icon.svg', sizes: '192x192', type: 'image/svg+xml', purpose: 'any' },
-          { src: '/pwa-icon.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'any' },
+          // PNG обязательны: установка на Android/десктоп и иконка на iOS не берут SVG с фиксированным размером
+          { src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: '/pwa-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
         ],
       },
       workbox: {
         // живые данные (аккаунты, карта города, рынок и т.п.) — НИКОГДА не кэшируем, только статику
         // сборки (JS/CSS/иконки), иначе офлайн/устаревший кэш будет подсовывать неактуальные данные
         navigateFallbackDenylist: [/^\/api\//],
+        // RegExp в urlPattern Workbox сверяет с ПОЛНЫМ адресом (https://host/api/…), поэтому /^\/api\//
+        // не срабатывал никогда — проверяем путь
         runtimeCaching: [{
-          urlPattern: /^\/api\//,
+          urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
           handler: 'NetworkOnly',
         }],
       },
