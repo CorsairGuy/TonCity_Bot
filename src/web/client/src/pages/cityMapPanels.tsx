@@ -198,6 +198,9 @@ function planSum(cells: PlanCell[]): PlanSum {
   return r;
 }
 const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
+// заливка шапки здания: те же цвета, что у полос, приглушённые (переменные Primer с запасным значением)
+const FILL_DONE = 'var(--bgColor-success-muted, rgba(74,194,107,.4))';
+const FILL_WIP = 'var(--bgColor-accent-muted, rgba(84,174,255,.4))';
 function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
@@ -267,18 +270,22 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
             {shown.map(g => {
               const o = open === g.id;
               const toggle = () => setOpen(o ? null : g.id);
+              // прогресс здания — заливка шапки карточки; шапка скруглена и в раскрытом виде
+              const a = pctOf(g.sum.done, g.sum.span), b = pctOf(g.sum.done + g.sum.wip, g.sum.span);
               return (
-                <Box key={g.id} sx={{ borderRadius: '12px', bg: 'canvas.subtle', p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box key={g.id} sx={{ borderRadius: '12px', bg: 'canvas.subtle', display: 'flex', flexDirection: 'column' }}>
                   <Box role="button" tabIndex={0} aria-expanded={o} onClick={toggle} {...hover(g.cells.map(c => c.key))}
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
-                    sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, cursor: 'pointer' }}>
+                    sx={{
+                      display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, borderRadius: '12px', cursor: 'pointer',
+                      backgroundImage: `linear-gradient(90deg, ${FILL_DONE} 0 ${a}%, ${FILL_WIP} ${a}% ${b}%, transparent ${b}%)`,
+                    }}>
                     {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
                     <Text sx={{ flex: 1, minWidth: 0, fontWeight: 'semibold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
                     <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
                   </Box>
-                  <PlanBar done={g.sum.done} wip={g.sum.wip} span={g.sum.span} size="default" />
                   {o && (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2 }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {g.cells.map(c => {
                           const tip = `${c.key} · ${c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`} · клик убирает`;
