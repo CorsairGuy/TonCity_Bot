@@ -1,15 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
-import { CheckIcon, ChevronLeftIcon, SyncIcon } from '@primer/octicons-react';
+import { CheckIcon, ChevronLeftIcon, SyncIcon, XIcon } from '@primer/octicons-react';
 import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
-import { fmt, itemImgSrc } from '../utils';
+import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, MapBrushLevel, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, QueuePanel, PendingList, DemolishPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
 
 // ключ карты эффектов политики: та же схема, что cw(stat,scopeKind,target) в бандле игры —
 // scope_kind==="global" (или без target) — суффикса нет, иначе "scopeKind:target"
@@ -62,16 +62,6 @@ function buildCityStatsMods(cabinet: PolicyCabinet | undefined, incomeBoost: num
   };
 }
 
-// запас предмета сверху вкладки "Реконструкция"/"Реновация" — иконка + число из БД (Inventory)
-function resourceHeader(tag: 'component' | 'masterplan', label: string, count: number) {
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-      <img src={itemImgSrc(tag)} alt="" width={28} height={28}
-        onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
-      <Text sx={{ fontSize: 1, fontWeight: 'bold' }}>{label}: {count}</Text>
-    </Box>
-  );
-}
 // Редактор "Действий" по городу — прямо в странице карты (раньше была отдельная модалка
 // CityActionsModal с выпадающими списками). Строительство/Перемещение/Снос/Реконструкция/Реновация
 // копятся в ОДНУ общую очередь, которая переживает переключение вкладок режима — клик только
@@ -250,7 +240,6 @@ export function CityMapCity() {
   const markPlanRemoved = useCallback((keys: string[], on: boolean) => setPlanRemoved(prev => {
     const n = new Set(prev); for (const k of keys) { if (on) n.add(k); else n.delete(k); } return n;
   }), []);
-  const [schedulingReconstruct, setSchedulingReconstruct] = useState(false);
   // запас компонентов/мастерпланов (вкладки "Реконструкция"/"Реновация") — из БД, подгружаем при
   // смене аккаунта, обновляем после каждой реконструкции/реновации (они тратят/дают эти предметы)
   const [components, setComponents] = useState(0);
@@ -522,11 +511,11 @@ export function CityMapCity() {
       case 'build': return buildFamily ? emptySet : new Set<string>();
       case 'move': return moveFrom ? emptySet : occupiedSet;
       case 'demolish': return occupiedSet;
-      case 'reconstruct': return schedulingReconstruct ? reconstructPlannableSet : reconstructableSet;
+      case 'reconstruct': return reconstructPlannableSet;
       case 'renovate': return renovatableSet;
       default: return new Set<string>();
     }
-  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct]);
+  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet]);
 
   // подсветка нужна только для переходного "откуда" при перемещении — всё остальное уже видно по
   // самому превью (построенное/снесённое/перемещённое здание меняется прямо на карте)
@@ -536,6 +525,7 @@ export function CityMapCity() {
     return s;
   }, [mode, moveFrom]);
 
+  const toggleReconRef = useRef<(x: number, y: number) => void>(() => {});
   const handlePick = useCallback((gx: number, gy: number) => {
     if (mode === 'upgrade') {
       const lvl = Math.floor(Number(addLevel)) || 0;
@@ -569,18 +559,11 @@ export function CityMapCity() {
     } else if (mode === 'demolish') {
       setQueue(prev => [...prev, { id: nextIdRef.current++, kind: 'demolish', x: gx, y: gy }]);
     } else if (mode === 'reconstruct') {
-      if (schedulingReconstruct) {
-        // план — не список повторов, а просто "запланировано/нет" для клетки: повторный клик снимает
-        setReconstructPlan(prev => prev.some(p => p.x === gx && p.y === gy)
-          ? prev.filter(p => !(p.x === gx && p.y === gy))
-          : [...prev, { x: gx, y: gy }]);
-      } else {
-        setQueue(prev => [...prev, { id: nextIdRef.current++, kind: 'reconstruct', x: gx, y: gy }]);
-      }
+      toggleReconRef.current(gx, gy);
     } else if (mode === 'renovate') {
       setQueue(prev => [...prev, { id: nextIdRef.current++, kind: 'renovate', x: gx, y: gy }]);
     }
-  }, [mode, addLevel, buildFamily, moveFrom, displayBuildings, buildingsCatalog, manualQueue, schedulingReconstruct]);
+  }, [mode, addLevel, buildFamily, moveFrom, displayBuildings, buildingsCatalog, manualQueue]);
 
   // разблокировка закрытой секции карты — разовое живое действие (POST /progress/unlock-section),
   // клик по клетке закрытой секции ловит CityActionsCanvas сам, независимо от текущего режима
@@ -602,14 +585,26 @@ export function CityMapCity() {
   }, [account, sections, unlockingSection, refreshMap, showFlash]);
 
   const removeQueued = (id: number) => setQueue(prev => prev.filter(a => a.id !== id));
-  const removeReconstructPlanned = (x: number, y: number) => setReconstructPlan(prev => prev.filter(p => !(p.x === x && p.y === y)));
-  const saveReconstructPlan = async () => {
-    setBusy(true);
+  // Реконструкция одним кликом: клетка в плане — убрать из плана; уже отмечена сейчас — снять отметку;
+  // готова (уровень набран, стройки нет) — отметить к выполнению кнопкой внизу; иначе — в план,
+  // бот сам отправит её, когда здание дорастёт (modules/progress.js runPendingReconstructions).
+  // План сохраняется сразу, без отдельной кнопки.
+  const saveReconstructPlanNow = async (next: CityStrategyQueueItem[]) => {
+    const prev = reconstructPlan;
+    setReconstructPlan(next);
     try {
-      const r = await api.saveReconstructPlan(account, reconstructPlan);
-      showFlash(r.ok ? 'Сохранено' : (r.error ?? 'Ошибка'), !!r.ok);
-    } catch (e) { showFlash(String(e), false); } finally { setBusy(false); }
+      const r = await api.saveReconstructPlan(account, next);
+      if (!r.ok) { showFlash(r.error ?? 'Ошибка', false); setReconstructPlan(prev); }
+    } catch (e) { showFlash(String(e), false); setReconstructPlan(prev); }
   };
+  const toggleReconstruct = (x: number, y: number) => {
+    if (reconstructPlan.some(p => p.x === x && p.y === y)) { saveReconstructPlanNow(reconstructPlan.filter(p => !(p.x === x && p.y === y))); return; }
+    const q = queue.find(a => a.kind === 'reconstruct' && a.x === x && a.y === y);
+    if (q) { setQueue(prev => prev.filter(a => a.id !== q.id)); return; }
+    if (reconstructableSet.has(`${x}_${y}`)) setQueue(prev => [...prev, { id: nextIdRef.current++, kind: 'reconstruct', x, y }]);
+    else saveReconstructPlanNow([...reconstructPlan, { x, y }]);
+  };
+  toggleReconRef.current = toggleReconstruct;
 
   const loadBoosters = useCallback(() => {
     if (!account) return;
@@ -655,11 +650,10 @@ export function CityMapCity() {
   const queueAdd = (name: string) => saveQueue([...boosterQueue.map(q => q.name), name]);
   // удаляем КОНКРЕТНУЮ позицию по индексу, а не все экземпляры типа
   const queueRemoveAt = (idx: number) => saveQueue(boosterQueue.filter((_, i) => i !== idx).map(q => q.name));
-  const queueMove = (idx: number, dir: -1 | 1) => {
+  // перетаскивание: позиция from встаёт на место to
+  const queueReorder = (from: number, to: number) => {
     const next = boosterQueue.map(q => q.name);
-    const to = idx + dir;
-    if (to < 0 || to >= next.length) return;
-    [next[idx], next[to]] = [next[to], next[idx]];
+    const [x] = next.splice(from, 1); next.splice(to, 0, x);
     saveQueue(next);
   };
   const activateBooster = async (name: string) => {
@@ -747,7 +741,6 @@ export function CityMapCity() {
     const fromLvl = (Number(b.level) || 0) + priorSame;
     return Math.round(upgradeStep(info, fromLvl) * upgradeCostMultiplier);
   }), [manualQueue, owned, buildingsCatalog, upgradeCostMultiplier]);
-  const manualQueueTotal = manualQueuePrices.reduce((s: number, p) => s + (p ?? 0), 0);
 
   // сколько уже стоит зданий каждой семьи (с учётом очереди — чтобы цена росла и для ещё не
   // выполненных, но уже поставленных в очередь построек той же семьи) — для buildPriceAt и лимитов
@@ -804,18 +797,22 @@ export function CityMapCity() {
   // ── данные страниц сайдбара ─────────────────────────────────────────────────
   const nameWithStar = (id: string) => { const m = id.match(/_(\d+)_star\.png$/i); return m ? `${labelFor(id)} ★${m[1]}` : labelFor(id); };
   const ownedAt = (x: number, y: number) => owned.find(o => o.x === x && o.y === y);
+  // сколько дохода в час и жителей уйдёт вместе со снесёнными зданиями — те же формулы игры, что у
+  // показателей: всё вместе и по каждому зданию отдельно (для заливки строки)
+  const demolish = useMemo(() => {
+    const keys = queue.flatMap(a => a.kind === 'demolish' ? [`${a.x},${a.y}`] : []);
+    const per = new Map<string, number>();
+    if (!keys.length) return { loss: 0, pop: 0, per };
+    const without = (gone: Set<string>) => computeCityStats(owned.filter(b => !gone.has(`${b.x},${b.y}`)), buildingParamMap, cityStatsMods);
+    for (const k of keys) per.set(k, Math.max(0, currentStats.profitFinal - without(new Set([k])).profitFinal));
+    const left = without(new Set(keys));
+    return { loss: Math.max(0, currentStats.profitFinal - left.profitFinal), pop: Math.max(0, currentStats.population - left.population), per };
+  }, [queue, owned, buildingParamMap, cityStatsMods, currentStats]);
   const demolishTiles = queue.flatMap(a => {
     if (a.kind !== 'demolish') return [];
     const b = ownedAt(a.x, a.y);
-    return b ? [{ id: a.id, sprite: b.id, x: a.x, y: a.y, name: labelFor(b.id) }] : [];
+    return b ? [{ id: a.id, sprite: b.id, x: a.x, y: a.y, name: labelFor(b.id), level: Number(b.level) || 0, loss: demolish.per.get(`${a.x},${a.y}`) ?? 0 }] : [];
   });
-  // сколько дохода в час уйдёт вместе со снесёнными зданиями — те же формулы игры, что у показателей
-  const demolishLoss = useMemo(() => {
-    const gone = new Set(queue.filter(a => a.kind === 'demolish').map(a => `${(a as { x: number }).x},${(a as { y: number }).y}`));
-    if (!gone.size) return 0;
-    const left = owned.filter(b => !gone.has(`${b.x},${b.y}`));
-    return Math.max(0, currentStats.profitFinal - computeCityStats(left, buildingParamMap, cityStatsMods).profitFinal);
-  }, [queue, owned, buildingParamMap, cityStatsMods, currentStats]);
   // кандидаты на реновацию — по РЕАЛЬНОМУ состоянию (превью очереди уже подменило бы здание на next_id)
   const renovateItems = owned.flatMap(b => {
     const info = buildingParamMap.get(b.id);
@@ -824,6 +821,32 @@ export function CityMapCity() {
     const marked = queue.some(a => a.kind === 'renovate' && a.x === b.x && a.y === b.y);
     return [{ x: b.x, y: b.y, id: b.id, nextId: info.next_id, name: nameWithStar(b.id), nextName: nameWithStar(info.next_id), cost: info.masterplans_num, marked }];
   });
+  // доход после реновации отмеченных: здание заменяется на следующий тир с тем же уровнем
+  const renovateGain = useMemo(() => {
+    const next = new Map(renovateItems.filter(i => i.marked).map(i => [`${i.x},${i.y}`, i.nextId]));
+    if (!next.size) return 0;
+    const after = owned.map(b => next.has(`${b.x},${b.y}`) ? { ...b, id: next.get(`${b.x},${b.y}`)! } : b);
+    return computeCityStats(after, buildingParamMap, cityStatsMods).profitFinal - currentStats.profitFinal;
+  }, [renovateItems.map(i => i.marked ? `${i.x},${i.y}` : '').join('|'), owned, buildingParamMap, cityStatsMods, currentStats]);
+  // реконструкция: все клетки, которые умеют реконструироваться, группами по типу здания;
+  // уровень — реальный (во время стройки игра уже отдаёт целевой, realLevel = level−1)
+  const reconGroups = useMemo(() => {
+    const m = new Map<string, ReconGroup>();
+    for (const b of owned) {
+      const info = buildingParamMap.get(b.id);
+      if (!info?.is_reconstructible || info.required_lvl == null) continue;
+      const building = underConstruction(b);
+      const level = (Number(b.level) || 0) - (building ? 1 : 0);
+      if (!m.has(b.id)) m.set(b.id, { id: b.id, name: nameWithStar(b.id), comp: info.components_required ?? null, gain: info.masterplans_to_get ?? null, cells: [] });
+      m.get(b.id)!.cells.push({
+        x: b.x, y: b.y, level, req: info.required_lvl, building, ready: !building && level >= info.required_lvl,
+        queued: queue.some(a => a.kind === 'reconstruct' && a.x === b.x && a.y === b.y),
+        planned: reconstructPlan.some(p => p.x === b.x && p.y === b.y),
+      });
+    }
+    for (const g of m.values()) g.cells.sort((a, b) => b.level / b.req - a.level / a.req);
+    return [...m.values()].sort((a, b) => b.cells.filter(c => c.ready).length - a.cells.filter(c => c.ready).length || a.name.localeCompare(b.name, 'ru'));
+  }, [owned, buildingParamMap, queue, reconstructPlan]);
   const toggleRenovate = (x: number, y: number) => setQueue(prev => prev.some(a => a.kind === 'renovate' && a.x === x && a.y === y)
     ? prev.filter(a => !(a.kind === 'renovate' && a.x === x && a.y === y))
     : [...prev, { id: nextIdRef.current++, kind: 'renovate', x, y }]);
@@ -838,6 +861,8 @@ export function CityMapCity() {
     demolish: pendingKinds.has('demolish'), reconstruct: pendingKinds.has('reconstruct'), renovate: pendingKinds.has('renovate'),
     boosters: boosterQueue.length > 0,
   };
+  const moveFromInfo = moveFrom ? { ...moveFrom, id: displayBuildings.find(b => b.x === moveFrom.x && b.y === moveFrom.y)?.id, level: Number(displayBuildings.find(b => b.x === moveFrom.x && b.y === moveFrom.y)?.level) || undefined } : null;
+  const moveRows = queue.flatMap(a => a.kind === 'move' ? [{ id: a.id, from: a.from, to: a.to, sprite: ownedAt(a.from.x, a.from.y)?.id }] : []);
   const moveQueued = (from: number, to: number) => setManualQueue(prev => { const n = [...prev]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; });
 
   if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
@@ -851,24 +876,29 @@ export function CityMapCity() {
     build: 'Выберите здание в списке, затем кликайте пустые клетки или проведите кистью. Каждая клетка добавляется в действия, которые выполнит кнопка «Выполнить».',
     move: 'Кликните здание, затем пустую клетку. Можно переместить несколько подряд. Цели и очередь переедут вместе со зданием, на экономику это не влияет.',
     demolish: 'Кликайте здания или проведите кистью. Монеты за снос не возвращаются. Нажмите на плитку, чтобы снять отметку.',
-    reconstruct: 'Тратит компоненты, сбрасывает здание на 1 уровень и даёт мастерпланы. «Запланировать» — бот сам сделает, когда здание дойдёт до нужного уровня.',
+    reconstruct: 'Тратит компоненты, сбрасывает здание на 1 уровень и даёт мастерпланы. Клик по готовому зданию отмечает его к выполнению кнопкой внизу, по неготовому — ставит в план: бот сам сделает, когда здание дойдёт до нужного уровня. Повторный клик снимает.',
     renovate: 'Тратит мастерпланы и переводит здание в следующий звёздный тир. Отметьте здания и нажмите «Выполнить».',
     boosters: 'Бот активирует ускорители из очереди по порядку, как только освобождается слот. Молния рядом с ускорителем включает его сразу.',
     log: 'Последние действия по этому городу, и бота, и ручные.',
   };
+  // кнопка действий на всю ширину: если в очереди только действия этой вкладки — её глагол и цвет
+  const RUN_LABEL: Partial<Record<PanelMode, [string, 'primary' | 'danger' | 'accent']>> = {
+    build: ['Построить', 'primary'], move: ['Переместить', 'accent'], demolish: ['Снести', 'danger'],
+    reconstruct: ['Реконструировать', 'primary'], renovate: ['Реновировать', 'primary'],
+  };
+  const own = RUN_LABEL[mode as PanelMode];
+  const [runLabel, runTone] = own && queue.every(a => a.kind === mode) ? own : ['Выполнить', 'primary' as const];
   const runFooter = queue.length > 0 && (
     <>
-      <Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>
-        {executing && progress ? `Выполняется ${progress.done} из ${progress.total}…` : `Ждут: ${queue.length}`}
-      </Text>
-      <Button size="small" variant="invisible" disabled={executing} onClick={() => setQueue([])}>Очистить</Button>
-      <Button size="small" variant="primary" leadingVisual={CheckIcon} loading={executing} disabled={executing} onClick={runQueue}>Выполнить</Button>
+      <IconButton icon={XIcon} aria-label="Очистить" disabled={executing} onClick={() => setQueue([])} />
+      <FooterButton label={executing && progress ? `Выполняется ${progress.done} из ${progress.total}` : runLabel} tone={runTone}
+        icon={CheckIcon} count={queue.length} busy={executing} onClick={runQueue} />
     </>
   );
   const footer = mode === 'upgrade'
     ? <PlanSaveButton count={targets.filter(t => !planRemoved.has(`${t.x},${t.y}`)).length} busy={busy} onClick={saveTargets} />
     : mode === 'queue'
-      ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>{manualQueue.length ? <>Итого <CoinValue value={fmt(manualQueueTotal)} /></> : 'Очередь пуста'}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveManualQueue}>Сохранить</Button></>
+      ? <FooterButton label="Сохранить" icon={CheckIcon} count={manualQueue.length} busy={busy} onClick={saveManualQueue} />
       : runFooter || undefined;
   const headActions = mode === 'boosters'
     ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Сверить с игрой" disabled={boostersChecking} onClick={checkBoosters} />
@@ -965,7 +995,7 @@ export function CityMapCity() {
           )}
 
           {mode === 'queue' && (
-            <QueuePanel queue={manualQueue} owned={owned} labelFor={labelFor} prices={manualQueuePrices}
+            <QueuePanel queue={manualQueue} owned={owned} labelFor={labelFor} prices={manualQueuePrices} balance={balance}
               onReorder={moveQueued} onRemove={removeQueuedManual} />
           )}
 
@@ -1009,97 +1039,38 @@ export function CityMapCity() {
 
           {mode === 'move' && (
             <>
-              <Text sx={{ color: moveFrom ? 'accent.fg' : 'fg.default' }}>
-                {!moveFrom ? 'Кликните здание, которое хотите переместить.' : `Откуда: (${moveFrom.x},${moveFrom.y}). Теперь кликните пустую клетку.`}
-              </Text>
-              {moveFrom && <Box><Button size="small" onClick={() => setMoveFrom(null)}>Отменить выбор</Button></Box>}
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <MovePanel from={moveFromInfo} moves={moveRows} labelFor={labelFor} disabled={executing} onCancel={() => setMoveFrom(null)} onRemove={removeQueued} />
+              <PendingList rows={pendingRows.filter(r => r.kind !== 'move')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'demolish' && (
             <>
-              <DemolishPanel tiles={demolishTiles} lossPerHour={demolishLoss} disabled={executing} onRemove={removeQueued} />
+              <DemolishPanel tiles={demolishTiles} lossPerHour={demolish.loss} popLoss={demolish.pop} income={currentStats.profitFinal} disabled={executing} onRemove={removeQueued} />
               <PendingList rows={pendingNoDemolish} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'reconstruct' && (
             <>
-              {resourceHeader('component', 'Компонентов', components)}
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button variant={!schedulingReconstruct ? 'primary' : 'default'} onClick={() => setSchedulingReconstruct(false)}>Сейчас</Button>
-                <Button variant={schedulingReconstruct ? 'primary' : 'default'} onClick={() => setSchedulingReconstruct(true)}>Запланировать</Button>
-              </Box>
-              {!schedulingReconstruct ? (
-                <>
-                  <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                    Тратит «Компонент», сбрасывает здание на 1 уровень взамен на мастерпланы.
-                    Подсвечены только уже подходящие здания (уровень уже достигнут) — кликайте
-                    или выделяйте кистью, выполнится сразу кнопкой «Выполнить».
-                  </Text>
-                  {reconstructableSet.size === 0 && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Нет зданий, подходящих под реконструкцию прямо сейчас</Text>}
-                </>
-              ) : (
-                <>
-                  <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                    Кликните здание (не обязательно уже готовое) — бот сам отправит
-                    реконструкцию, как только оно достигнет нужного уровня и не будет занято
-                    стройкой. Повторный клик снимает план.
-                  </Text>
-                  {reconstructPlan.length === 0
-                    ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Ничего не запланировано</Text>
-                    : reconstructPlan.map(p => {
-                      const b = owned.find(o => o.x === p.x && o.y === p.y);
-                      const info = b ? buildingParamMap.get(b.id) : undefined;
-                      const endMs = b?.end ? new Date(b.end).getTime() : 0;
-                      const underConstruction = endMs > Date.now();
-                      // во время стройки игра уже отдаёт b.level КАК ЦЕЛЕВОЙ (после завершения), а не
-                      // текущий реальный — поэтому пока стройка идёт, показываем b.level-1 как реальный
-                      // уровень и явно помечаем "в процессе", вместо вводящего в заблуждение "25/25"
-                      // (реконструкция всё равно не уйдёт, пока стройка не закончится — см. progress.js)
-                      const realLevel = b ? (Number(b.level) || 0) - (underConstruction ? 1 : 0) : null;
-                      return (
-                        <Box key={`${p.x},${p.y}`} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                          <Box>
-                            <Text sx={{ fontSize: 1 }}>
-                              {b ? labelFor(b.id) : '—'} ({p.x},{p.y})
-                              {underConstruction
-                                ? ` — ур. ${realLevel}→${b!.level} (стройка, осталось ${fmtTimeLeft(endMs - Date.now())})`
-                                : info?.required_lvl != null ? ` — ур. ${realLevel ?? '?'}/${info.required_lvl}` : ''}
-                            </Text>
-                            {(info?.components_required != null || info?.masterplans_to_get != null) && (
-                              <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>
-                                {info?.components_required != null && `−${info.components_required} компонентов`}
-                                {info?.components_required != null && info?.masterplans_to_get != null && ' · '}
-                                {info?.masterplans_to_get != null && `+${info.masterplans_to_get} мастерпланов`}
-                              </Text>
-                            )}
-                          </Box>
-                          <Button variant="danger" onClick={() => removeReconstructPlanned(p.x, p.y)}>×</Button>
-                        </Box>
-                      );
-                    })}
-                  <Button variant="primary" block loading={busy} disabled={busy} onClick={saveReconstructPlan}>Сохранить</Button>
-                </>
-              )}
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <ReconstructPanel groups={reconGroups} components={components} disabled={executing} onToggle={toggleReconstruct} />
+              <PendingList rows={pendingRows.filter(r => r.kind !== 'reconstruct')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'renovate' && (
             <>
-              <RenovatePanel masterplans={masterplans} items={renovateItems} onToggle={toggleRenovate} disabled={executing} />
+              <RenovatePanel masterplans={masterplans} items={renovateItems} incomeGain={renovateGain} onToggle={toggleRenovate} disabled={executing} />
               <PendingList rows={pendingRows.filter(r => r.kind !== 'renovate')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'boosters' && (
             <BoostersPanel boosters={boosters} loading={boostersLoading} queue={boosterQueue} activating={boosterActivating}
-              onAdd={queueAdd} onMove={queueMove} onRemoveAt={queueRemoveAt} onActivate={activateBooster} />
+              onAdd={queueAdd} onReorder={queueReorder} onRemoveAt={queueRemoveAt} onActivate={activateBooster} />
           )}
 
-          {mode === 'log' && <LogPanel rows={actionLog} loading={actionLogLoading} label={r => logLabel(r, labelFor, boosterLabelFor)} />}
+          {mode === 'log' && <LogPanel rows={actionLog} loading={actionLogLoading} label={r => logLabel(r, labelFor, boosterLabelFor)} labelFor={labelFor} />}
 
           {mode === 'skip' && <Empty>—</Empty>}
         </PanelShell>
