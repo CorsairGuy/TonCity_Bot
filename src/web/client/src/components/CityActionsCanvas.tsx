@@ -1126,9 +1126,14 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       requestRedraw();
     };
 
-    let downX = 0, downY = 0, moved = false;
+    let downX = 0, downY = 0, moved = false, downOnMap = false;
     const isBatch = () => BATCHABLE.includes(s.mode);
+    // mousemove/mouseup слушаются на window (чтобы пан и кисть не обрывались за краем карты), поэтому
+    // наведение и клик считаем «по карте», только если курсор над самой картой, а не над тем, что
+    // лежит поверх неё (палитра инструментов внизу, её подсказки), и если нажатие началось на карте
+    const overMap = (e: MouseEvent) => e.target instanceof Node && wrap.contains(e.target);
     const onMouseDown = (e: MouseEvent) => {
+      downOnMap = true;
       if (e.button === 2 || !isBatch()) {
         s.dragging = true; moved = false;
         downX = e.clientX; downY = e.clientY;
@@ -1156,7 +1161,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       }
       if (s.mode !== 'view' && !s.selDragging) {
         const rect = wrap.getBoundingClientRect();
-        if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+        if (overMap(e) && e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
           const t = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
           const valid = t.col >= 0 && t.col < s.cols && t.row >= 0 && t.row < s.rows && s.validSet.has(`${t.gx}_${t.gy}`);
           const changed = !s.hoverTile || s.hoverTile.gx !== t.gx || s.hoverTile.gy !== t.gy;
@@ -1169,7 +1174,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       // режиме "Просмотр", не завязан на validSet
       if (!s.dragging && !s.selDragging) {
         const rect = wrap.getBoundingClientRect();
-        if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+        if (overMap(e) && e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
           const t = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
           const inBounds = t.col >= 0 && t.col < s.cols && t.row >= 0 && t.row < s.rows;
           const gx = inBounds ? t.gx : null, gy = inBounds ? t.gy : null;
@@ -1179,6 +1184,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     };
     const onMouseUp = (e: MouseEvent) => {
       s.dragging = false;
+      if (!downOnMap) return;
+      downOnMap = false;
       if (s.selStart && e.button === 0) {
         const t1 = s.selStart, t2 = s.selCur ?? s.selStart;
         const c1 = Math.min(t1.col, t2.col), c2 = Math.max(t1.col, t2.col);
@@ -1193,7 +1200,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         for (const p of picks) onPick(p.x, p.y);
         s.selStart = null; s.selCur = null; s.selDragging = false;
         requestRedraw();
-      } else if (!moved && e.button === 0) {
+      } else if (!moved && e.button === 0 && overMap(e)) {
         const rect = wrap.getBoundingClientRect();
         const t = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
         const key = `${t.gx}_${t.gy}`;
