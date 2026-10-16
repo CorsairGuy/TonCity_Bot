@@ -7,7 +7,7 @@ import { Tooltip } from '@primer/react/experimental';
 import {
   GraphIcon, GoalIcon, StackIcon, ClockIcon, PlusIcon, ArrowBothIcon, TrashIcon, IterationsIcon, StarIcon, ZapIcon, LogIcon,
   QuestionIcon, SearchIcon, XIcon, DashIcon, ChevronDownIcon, ChevronRightIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
-  GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon,
+  GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon, UndoIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
 import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActionLogRow, ForecastEvent } from '../api';
@@ -204,15 +204,18 @@ const FILL_WIP = 'var(--bgColor-accent-muted, rgba(84,174,255,.4))';
 function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
-      <ProgressBar.Item progress={pctOf(done, span)} sx={{ bg: 'success.emphasis' }} />
-      {wip > 0 && <ProgressBar.Item progress={pctOf(wip, span)} sx={{ bg: 'accent.emphasis' }} />}
+      <ProgressBar.Item className="pb-fill" progress={pctOf(done, span)} sx={{ bg: 'success.emphasis' }} />
+      {wip > 0 && <ProgressBar.Item className="pb-fill" progress={pctOf(wip, span)} sx={{ bg: 'accent.emphasis' }} />}
     </ProgressBar>
   );
 }
-export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, onTargets, onHover }: {
+const cellsWord = (n: number) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'клетка' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'клетки' : 'клеток'; };
+export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, onHover, removed, onMarkRemoved }: {
   targets: CityStrategyTarget[]; owned: MapBuilding[]; labelFor: (id: string) => string;
-  brushLevel: number; onBrushLevel: (v: number) => void; onTargets: (fn: (prev: CityStrategyTarget[]) => CityStrategyTarget[]) => void;
+  brushLevel: number; onBrushLevel: (v: number) => void;
   onHover: (cells: string[] | null) => void; // "x_y" — на карте остаются видны только эти клетки
+  // клетки ("x,y"), помеченные к удалению: остаются в списке бледными, из плана уходят при «Сохранить»
+  removed: Set<string>; onMarkRemoved: (keys: string[], on: boolean) => void;
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string | null>(null);
@@ -231,15 +234,17 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
       if (!m.has(id)) m.set(id, { id, name: id ? labelFor(id) : 'Пустая клетка', cells: [] });
       m.get(id)!.cells.push({ x: t.x, y: t.y, key: `${t.x},${t.y}`, level, target: t.target_level, done, wip: building && level < t.target_level ? 1 : 0, span });
     }
+    // помеченные к удалению в прогресс не входят — после сохранения их в плане не будет
     return [...m.values()].map(g => {
       g.cells.sort((a, b) => a.x - b.x || a.y - b.y);
-      return { ...g, sum: planSum(g.cells) };
+      const kept = g.cells.filter(c => !removed.has(c.key));
+      return { ...g, sum: planSum(kept), marked: g.cells.length - kept.length };
     }).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  }, [targets, owned, labelFor]);
-  const all = useMemo(() => planSum(groups.flatMap(g => g.cells)), [groups]);
+  }, [targets, owned, labelFor, removed]);
+  const all = useMemo(() => planSum(groups.flatMap(g => g.cells.filter(c => !removed.has(c.key)))), [groups, removed]);
+  const keptCount = targets.length - groups.reduce((n, g) => n + g.marked, 0);
   const ql = q.trim().toLowerCase();
   const shown = ql ? groups.filter(g => g.name.toLowerCase().includes(ql) || g.cells.some(c => c.key.startsWith(ql))) : groups;
-  const removeCells = (keys: string[]) => { const s = new Set(keys); onTargets(prev => prev.filter(t => !s.has(`${t.x},${t.y}`))); onHover(null); };
   const hover = (keys: string[]) => ({ onMouseEnter: () => onHover(keys.map(k => k.replace(',', '_'))), onMouseLeave: () => onHover(null) });
   const allPct = pctOf(all.done, all.span);
   return (
@@ -263,7 +268,7 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
             </Box>
             <PlanBar done={all.done} wip={all.wip} span={all.span} size="large" bg="canvas.default" />
             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, ...muted, ...num }}>
-              <Text>клеток готово {all.ready}/{targets.length}</Text>{all.building > 0 && <Text>строится {all.building}</Text>}
+              <Text>клеток готово {all.ready}/{keptCount}</Text>{all.building > 0 && <Text>строится {all.building}</Text>}
             </Box>
           </Box>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -288,19 +293,33 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2 }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {g.cells.map(c => {
-                          const tip = `${c.key} · ${c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`} · клик убирает`;
+                          const off = removed.has(c.key);
+                          const tip = `${c.key} · ${c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`}`;
+                          // клик помечает клетку к удалению (полоса бледнеет и перечёркнута), повторный — возвращает
                           return (
                             <Tooltip key={c.key} text={tip} direction="n">
-                              <Box as="button" type="button" aria-label={tip} onClick={() => removeCells([c.key])} {...hover([c.key])}
-                                sx={{ display: 'flex', alignItems: 'center', height: 16, p: 0, px: 1, mx: -1, border: 0, borderRadius: '4px', bg: 'transparent', cursor: 'pointer', boxSizing: 'content-box', '&:hover': { bg: 'canvas.default' } }}>
-                                <PlanBar done={c.done} wip={c.wip} span={c.span} />
+                              <Box as="button" type="button" aria-label={tip} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)} {...hover([c.key])}
+                                sx={{
+                                  position: 'relative', display: 'flex', alignItems: 'center', gap: 1, height: 16, p: 0, border: 0, bg: 'transparent', cursor: 'pointer',
+                                  '& .x': { visibility: 'hidden' }, '&:hover .x': { visibility: off ? 'hidden' : 'visible' },
+                                  '&:hover .bar .pb-fill': off ? undefined : { bg: 'danger.emphasis' },
+                                }}>
+                                <Box className="bar" sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
+                                  <PlanBar done={c.done} wip={c.wip} span={c.span} />
+                                </Box>
+                                {off && <Box sx={{ position: 'absolute', left: 0, right: 16, top: '50%', height: '1px', bg: 'danger.fg' }} />}
+                                <Box className="x" sx={{ width: 12, display: 'flex', color: 'danger.fg' }}><Octicon icon={XIcon} size={12} /></Box>
                               </Box>
                             </Tooltip>
                           );
                         })}
                       </Box>
-                      <Button size="small" block variant="invisible" leadingVisual={TrashIcon} onClick={() => removeCells(g.cells.map(c => c.key))}
-                        sx={{ color: 'danger.fg', bg: 'canvas.default', '& svg': { color: 'danger.fg' } }}>Убрать все клетки</Button>
+                      {g.marked > 0 && <Text sx={{ fontSize: 0, color: 'danger.fg', textAlign: 'center' }}>{g.marked} {cellsWord(g.marked)} {g.marked === 1 ? 'уйдёт' : 'уйдут'} из плана при сохранении</Text>}
+                      {g.marked < g.cells.length
+                        ? <Button size="small" block variant="invisible" leadingVisual={TrashIcon} onClick={() => onMarkRemoved(g.cells.map(c => c.key), true)}
+                            sx={{ color: 'danger.fg', bg: 'canvas.default', '& svg': { color: 'danger.fg' } }}>Убрать все клетки</Button>
+                        : <Button size="small" block variant="invisible" leadingVisual={UndoIcon} onClick={() => onMarkRemoved(g.cells.map(c => c.key), false)}
+                            sx={{ bg: 'canvas.default' }}>Вернуть все клетки</Button>}
                     </Box>
                   )}
                 </Box>
