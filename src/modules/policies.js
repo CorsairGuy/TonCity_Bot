@@ -79,6 +79,13 @@ async function runPolicies(api,name){
     ]);
     // фича не открыта (нет населения) или недоступна — тихо пропускаем, не пишем пустой снимок поверх
     if(!listData&&!libData&&!cabData)return;
+    // кабинет мэра несёт тот же блок civic_draw, что и /progress/diversity — освежаем снимок
+    // розыгрыша и будильник автосбора без отдельного запроса. Форма в кабинете живым ответом не
+    // сверена, поэтому берём только если поля на месте (иначе просто пропускаем).
+    const cd=cabData?.civic_draw;
+    if(cd&&typeof cd.claimable==='boolean'&&typeof cd.draws_per_day==='number'&&typeof cd.draw_progress==='number'){
+      await require('./townhall').saveCivicDraw(name,cd).catch(e=>logger.warn(`[${name}] [policies] civic_draw: ${e.message}`));
+    }
     const list=Array.isArray(listData)?listData:(listData?.instances||listData?.policies||[]);
     // economy: {unlocked,min_population,craft_costs:{rarity:cost}} — та же /policies/, раньше
     // отбрасывалось (брали только .instances). Нужно кнопке "Создать тайную политику" — знать,

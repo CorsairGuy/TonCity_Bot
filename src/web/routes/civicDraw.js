@@ -56,16 +56,18 @@ module.exports=function(app,ctx){
       const eligible=accs.filter(a=>a.access_token);
       const results=await Promise.allSettled(eligible.map(async acc=>{
         const api=await makeApiForAccount(acc.id,{noLock:true});
-        const{runTownhall}=require('../../modules/townhall');
-        if(!await fetchLiveClaimable(api)){
-          // оценка на странице устарела/ошиблась — не шлём обречённый claim, а сразу освежаем
-          // снимок в БД, чтобы следующая попытка (или бейдж "готово: N") уже был точным
-          await runTownhall(api,acc.name).catch(()=>{});
-          return{account:acc.name,ok:false,error:'Розыгрыш ещё не готов по факту в игре (оценка на странице устарела) — снимок обновлён',notReady:true};
-        }
-        const result=await api.post('/policies/civic-draw/claim',{});
-        await runTownhall(api,acc.name).catch(()=>{});
-        return{account:acc.name,ok:true,result};
+        const{runTownhall,withClaimLock}=require('../../modules/townhall');
+        // под тем же замком, что и автосбор (modules/civicDrawAuto.js) — без двойного claim
+        return withClaimLock(acc.name,async()=>{
+          if(!await fetchLiveClaimable(api)){
+            // оценка на странице устарела/ошиблась — не шлём обречённый claim, а сразу освежаем
+            // снимок в БД, чтобы следующая попытка (или бейдж "готово: N") уже был точным
+            await runTownhall(api,acc.name).catch(()=>{});
+            return{account:acc.name,ok:false,error:'Розыгрыш ещё не готов по факту в игре (оценка на странице устарела) — снимок обновлён',notReady:true};
+          }
+          try{return{account:acc.name,ok:true,result:await api.post('/policies/civic-draw/claim',{})};}
+          finally{await runTownhall(api,acc.name).catch(()=>{});}
+        });
       }));
       const mapped=results.map((r,i)=>r.status==='fulfilled'?r.value:{account:eligible[i].name,ok:false,error:r.reason?.message||String(r.reason)});
       // notReady — ожидаемый исход (live-перепроверка поймала устаревшую оценку до отправки claim),
