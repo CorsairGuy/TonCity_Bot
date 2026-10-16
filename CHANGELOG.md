@@ -18,6 +18,11 @@
 
 ## 2026-10-16
 
+### Обновлятель: Docker Desktop на Windows
+- «Обновить» падал с «не удалось скачать образ: open /D:\TonCity_Bot/D:\TonCity_Bot/docker-compose.yml». Docker Desktop пишет в метки `com.docker.compose.project.working_dir`/`config_files` путь Windows (`D:\TonCity_Bot`), а внутри контейнера обновлятеля (Linux) это относительное имя: симлинк создавался как `/D:\TonCity_Bot`, и compose клеил путь к файлу второй раз.
+- `updater/updater.sh` (версия 6): для пути Windows папка проекта берётся так, как её видит Docker Engine, — источник тома `/project` у самого обновлятеля (на Docker Desktop это `/run/desktop/mnt/host/d/…`; запасной вариант — та же форма из буквы диска), файлы compose переводятся в пути относительно неё. На Linux ничего не меняется.
+- Новый обновлятель приезжает образом `:updater` после мержа в `main`; на уже установленных ботах его нужно один раз обновить вручную (`docker compose pull updater && docker compose up -d updater`).
+
 ### Городской розыгрыш: автосбор
 - Новый цикл на аккаунт `modules/civicDrawAuto.js` (из `startAccountLoops`): спит до прогноза `ready_at` + 10 мин, проснувшись делает один `GET /progress/diversity` и шлёт claim только при живом `claimable:true`, затем перечитывает и забирает следующий, пока игра говорит «готово» (не больше `max_draws`). Не готово — новая проверка не раньше 15 мин, при повторных промахах 30/60/120 мин, потолок 3 ч. Сон никогда не дольше, чем до заполнения `max_draws` минус 6 ч. Claim не повторяется; при ошибке итог решает перечитанный `draws_ready`.
 - Точного времени игра не отдаёт: в `civic_draw` есть `draws_ready`, `draw_progress`, `draws_per_day`, `max_draws`, `at_cap`, `claimable`, `odds` (сверено с `chunks/townhall-*`). В `civic_draw_status` добавлены `max_draws`, `at_cap`.
