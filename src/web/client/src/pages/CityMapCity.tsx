@@ -9,7 +9,7 @@ import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { fmt, itemImgSrc } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, QueuePanel, PendingList, DemolishPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, QueuePanel, PendingList, DemolishPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode } from './cityMapPanels';
 
 // ключ карты эффектов политики: та же схема, что cw(stat,scopeKind,target) в бандле игры —
 // scope_kind==="global" (или без target) — суффикса нет, иначе "scopeKind:target"
@@ -316,7 +316,7 @@ export function CityMapCity() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   // ── переходное состояние выбора (само действие ещё не добавлено в очередь) ──
-  const [addLevel, setAddLevel] = useState('10');
+  const [addLevel, setAddLevel] = useState('20');
   const [buildFamily, setBuildFamily] = useState('');
   const [moveFrom, setMoveFrom] = useState<{ x: number; y: number } | null>(null);
   const [search, setSearch] = useState('');
@@ -845,7 +845,7 @@ export function CityMapCity() {
   const panelMode = mode as PanelMode;
   const HINT: Partial<Record<PanelMode, string>> = {
     view: 'Цифры города по формулам игры: сейчас и после выполнения всех планов и очереди.',
-    upgrade: 'Кликните здание или проведите кистью по нескольким — им выставится уровень из поля «Кисть ставит уровень». Бот сам ждёт строителей и улучшает до цели.',
+    upgrade: 'Кликните здание или проведите кистью по нескольким — им выставится цель из плашки справа от дока (− 20 +). Бот сам ждёт строителей и улучшает до цели.',
     queue: 'Каждый клик по зданию добавляет один уровень в конец очереди, одно здание можно поставить несколько раз подряд. Свободные строители сначала разбирают очередь, потом переходят к плану. Порядок меняется перетаскиванием.',
     forecast: 'Что бот запустит в ближайшие трое суток: очередь, личный и общий план, с учётом накопления монет.',
     build: 'Выберите здание в списке, затем кликайте пустые клетки или проведите кистью. Каждая клетка добавляется в действия, которые выполнит кнопка «Выполнить».',
@@ -936,8 +936,14 @@ export function CityMapCity() {
                 focusSet={mode === 'upgrade' ? planFocus : null}
               />
           }
-          <Box sx={{ position: 'absolute', left: 2, right: 2, bottom: 3, display: 'flex', justifyContent: 'center', pointerEvents: 'none', '& > *': { pointerEvents: 'auto' } }}>
-            <MapPalette mode={panelMode} onSelect={switchMode} dots={dots} />
+          {/* док по центру; в «Плане» справа от него — уровень кисти (док при этом не сдвигается) */}
+          <Box sx={{
+            position: 'absolute', left: 2, right: 2, bottom: 3, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', columnGap: 2,
+            pointerEvents: 'none', '& > *': { pointerEvents: 'auto' },
+            '@media (max-width: 768px)': { display: 'flex', flexDirection: 'column-reverse', alignItems: 'center', gap: 2 },
+          }}>
+            <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><MapPalette mode={panelMode} onSelect={switchMode} dots={dots} /></Box>
+            {mode === 'upgrade' && <Box sx={{ gridColumn: 3, justifySelf: 'start' }}><MapBrushLevel value={Math.max(1, Math.floor(Number(addLevel)) || 1)} onChange={v => setAddLevel(String(v))} /></Box>}
           </Box>
         </Box>
       </Box>
@@ -955,7 +961,7 @@ export function CityMapCity() {
 
           {mode === 'upgrade' && (
             <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
-              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
+              upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
           )}
 
           {mode === 'queue' && (
