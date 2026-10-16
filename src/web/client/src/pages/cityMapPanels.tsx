@@ -1,13 +1,13 @@
 // Правый сайдбар карты города: палитра инструментов внизу карты переключает его содержимое,
 // сам сайдбар всегда открыт. Здесь — оформление страниц сайдбара, данные и действия приходят из
 // CityMapCity.tsx (там же остались Строительство/Перемещение/Реконструкция в прежнем виде).
-import { useMemo, useState, type ReactNode, type DragEvent } from 'react';
+import { useEffect, useMemo, useState, type ReactNode, type DragEvent } from 'react';
 import { Box, Button, CounterLabel, IconButton, Label, Octicon, ProgressBar, Spinner, Text, TextInput, Timeline } from '@primer/react';
 import { Tooltip } from '@primer/react/experimental';
 import {
   GraphIcon, GoalIcon, StackIcon, ClockIcon, PlusIcon, ArrowBothIcon, TrashIcon, IterationsIcon, StarIcon, ZapIcon, LogIcon,
   QuestionIcon, SearchIcon, XIcon, DashIcon, ChevronDownIcon, ChevronRightIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
-  GrabberIcon, PlusCircleIcon, UnlockIcon,
+  GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
 import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActionLogRow, ForecastEvent } from '../api';
@@ -66,8 +66,7 @@ export function PanelShell({ mode, count, hint, actions, footer, children }: { m
   const t = toolFor(mode);
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, bg: 'canvas.default' }}>
-      <Box sx={{ height: 48, flexShrink: 0, px: 2, display: 'flex', alignItems: 'center', gap: 2, borderBottom: '1px solid', borderColor: 'border.default' }}>
-        <Octicon icon={t.icon} sx={{ color: t.danger ? 'danger.fg' : 'fg.muted' }} />
+      <Box sx={{ height: 48, flexShrink: 0, pl: 3, pr: 2, display: 'flex', alignItems: 'center', gap: 2, borderBottom: '1px solid', borderColor: 'border.default' }}>
         <Text sx={{ fontWeight: 'semibold', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</Text>
         {count != null && count > 0 && <CounterLabel>{count}</CounterLabel>}
         {actions}
@@ -81,7 +80,7 @@ export function PanelShell({ mode, count, hint, actions, footer, children }: { m
           {children}
         </Box>
       </Scrollable>
-      {footer && <Box sx={{ minHeight: 56, flexShrink: 0, p: 2, display: 'flex', alignItems: 'center', gap: 2, borderTop: '1px solid', borderColor: 'border.default' }}>{footer}</Box>}
+      {footer && <Box sx={{ flexShrink: 0, p: 2, display: 'flex', alignItems: 'center', gap: 2, borderTop: '1px solid', borderColor: 'border.default' }}>{footer}</Box>}
     </Box>
   );
 }
@@ -187,97 +186,134 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
   );
 }
 
-// ── План: карточки зданий с клетками-чипами ─────────────────────────────────
-export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, onTargets }: {
+// ── План: сводка, карточки зданий и полоса прогресса на каждую клетку ──────
+// Шкала клетки — от 1-го уровня до цели: (уровень−1)/(цель−1), уровень выше цели = 100%.
+// Пока идёт стройка, игра уже подняла level (realLevel = level−1), строящийся уровень — синий сегмент.
+// Прогресс здания и всего плана — сумма пройденных уровней к сумме нужных.
+interface PlanCell { key: string; level: number; target: number; done: number; wip: number; span: number }
+interface PlanSum { done: number; wip: number; span: number; ready: number; building: number }
+function planSum(cells: PlanCell[]): PlanSum {
+  const r = { done: 0, wip: 0, span: 0, ready: 0, building: 0 };
+  for (const c of cells) { r.done += c.done; r.wip += c.wip; r.span += c.span; if (c.done >= c.span) r.ready++; if (c.wip) r.building++; }
+  return r;
+}
+const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
+function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
+  return (
+    <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
+      <ProgressBar.Item progress={pctOf(done, span)} sx={{ bg: 'success.emphasis' }} />
+      {wip > 0 && <ProgressBar.Item progress={pctOf(wip, span)} sx={{ bg: 'accent.emphasis' }} />}
+    </ProgressBar>
+  );
+}
+export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, onTargets, onHover }: {
   targets: CityStrategyTarget[]; owned: MapBuilding[]; labelFor: (id: string) => string;
   brushLevel: number; onBrushLevel: (v: number) => void; onTargets: (fn: (prev: CityStrategyTarget[]) => CityStrategyTarget[]) => void;
+  onHover: (cells: string[] | null) => void; // "x_y" — на карте остаются видны только эти клетки
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => () => onHover(null), [onHover]); // ушли со вкладки — карта снова целиком
   const groups = useMemo(() => {
+    const now = Date.now();
     const byCell = new Map(owned.map(b => [`${b.x},${b.y}`, b]));
-    const m = new Map<string, { id: string; name: string; cells: { t: CityStrategyTarget; level: number }[] }>();
+    const m = new Map<string, { id: string; name: string; cells: (PlanCell & { x: number; y: number })[] }>();
     for (const t of targets) {
       const b = byCell.get(`${t.x},${t.y}`);
       const id = b?.id ?? '';
+      const building = !!b?.end && Date.parse(b.end) > now;
+      const level = (Number(b?.level) || 0) - (building ? 1 : 0);
+      const span = Math.max(1, t.target_level - 1);
+      const done = Math.max(0, Math.min(level, t.target_level) - 1);
       if (!m.has(id)) m.set(id, { id, name: id ? labelFor(id) : 'Пустая клетка', cells: [] });
-      m.get(id)!.cells.push({ t, level: Number(b?.level) || 0 });
+      m.get(id)!.cells.push({ x: t.x, y: t.y, key: `${t.x},${t.y}`, level, target: t.target_level, done, wip: building && level < t.target_level ? 1 : 0, span });
     }
-    for (const g of m.values()) g.cells.sort((a, b) => a.t.x - b.t.x || a.t.y - b.t.y);
-    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    return [...m.values()].map(g => {
+      g.cells.sort((a, b) => a.x - b.x || a.y - b.y);
+      return { ...g, sum: planSum(g.cells) };
+    }).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   }, [targets, owned, labelFor]);
+  const all = useMemo(() => planSum(groups.flatMap(g => g.cells)), [groups]);
   const ql = q.trim().toLowerCase();
-  const shown = ql ? groups.filter(g => g.name.toLowerCase().includes(ql) || g.cells.some(c => `${c.t.x},${c.t.y}`.startsWith(ql))) : groups;
-  const setGroupLevel = (id: string, lvl: number) => {
-    const cells = new Set(groups.find(g => g.id === id)?.cells.map(c => `${c.t.x},${c.t.y}`));
-    onTargets(prev => prev.map(t => cells.has(`${t.x},${t.y}`) ? { ...t, target_level: lvl } : t));
-  };
-  const removeCells = (keys: string[]) => { const s = new Set(keys); onTargets(prev => prev.filter(t => !s.has(`${t.x},${t.y}`))); };
+  const shown = ql ? groups.filter(g => g.name.toLowerCase().includes(ql) || g.cells.some(c => c.key.startsWith(ql))) : groups;
+  const removeCells = (keys: string[]) => { const s = new Set(keys); onTargets(prev => prev.filter(t => !s.has(`${t.x},${t.y}`))); onHover(null); };
+  const hover = (keys: string[]) => ({ onMouseEnter: () => onHover(keys.map(k => k.replace(',', '_'))), onMouseLeave: () => onHover(null) });
+  const allPct = pctOf(all.done, all.span);
   return (
     <>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {groups.length > 0 && <TextInput placeholder="Поиск" aria-label="Поиск по плану" block value={q} onChange={e => setQ(e.target.value)} />}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, minHeight: 32 }}>
           <Text sx={{ color: 'fg.muted' }}>Уровень кисти</Text>
           <Stepper value={brushLevel} onChange={onBrushLevel} />
         </Box>
-        {groups.length > 0 && <TextInput size="small" block leadingVisual={SearchIcon} placeholder="Здание или клетка" aria-label="Поиск по плану" value={q} onChange={e => setQ(e.target.value)} />}
       </Box>
       {groups.length === 0 ? <Empty>Целей пока нет. Кликните здание на карте или проведите кистью.</Empty> : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {shown.map(g => {
-            const done = g.cells.filter(c => c.level >= c.t.target_level).length;
-            const lvls = g.cells.map(c => c.t.target_level);
-            const lvl = Math.max(...lvls), mixed = lvls.some(l => l !== lvl);
-            const o = open === g.id;
-            return (
-              <Box key={g.id} sx={{ borderRadius: '12px', bg: 'canvas.subtle' }}>
-                <Box role="button" tabIndex={0} aria-expanded={o} onClick={() => setOpen(o ? null : g.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o ? null : g.id); } }}
-                  sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 2, cursor: 'pointer' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+        <>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2, borderRadius: '12px', bg: 'success.subtle' }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2 }}>
+              <Text sx={{ fontSize: 5, lineHeight: 1, fontWeight: 'semibold', color: 'success.fg', ...num }}>{Math.floor(allPct)}%</Text>
+              <Box sx={{ flex: 1, ...muted, lineHeight: 1.3 }}>
+                <Text as="div">плана выполнено</Text>
+                <Text as="div" sx={num}>осталось {all.span - all.done} ур.</Text>
+              </Box>
+            </Box>
+            <PlanBar done={all.done} wip={all.wip} span={all.span} size="large" bg="canvas.default" />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, ...muted, ...num }}>
+              <Text>клеток готово {all.ready}/{targets.length}</Text>{all.building > 0 && <Text>строится {all.building}</Text>}
+            </Box>
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {shown.map(g => {
+              const o = open === g.id;
+              const toggle = () => setOpen(o ? null : g.id);
+              return (
+                <Box key={g.id} sx={{ borderRadius: '12px', bg: 'canvas.subtle', p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box role="button" tabIndex={0} aria-expanded={o} onClick={toggle} {...hover(g.cells.map(c => c.key))}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
+                    sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, cursor: 'pointer' }}>
                     {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
                     <Text sx={{ flex: 1, minWidth: 0, fontWeight: 'semibold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
                     <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Box sx={{ flex: 1 }}><ProgressBar progress={done / g.cells.length * 100} barSize="small" bg="success.emphasis" aria-label="Готово" /></Box>
-                    <Text sx={{ ...muted, ...num }}>{done}/{g.cells.length}</Text>
-                    <Tooltip text={mixed ? 'У клеток разные цели — изменение выставит всем одну' : 'Цель для всех клеток'} direction="w">
-                      <Box><Stepper value={lvl} onChange={v => setGroupLevel(g.id, v)} /></Box>
-                    </Tooltip>
-                  </Box>
-                </Box>
-                {o && (
-                  <Box sx={{ px: 2, pb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      {g.cells.map(c => {
-                        const full = c.level >= c.t.target_level;
-                        const key = `${c.t.x},${c.t.y}`;
-                        return (
-                          <Box key={key} as="button" type="button" title="Убрать цель с этой клетки" onClick={() => removeCells([key])}
-                            sx={{
-                              display: 'inline-flex', alignItems: 'center', gap: 1, height: 24, px: 2, borderRadius: '12px', cursor: 'pointer', font: 'inherit', fontSize: 0, ...num,
-                              bg: full ? 'success.subtle' : 'canvas.default', border: '1px solid', borderColor: full ? 'success.muted' : 'border.default', color: 'fg.default',
-                              '& .x': { display: 'none' }, '&:hover .x': { display: 'inline-flex' }, '&:hover .lv': { display: 'none' },
-                            }}>
-                            <Text sx={{ fontFamily: 'mono', color: 'fg.muted' }}>{key}</Text>
-                            <Text className="lv" sx={{ fontWeight: 'semibold', color: full ? 'success.fg' : 'fg.default' }}>
-                              {full ? '✓' : `${c.level}→${c.t.target_level}`}
-                            </Text>
-                            <Octicon className="x" icon={XIcon} size={12} sx={{ color: 'danger.fg' }} />
-                          </Box>
-                        );
-                      })}
+                  <PlanBar done={g.sum.done} wip={g.sum.wip} span={g.sum.span} size="default" />
+                  {o && (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {g.cells.map(c => {
+                          const tip = `${c.key} · ${c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`} · клик убирает`;
+                          return (
+                            <Tooltip key={c.key} text={tip} direction="n">
+                              <Box as="button" type="button" aria-label={tip} onClick={() => removeCells([c.key])} {...hover([c.key])}
+                                sx={{ display: 'flex', alignItems: 'center', height: 16, p: 0, px: 1, mx: -1, border: 0, borderRadius: '4px', bg: 'transparent', cursor: 'pointer', boxSizing: 'content-box', '&:hover': { bg: 'canvas.default' } }}>
+                                <PlanBar done={c.done} wip={c.wip} span={c.span} />
+                              </Box>
+                            </Tooltip>
+                          );
+                        })}
+                      </Box>
+                      <Button size="small" block variant="invisible" leadingVisual={TrashIcon} onClick={() => removeCells(g.cells.map(c => c.key))}
+                        sx={{ color: 'danger.fg', bg: 'canvas.default', '& svg': { color: 'danger.fg' } }}>Убрать все клетки</Button>
                     </Box>
-                    <Box><Button size="small" variant="invisible" leadingVisual={TrashIcon} onClick={() => removeCells(g.cells.map(c => `${c.t.x},${c.t.y}`))}>Убрать все клетки</Button></Box>
-                  </Box>
-                )}
-              </Box>
-            );
-          })}
-          {shown.length === 0 && <Empty>Ничего не нашлось</Empty>}
-        </Box>
+                  )}
+                </Box>
+              );
+            })}
+            {shown.length === 0 && <Empty>Ничего не нашлось</Empty>}
+          </Box>
+        </>
       )}
     </>
+  );
+}
+// «Сохранить» плана: на всю ширину, число целей — белый каунтер с тёмно-зелёными цифрами
+export function PlanSaveButton({ count, busy, onClick }: { count: number; busy: boolean; onClick: () => void }) {
+  const Count = () => <CounterLabel sx={{ bg: '#ffffff', color: '#116329', fontWeight: 'semibold', border: 0 }}>{count}</CounterLabel>;
+  // с loading Primer оборачивает кнопку в свой Box — растягиваем и его
+  return (
+    <Box sx={{ flex: 1, minWidth: 0, '& > *': { width: '100%' } }}>
+      <Button variant="primary" block leadingVisual={CheckIcon} trailingVisual={Count} loading={busy} disabled={busy} onClick={onClick}>Сохранить</Button>
+    </Box>
   );
 }
 

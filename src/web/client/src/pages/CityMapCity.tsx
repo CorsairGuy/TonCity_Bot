@@ -9,7 +9,7 @@ import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { fmt, itemImgSrc } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, PanelShell, StatsPanel, PlanPanel, QueuePanel, PendingList, DemolishPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode } from './cityMapPanels';
+import { MapPalette, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, QueuePanel, PendingList, DemolishPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode } from './cityMapPanels';
 
 // ключ карты эффектов политики: та же схема, что cw(stat,scopeKind,target) в бандле игры —
 // scope_kind==="global" (или без target) — суффикса нет, иначе "scopeKind:target"
@@ -243,6 +243,7 @@ export function CityMapCity() {
   const [targets, setTargets] = useState<CityStrategyTarget[]>([]);
   const [manualQueue, setManualQueue] = useState<CityStrategyQueueItem[]>([]);
   const [reconstructPlan, setReconstructPlan] = useState<CityStrategyQueueItem[]>([]);
+  const [planHover, setPlanHover] = useState<string[] | null>(null); // "x_y" клеток под курсором в «Плане»
   const [schedulingReconstruct, setSchedulingReconstruct] = useState(false);
   // запас компонентов/мастерпланов (вкладки "Реконструкция"/"Реновация") — из БД, подгружаем при
   // смене аккаунта, обновляем после каждой реконструкции/реновации (они тратят/дают эти предметы)
@@ -509,7 +510,9 @@ export function CityMapCity() {
   const validSet = useMemo(() => {
     if (executing) return new Set<string>();
     switch (mode) {
-      case 'upgrade': case 'queue': return upgradeableSet;
+      // наведение на клетку/здание в «Плане» — видны только они (как в реконструкции)
+      case 'upgrade': return planHover ? new Set(planHover) : upgradeableSet;
+      case 'queue': return upgradeableSet;
       case 'build': return buildFamily ? emptySet : new Set<string>();
       case 'move': return moveFrom ? emptySet : occupiedSet;
       case 'demolish': return occupiedSet;
@@ -517,7 +520,7 @@ export function CityMapCity() {
       case 'renovate': return renovatableSet;
       default: return new Set<string>();
     }
-  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct]);
+  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct, planHover]);
 
   // подсветка нужна только для переходного "откуда" при перемещении — всё остальное уже видно по
   // самому превью (построенное/снесённое/перемещённое здание меняется прямо на карте)
@@ -845,7 +848,7 @@ export function CityMapCity() {
     </>
   );
   const footer = mode === 'upgrade'
-    ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>Целей: {targets.length}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveTargets}>Сохранить</Button></>
+    ? <PlanSaveButton count={targets.length} busy={busy} onClick={saveTargets} />
     : mode === 'queue'
       ? <><Text sx={{ flex: 1, fontSize: 0, color: 'fg.muted' }}>{manualQueue.length ? <>Итого <CoinValue value={fmt(manualQueueTotal)} /></> : 'Очередь пуста'}</Text><Button size="small" variant="primary" loading={busy} disabled={busy} onClick={saveManualQueue}>Сохранить</Button></>
       : runFooter || undefined;
@@ -927,13 +930,13 @@ export function CityMapCity() {
         '@media (max-width: 768px)': { width: '100%', height: '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default' },
       }}>
         <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={headActions} footer={footer}
-          count={mode === 'upgrade' ? targets.length : mode === 'queue' ? manualQueue.length : mode === 'boosters' ? boosterQueue.length : undefined}>
+          count={mode === 'queue' ? manualQueue.length : mode === 'boosters' ? boosterQueue.length : undefined}>
 
           {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
 
           {mode === 'upgrade' && (
             <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
-              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} onTargets={setTargets} />
+              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} onTargets={setTargets} onHover={setPlanHover} />
           )}
 
           {mode === 'queue' && (
