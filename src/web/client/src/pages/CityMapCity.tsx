@@ -244,6 +244,7 @@ export function CityMapCity() {
   const [manualQueue, setManualQueue] = useState<CityStrategyQueueItem[]>([]);
   const [reconstructPlan, setReconstructPlan] = useState<CityStrategyQueueItem[]>([]);
   const [planHover, setPlanHover] = useState<string[] | null>(null); // "x_y" клеток под курсором в «Плане»
+  const planFocus = useMemo(() => planHover ? new Set(planHover) : null, [planHover]);
   // клетки плана ("x,y"), помеченные к удалению — уходят из целей только при «Сохранить»
   const [planRemoved, setPlanRemoved] = useState<Set<string>>(() => new Set());
   const markPlanRemoved = useCallback((keys: string[], on: boolean) => setPlanRemoved(prev => {
@@ -516,7 +517,7 @@ export function CityMapCity() {
     if (executing) return new Set<string>();
     switch (mode) {
       // наведение на клетку/здание в «Плане» — видны только они (как в реконструкции)
-      case 'upgrade': return planHover ? new Set(planHover) : upgradeableSet;
+      case 'upgrade': return upgradeableSet;
       case 'queue': return upgradeableSet;
       case 'build': return buildFamily ? emptySet : new Set<string>();
       case 'move': return moveFrom ? emptySet : occupiedSet;
@@ -525,7 +526,7 @@ export function CityMapCity() {
       case 'renovate': return renovatableSet;
       default: return new Set<string>();
     }
-  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct, planHover]);
+  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet, schedulingReconstruct]);
 
   // подсветка нужна только для переходного "откуда" при перемещении — всё остальное уже видно по
   // самому превью (построенное/снесённое/перемещённое здание меняется прямо на карте)
@@ -729,6 +730,15 @@ export function CityMapCity() {
   // цена каждого апгрейда в ручной очереди — та же формула, что использует бот (upgradeStep ·
   // множитель политик · скидка гильдии, см. modules/progress.js pickStrategyTargets), с уровня
   // fromLvl (текущий уровень здания + число более ранних повторов той же клетки в очереди)
+  // монет на улучшения клетки с fromLvl до toLvl — для «Плана», та же формула и множитель
+  const planUpgradeCost = useCallback((id: string, fromLvl: number, toLvl: number) => {
+    const info = buildingParamMap.get(id);
+    if (!info) return 0;
+    let sum = 0;
+    for (let l = Math.max(1, fromLvl); l < toLvl; l++) sum += upgradeStep(info, l);
+    return Math.round(sum * upgradeCostMultiplier);
+  }, [buildingParamMap, upgradeCostMultiplier]);
+
   const manualQueuePrices = useMemo(() => manualQueue.map((q, i) => {
     const b = owned.find(o => o.x === q.x && o.y === q.y);
     const info = b ? buildingParamMap.get(b.id) : undefined;
@@ -923,6 +933,7 @@ export function CityMapCity() {
                 sections={sections}
                 unlockedSections={unlockedSections ?? undefined}
                 onUnlockCell={onUnlockCell}
+                focusSet={mode === 'upgrade' ? planFocus : null}
               />
           }
           <Box sx={{ position: 'absolute', left: 2, right: 2, bottom: 3, display: 'flex', justifyContent: 'center', pointerEvents: 'none', '& > *': { pointerEvents: 'auto' } }}>
@@ -944,7 +955,7 @@ export function CityMapCity() {
 
           {mode === 'upgrade' && (
             <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
-              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
+              brushLevel={Math.max(1, Math.floor(Number(addLevel)) || 1)} onBrushLevel={v => setAddLevel(String(v))} upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
           )}
 
           {mode === 'queue' && (

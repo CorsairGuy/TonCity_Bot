@@ -189,9 +189,13 @@ interface Props {
   sections?: MapSection[];
   unlockedSections?: string[];
   onUnlockCell?: (sectionId: string) => void;
+  // "x_y" — клетки, которые нужно выделить поверх затемнения (наведение на строку «Плана»). Неподвижный
+  // слой при этом не перерисовывается: сверху плавно проявляется полупрозрачная пелена цвета фона,
+  // а выделенные клетки дорисовываются над ней на отдельном canvas — без мигания кусков карты
+  focusSet?: Set<string> | null;
 }
 
-export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell }: Props) {
+export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet }: Props) {
   // "x_y" клетки закрытой секции → id секции — только город, только пока секция не в unlockedSections
   const lockedCells = useMemo(() => {
     const m = new Map<string, string>();
@@ -210,6 +214,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const layersRef = useRef<HTMLDivElement>(null);
   const fpsRef = useRef<HTMLCanvasElement>(null);
+  const focusWrapRef = useRef<HTMLDivElement>(null);
+  const focusCanvasRef = useRef<HTMLCanvasElement>(null);
   const fpsCtl = useRef<FpsCounter | null>(null);
   // какую карту (тип+ключ) уже центрировали — сбрасывается только при реальном переключении карты,
   // не при каждом обновлении данных той же карты (см. Props.mapKey)
@@ -275,6 +281,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     blist: [] as MapBuilding[],
     type: 'city' as 'city' | 'capital',
     catalog: [] as BuildingDef[],
+    // выделение поверх пелены: пока пелена гаснет, рисуется последнее непустое выделение
+    focusShown: null as Set<string> | null,
   });
   state.current.mode = mode;
   state.current.validSet = validSet;
@@ -747,6 +755,47 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     ctx.fillText(displayText, bx, textCenterY);
   }
 
+  // выделенные клетки поверх пелены: спрайт и бейдж — те же, что в неподвижном слое, в порядке художника
+  function drawFocus(W: number, H: number, dpr: number, k: number) {
+    const s = state.current, fc = focusCanvasRef.current;
+    if (!fc || !s.focusShown) return;
+    const Wd = Math.round(W * dpr), Hd = Math.round(H * dpr);
+    if (fc.width !== Wd || fc.height !== Hd) { fc.width = Wd; fc.height = Hd; fc.style.width = `${W}px`; fc.style.height = `${H}px`; }
+    const ctx = fc.getContext('2d')!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, Wd, Hd);
+    ctx.setTransform(k, 0, 0, k, s.ox * dpr, s.oy * dpr);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'low';
+    const nowMs = Date.now(), fsz = Math.max(8, Math.round(TW * 0.13));
+    const list = [...s.focusShown].map(key => s.bmap[key]).filter((b): b is MapBuilding => !!b)
+      .map(b => ({ b, col: b.x - s.x0, row: b.y - s.y0 }))
+      .filter(t => t.col >= 0 && t.col < s.cols && t.row >= 0 && t.row < s.rows)
+      .sort((a, b) => (a.col + a.row) - (b.col + b.row) || a.col - b.col);
+    for (const { b, col, row } of list) {
+      const { x: sx, y: sy } = isoToScreen(col, row);
+      const endMs = b.end ? new Date(b.end).getTime() : 0;
+      const spriteId = endMs > nowMs ? constructionSpriteId(b.id, s.type) : b.id;
+      const sp = s.spriteMap[spriteId];
+      const RS = 1.025, dw = TW * RS, dh = sp ? sp.frame.h * TW / 753 * RS : TH;
+      if (!drawSprite(ctx, spriteId, dw, k, sx - (dw - TW) / 2, sy + TH - dh, dw, dh)) {
+        const cc = MAP_CAT_COLORS[buildingCat(b.id)] || { fill: 'rgba(100,100,100,.3)', stroke: 'rgba(150,150,150,.6)' };
+        drawTile(ctx, sx, sy, cc.fill, cc.stroke, buildingLabel(b.id));
+      }
+    }
+    for (const { b, col, row } of list) {
+      const label = s.labels.get(`${b.x}_${b.y}`);
+      if (!label) continue;
+      const { x: sx, y: sy } = isoToScreen(col, row);
+      const bx = sx + TW / 2, by = sy + TH / 2;
+      const endMs = b.end ? new Date(b.end).getTime() : 0;
+      if (endMs > nowMs) {
+        const durationMs = b.start ? endMs - new Date(b.start).getTime() : upgradeDurationSec(s.catalog.find(c => c.id === b.id)?.construction_increment || 0, b.level || 1) * 1000;
+        const progress = durationMs > 0 ? Math.min(1, Math.max(0, 1 - (endMs - nowMs) / durationMs)) : 0;
+        drawProgressBadge(ctx, bx, by, label, fsz, progress, fmtTimeLeft(endMs - nowMs), false);
+      } else drawLevelBadge(ctx, bx, by, label, fsz);
+    }
+  }
+
   function redraw() {
     const wrap = wrapRef.current, canvas = canvasRef.current;
     if (!wrap || !canvas || !layersRef.current) return;
@@ -791,6 +840,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
 
     // проход 1 — неподвижный слой: только transform контейнеров и недостающие куски
     const layerPending = syncLayer(W, H);
+    drawFocus(W, H, dpr, desired);
 
     // живой слой: прогресс стройки, выбранные клетки, кисть, наведение. Пусто сейчас и было пусто —
     // canvas не трогаем вовсе
@@ -1040,6 +1090,15 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   // план — только подсветку и бейджи поверх него
   useEffect(() => { state.current.listDirty = true; invalidateLayer(); }, [mode, validSet, lockedCells]);
   useEffect(() => { state.current.labelsDirty = true; requestRedraw(); }, [pickedSet, targets, queue, globalPlan, requestRedraw]);
+  // пелена: проявляется сразу, а гаснет с задержкой — переход между соседними строками «Плана» её не трогает
+  useEffect(() => {
+    const el = focusWrapRef.current; if (!el) return;
+    const on = !!focusSet && focusSet.size > 0;
+    if (on) state.current.focusShown = focusSet;
+    el.style.transitionDelay = on ? '0ms' : '120ms';
+    el.style.opacity = on ? '1' : '0';
+    requestRedraw();
+  }, [focusSet, requestRedraw]);
 
   useEffect(() => {
     const wrap = wrapRef.current; if (!wrap) return;
@@ -1291,6 +1350,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     <div ref={wrapRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor, background: MAP_BG, border: '1px solid var(--border)', touchAction: 'none' }}>
       <div ref={layersRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />
       <canvas ref={canvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
+      <div ref={focusWrapRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, transition: 'opacity 180ms ease' }}
+        onTransitionEnd={() => { if (focusWrapRef.current?.style.opacity === '0') state.current.focusShown = null; }}>
+        <div style={{ position: 'absolute', inset: 0, background: MAP_BG, opacity: 0.88 }} />
+        <canvas ref={focusCanvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
+      </div>
       <canvas ref={fpsRef} />
     </div>
   );
