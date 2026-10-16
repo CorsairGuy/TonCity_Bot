@@ -60,8 +60,25 @@ export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect
   );
 }
 
+// уровень кисти «Плана» — отдельная плашка справа от дока, в его же стиле
+export function MapBrushLevel({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <Tooltip text="Уровень кисти: клик и мазок ставят цель до этого уровня" direction="n">
+      <Box role="group" aria-label="Уровень кисти" sx={{
+        display: 'flex', alignItems: 'center', gap: 1, p: 1, flexShrink: 0,
+        bg: 'canvas.overlay', border: '1px solid', borderColor: 'border.default', borderRadius: '12px', boxShadow: 'shadow.large',
+      }}>
+        <IconButton icon={DashIcon} aria-label="Ниже" variant="invisible" disabled={value <= 1} onClick={() => onChange(Math.max(1, value - 1))} />
+        <Text sx={{ minWidth: 24, textAlign: 'center', fontWeight: 'semibold', ...num }}>{value}</Text>
+        <IconButton icon={PlusIcon} aria-label="Выше" variant="invisible" onClick={() => onChange(value + 1)} />
+      </Box>
+    </Tooltip>
+  );
+}
+
 // ── каркас сайдбара ─────────────────────────────────────────────────────────
-export function PanelShell({ mode, count, hint, actions, footer, children }: { mode: PanelMode; count?: number; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; children: ReactNode }) {
+// gap — зазор между блоками содержимого (по умолчанию 16px; «План» — 8px, как отступы по бокам)
+export function PanelShell({ mode, count, hint, actions, footer, gap = 3, children }: { mode: PanelMode; count?: number; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; gap?: number; children: ReactNode }) {
   const [help, setHelp] = useState(false);
   const t = toolFor(mode);
   return (
@@ -75,7 +92,7 @@ export function PanelShell({ mode, count, hint, actions, footer, children }: { m
       </Box>
       {/* полоса прокрутки поверх содержимого (как в прежнем сайдбаре) — отступ ровно 8px со всех сторон */}
       <Scrollable>
-        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3, '& > *': { flexShrink: 0 } }}>
+        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap, '& > *': { flexShrink: 0 } }}>
           {help && <Text as="p" sx={{ m: 0, fontSize: 0, color: 'fg.muted', bg: 'canvas.subtle', p: 2, borderRadius: 2 }}>{hint}</Text>}
           {children}
         </Box>
@@ -98,15 +115,6 @@ export function Caption({ children, right }: { children: ReactNode; right?: Reac
 export function Empty({ children }: { children: ReactNode }) { return <Text sx={muted}>{children}</Text>; }
 function Thumb({ id, size = 40, bg = 'canvas.subtle' }: { id: string; size?: number; bg?: string }) {
   return <Box sx={{ width: size, height: size, borderRadius: '8px', bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} /></Box>;
-}
-function Stepper({ value, onChange, min = 1 }: { value: number; onChange: (v: number) => void; min?: number }) {
-  return (
-    <Box onClick={e => e.stopPropagation()} sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-      <IconButton size="small" variant="invisible" icon={DashIcon} aria-label="Ниже" disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))} />
-      <Text sx={{ minWidth: 24, textAlign: 'center', fontWeight: 'semibold', ...num }}>{value}</Text>
-      <IconButton size="small" variant="invisible" icon={PlusIcon} aria-label="Выше" onClick={() => onChange(value + 1)} />
-    </Box>
-  );
 }
 // как в игре — 2 знака после запятой
 export function fmtStat(n: number): string {
@@ -210,10 +218,9 @@ function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: n
   );
 }
 const cellsWord = (n: number) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'клетка' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'клетки' : 'клеток'; };
-export function PlanPanel({ targets, owned, labelFor, upgradeCost, brushLevel, onBrushLevel, onHover, removed, onMarkRemoved }: {
+export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, removed, onMarkRemoved }: {
   targets: CityStrategyTarget[]; owned: MapBuilding[]; labelFor: (id: string) => string;
   upgradeCost: (id: string, fromLvl: number, toLvl: number) => number; // монет на улучшения fromLvl → toLvl
-  brushLevel: number; onBrushLevel: (v: number) => void;
   onHover: (cells: string[] | null) => void; // "x_y" — на карте остаются видны только эти клетки
   // клетки ("x,y"), помеченные к удалению: остаются в списке бледными, из плана уходят при «Сохранить»
   removed: Set<string>; onMarkRemoved: (keys: string[], on: boolean) => void;
@@ -253,13 +260,7 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, brushLevel, o
   const allPct = pctOf(all.done, all.span);
   return (
     <>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {groups.length > 0 && <TextInput placeholder="Поиск" aria-label="Поиск по плану" block value={q} onChange={e => setQ(e.target.value)} />}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, minHeight: 32 }}>
-          <Text sx={{ color: 'fg.muted' }}>Уровень кисти</Text>
-          <Stepper value={brushLevel} onChange={onBrushLevel} />
-        </Box>
-      </Box>
+      {groups.length > 0 && <TextInput placeholder="Поиск" aria-label="Поиск по плану" block value={q} onChange={e => setQ(e.target.value)} />}
       {groups.length === 0 ? <Empty>Целей пока нет. Кликните здание на карте или проведите кистью.</Empty> : (
         <>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2, borderRadius: '12px', bg: 'success.subtle' }}>
