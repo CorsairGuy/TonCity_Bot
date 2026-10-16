@@ -61,7 +61,8 @@ export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect
 }
 
 // ── каркас сайдбара ─────────────────────────────────────────────────────────
-export function PanelShell({ mode, count, hint, actions, footer, children }: { mode: PanelMode; count?: number; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; children: ReactNode }) {
+// gap — зазор между блоками содержимого (по умолчанию 16px; «План» — 8px, как отступы по бокам)
+export function PanelShell({ mode, count, hint, actions, footer, gap = 3, children }: { mode: PanelMode; count?: number; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; gap?: number; children: ReactNode }) {
   const [help, setHelp] = useState(false);
   const t = toolFor(mode);
   return (
@@ -75,7 +76,7 @@ export function PanelShell({ mode, count, hint, actions, footer, children }: { m
       </Box>
       {/* полоса прокрутки поверх содержимого (как в прежнем сайдбаре) — отступ ровно 8px со всех сторон */}
       <Scrollable>
-        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3, '& > *': { flexShrink: 0 } }}>
+        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap, '& > *': { flexShrink: 0 } }}>
           {help && <Text as="p" sx={{ m: 0, fontSize: 0, color: 'fg.muted', bg: 'canvas.subtle', p: 2, borderRadius: 2 }}>{hint}</Text>}
           {children}
         </Box>
