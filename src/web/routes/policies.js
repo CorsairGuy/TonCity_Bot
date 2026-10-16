@@ -248,13 +248,18 @@ module.exports=function(app,ctx){
       // экстраполяции (см. liveDrawState в CivicDraw.tsx), которая иногда ошибается. Перепроверяем
       // актуальный claimable живым запросом перед самим claim, чтобы не слать обречённый запрос
       // и сразу освежить снимок в БД, если оценка устарела (см. claim-all в civicDraw.js).
+      // Под тем же замком, что и автосбор (modules/civicDrawAuto.js): иначе оба могли бы увидеть
+      // claimable:true и послать два claim подряд.
       if(action==='civic-draw-claim'){
-        const{runTownhall}=require('../../modules/townhall');
-        const diversity=await api.get('/progress/diversity').catch(()=>null);
-        if(diversity?.civic_draw?.claimable!==true){
-          await runTownhall(api,acc.name).catch(()=>{});
-          return res.status(409).json({ok:false,error:'Розыгрыш ещё не готов по факту в игре (оценка на странице устарела) — снимок обновлён'});
-        }
+        const{runTownhall,withClaimLock}=require('../../modules/townhall');
+        const out=await withClaimLock(acc.name,async()=>{
+          const diversity=await api.get('/progress/diversity').catch(()=>null);
+          if(diversity?.civic_draw?.claimable!==true){await runTownhall(api,acc.name).catch(()=>{});return null;}
+          try{return{result:await api.post(endpoint,body)};}
+          finally{await runTownhall(api,acc.name).catch(()=>{});}
+        });
+        if(!out)return res.status(409).json({ok:false,error:'Розыгрыш ещё не готов по факту в игре (оценка на странице устарела) — снимок обновлён'});
+        return res.json({ok:true,result:out.result});
       }
       let result;
       if(action==='mystery-open'&&Number(count)>1){
@@ -280,12 +285,8 @@ module.exports=function(app,ctx){
       // runPolicies (тот синкает только list/library/cabinet/economy). Раньше после этих действий
       // Inventory не резинкался вообще — новая тайная политика/осталось осколков не появлялись,
       // пока не отработает дневной цикл бота или ручное обновление на странице "Предметы".
-      if(action==='civic-draw-claim'){
-        await require('../../modules/townhall').runTownhall(api,acc.name).catch(()=>{});
-      }else{
-        await require('../../modules/policies').runPolicies(api,acc.name).catch(()=>{});
-        if(action!=='enact'&&action!=='unequip')await require('../../modules/inventory').runInventory(api,acc.name).catch(()=>{});
-      }
+      await require('../../modules/policies').runPolicies(api,acc.name).catch(()=>{});
+      if(action!=='enact'&&action!=='unequip')await require('../../modules/inventory').runInventory(api,acc.name).catch(()=>{});
       res.json({ok:true,result});
     }catch(e){
       // РЕСИНК И ПРИ ОТКАЗЕ. Игра отклоняет действие в т.ч. когда наши цифры устарели: уровень

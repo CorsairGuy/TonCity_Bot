@@ -1,6 +1,7 @@
 'use strict';
 const logger=require('../utils/logger');
 const {TownhallAirdrop,TownhallDiversity,CivicDrawStatus}=require('../db/index');
+const {wake}=require('../utils/cityWake');
 async function runTownhall(api,name){
   try{
     const [airdrop,diversity]=await Promise.all([
@@ -18,40 +19,63 @@ async function runTownhall(api,name){
       // reference_game_formulas.md. income_bonus придёт настоящим числом сам, как только откроется.
       await TownhallDiversity.upsert({account:name,score:diversity.score,variety_score:diversity.variety_score??null,profit_score:diversity.profit_score??null,unique_types:diversity.unique_types??null,total_buildings:diversity.total_buildings??null,income_bonus:diversity.income_bonus??null,updated_at:now},{conflictFields:['account']});
     }
-    // Городской розыгрыш (civic_draw) — тот же ответ /progress/diversity, отдельная таблица.
-    // ready_at — линейный прогноз "когда будет готов следующий розыгрыш" (абсолютное время),
-    // считаем на КАЖДОМ синке из текущих draws_ready/draw_progress/draws_per_day. Сырой прогресс
-    // между снимками иногда чуть колеблется (не идеально монотонен) — поэтому НЕ даём прогнозу
-    // сдвигаться назад: берём максимум с уже сохранённым ready_at, кроме случая явного
-    // подтверждения готовности прямо сейчас (тогда доверяем игре безусловно).
-    if(diversity?.civic_draw){
-      const cd=diversity.civic_draw;
-      const baseUnits=(cd.draws_ready??0)+(cd.draw_progress??0);
-      const rate=cd.draws_per_day??0;
-      // ГОТОВНОСТЬ — ТОЛЬКО claimable. Раньше было `baseUnits>=1||claimable`, и это давало вечный
-      // цикл: игра отдаёт draws_ready:1 при claimable:false (накоплено ≠ можно забрать), мы писали
-      // ready_at=now → страница показывала «готово: 1» и включала кнопку → claim → сервер видит
-      // claimable:false, отказывает и ресинкает снимок → снимок пишет ТО ЖЕ САМОЕ → кнопка снова
-      // активна. Накопленные draws_ready оставляем в снимке как есть (их показываем), но признаком
-      // готовности считаем исключительно флаг самой игры.
-      const readyNow=!!cd.claimable;
-      let readyAt=null;
-      if(readyNow){
-        readyAt=now;
-      }else{
-        // Время до СЛЕДУЮЩЕЙ единицы, а не до «первой». Раньше считалось (1-baseUnits)/rate — при
-        // уже накопленном розыгрыше (baseUnits>=1) это давало 0 или отрицательное, т.е. прогноз
-        // «готово прямо сейчас», хотя игра забрать не даёт. Берём дробную часть: сколько осталось
-        // добрать до ближайшего целого — прогноз остаётся рабочим и когда накопления уже есть.
-        const frac=baseUnits-Math.floor(baseUnits);
-        const newReadyAt=rate>0?new Date(now.getTime()+((1-frac)/rate)*86400000):null;
-        const prev=await CivicDrawStatus.findOne({where:{account:name},attributes:['ready_at']});
-        const prevReadyAt=prev?.ready_at?new Date(prev.ready_at):null;
-        readyAt=newReadyAt&&prevReadyAt?new Date(Math.max(newReadyAt.getTime(),prevReadyAt.getTime())):(newReadyAt??prevReadyAt);
-      }
-      await CivicDrawStatus.upsert({account:name,draws_per_day:cd.draws_per_day??null,draws_ready:cd.draws_ready??null,draw_progress:cd.draw_progress??null,claimable:!!cd.claimable,odds:JSON.stringify(cd.odds||[]),ready_at:readyAt,updated_at:now},{conflictFields:['account']});
-    }
+    if(diversity?.civic_draw)await saveCivicDraw(name,diversity.civic_draw,now);
     logger.info(`[${name}] [townhall] score: ${airdrop?.allocation?Object.entries(airdrop.allocation).filter(([k,v])=>typeof v==='number'&&k!=='user_id').reduce((a,[,v])=>a+v,0).toFixed(2):'—'}, diversity: ${diversity?.score?.toFixed(1)||'—'}%`);
   }catch(e){logger.error(`[${name}] [townhall]: ${e.message}`);}
 }
-module.exports={runTownhall};
+// Городской розыгрыш (civic_draw) — блок ответа /progress/diversity, отдельная таблица.
+// Поля (сверено с бандлом игры chunks/townhall-*, 16.10.2026): draws_ready, draw_progress (0..1),
+// draws_per_day, max_draws, at_cap, claimable, odds. Точного времени готовности игра не отдаёт.
+async function saveCivicDraw(name,cd,now=new Date()){
+  // ready_at — линейный прогноз "когда будет готов следующий розыгрыш" (абсолютное время),
+  // считаем на КАЖДОМ синке из текущих draws_ready/draw_progress/draws_per_day. Сырой прогресс
+  // между снимками иногда чуть колеблется (не идеально монотонен) — поэтому НЕ даём прогнозу
+  // сдвигаться назад: берём максимум с уже сохранённым ready_at, кроме случая явного
+  // подтверждения готовности прямо сейчас (тогда доверяем игре безусловно).
+  const baseUnits=(cd.draws_ready??0)+(cd.draw_progress??0);
+  const rate=cd.draws_per_day??0;
+  // ГОТОВНОСТЬ — ТОЛЬКО claimable. Раньше было `baseUnits>=1||claimable`, и это давало вечный
+  // цикл: игра отдаёт draws_ready:1 при claimable:false (накоплено ≠ можно забрать), мы писали
+  // ready_at=now → страница показывала «готово: 1» и включала кнопку → claim → сервер видит
+  // claimable:false, отказывает и ресинкает снимок → снимок пишет ТО ЖЕ САМОЕ → кнопка снова
+  // активна. Накопленные draws_ready оставляем в снимке как есть (их показываем), но признаком
+  // готовности считаем исключительно флаг самой игры.
+  const readyNow=!!cd.claimable;
+  let readyAt=null;
+  if(readyNow){
+    readyAt=now;
+  }else{
+    // Время до СЛЕДУЮЩЕЙ единицы, а не до «первой». Раньше считалось (1-baseUnits)/rate — при
+    // уже накопленном розыгрыше (baseUnits>=1) это давало 0 или отрицательное, т.е. прогноз
+    // «готово прямо сейчас», хотя игра забрать не даёт. Берём дробную часть: сколько осталось
+    // добрать до ближайшего целого — прогноз остаётся рабочим и когда накопления уже есть.
+    const frac=baseUnits-Math.floor(baseUnits);
+    const newReadyAt=rate>0?new Date(now.getTime()+((1-frac)/rate)*86400000):null;
+    const prev=await CivicDrawStatus.findOne({where:{account:name},attributes:['ready_at']});
+    const prevReadyAt=prev?.ready_at?new Date(prev.ready_at):null;
+    readyAt=newReadyAt&&prevReadyAt?new Date(Math.max(newReadyAt.getTime(),prevReadyAt.getTime())):(newReadyAt??prevReadyAt);
+  }
+  await CivicDrawStatus.upsert({account:name,draws_per_day:cd.draws_per_day??null,draws_ready:cd.draws_ready??null,draw_progress:cd.draw_progress??null,claimable:!!cd.claimable,odds:JSON.stringify(cd.odds||[]),max_draws:cd.max_draws??null,at_cap:!!cd.at_cap,ready_at:readyAt,updated_at:now},{conflictFields:['account']});
+  // цикл автосбора (modules/civicDrawAuto.js) пересчитывает свой будильник по свежему снимку
+  wake(`civic:${name}`);
+}
+
+// Свежее состояние розыгрыша одним GET (без /airdrop/, который нужен только странице Мэрии).
+// null — игра не ответила или розыгрыша у аккаунта нет.
+async function fetchCivicDraw(api,name){
+  const diversity=await api.get('/progress/diversity');
+  if(!diversity?.civic_draw)return null;
+  await saveCivicDraw(name,diversity.civic_draw);
+  return diversity.civic_draw;
+}
+
+// Один claim на аккаунт за раз: автосбор и кнопки панели могли бы оба увидеть claimable:true и
+// послать два claim подряд — второй игра отклонит.
+const claimLocks=new Map();
+async function withClaimLock(name,fn){
+  while(claimLocks.has(name))await claimLocks.get(name).catch(()=>{});
+  const p=Promise.resolve().then(fn);
+  claimLocks.set(name,p);
+  try{return await p;}finally{if(claimLocks.get(name)===p)claimLocks.delete(name);}
+}
+module.exports={runTownhall,saveCivicDraw,fetchCivicDraw,withClaimLock};

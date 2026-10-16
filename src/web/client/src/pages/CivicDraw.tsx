@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Spinner, Text, Label, ProgressBar } from '@primer/react';
+import { Box, Button, Flash, Heading, Spinner, Text, Label, ProgressBar, ToggleSwitch } from '@primer/react';
 import { SyncIcon, GiftIcon } from '@primer/octicons-react';
 import { api, type CivicDrawAccount } from '../api';
 import { useFlash } from '../hooks/useFlash';
@@ -162,7 +162,20 @@ export function CivicDraw() {
   // снова тот же отказ. Для таких аккаунтов до конца сессии страницы верим ТОЛЬКО живому
   // claimable из снимка, игнорируя оценку. Сбрасывается кнопкой «Обновить» и успешным сбором.
   const [denied, setDenied] = useState<Set<string>>(new Set());
+  // автосбор (modules/civicDrawAuto.js): бот сам забирает розыгрыш, когда игра говорит «готово»
+  const [auto, setAuto] = useState(true);
+  const [savingAuto, setSavingAuto] = useState(false);
   const { flash, showFlash } = useFlash();
+
+  const toggleAuto = async (next: boolean) => {
+    setAuto(next);
+    setSavingAuto(true);
+    try {
+      const d = await api.saveConfig({ features: { civicDraw: next } });
+      if (!d.ok) { setAuto(!next); showFlash('Ошибка: ' + d.error, false); }
+    } catch (e) { setAuto(!next); showFlash(String(e), false); }
+    finally { setSavingAuto(false); }
+  };
 
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -205,6 +218,11 @@ export function CivicDraw() {
   };
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api.config().then(d => {
+      if (d.ok) setAuto(((d.settings.features as Record<string, boolean> | undefined)?.civicDraw) ?? true);
+    }).catch(() => {});
+  }, []);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(id); }, []);
 
   if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
@@ -220,7 +238,12 @@ export function CivicDraw() {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 2 }}>
         <Heading as="h2" sx={{ fontSize: 3 }}>Городской розыгрыш</Heading>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Text id="civic-auto-label" sx={{ fontSize: 1 }}>Автосбор</Text>
+            <ToggleSwitch size="small" aria-labelledby="civic-auto-label" statusLabelPosition="end"
+              checked={auto} disabled={savingAuto} onClick={() => toggleAuto(!auto)} />
+          </Box>
           <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
             Обновить
           </Button>

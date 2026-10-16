@@ -506,6 +506,8 @@ const CivicDrawStatus=seq.define('CivicDrawStatus',{
   // синке (см. modules/townhall.js) и НИКОГДА не сдвигаемый назад между синками (max со старым
   // значением) — защита от того, что сырой прогресс иногда чуть колеблется между снимками
   ready_at:{type:DataTypes.DATE,defaultValue:null},
+  max_draws:{type:I,defaultValue:null},  // потолок накопления (3), дальше прогресс не копится
+  at_cap:{type:DataTypes.BOOLEAN,defaultValue:false},
   updated_at:{type:DataTypes.DATE,defaultValue:DataTypes.NOW},
 },{tableName:'civic_draw_status',timestamps:false});
 // 13.10.2026: форма подтверждена реверсом живого бандла игры (chunks/tech_factory-*.js, useGuildAchievements-*.js) —
@@ -741,6 +743,9 @@ async function init(){
     // каждой записи. И новая колонка под прогноз готовности (см. CivicDrawStatus.ready_at выше).
     `ALTER TABLE civic_draw_status MODIFY draws_per_day DOUBLE DEFAULT NULL`,
     `ALTER TABLE civic_draw_status ADD COLUMN ready_at DATETIME DEFAULT NULL`,
+    // потолок накопления розыгрышей — для предохранителя автосбора (modules/civicDrawAuto.js)
+    `ALTER TABLE civic_draw_status ADD COLUMN max_draws INT DEFAULT NULL`,
+    `ALTER TABLE civic_draw_status ADD COLUMN at_cap TINYINT(1) DEFAULT 0`,
     // общий каталог описаний политик (растёт по мере открытия разными аккаунтами)
     `CREATE TABLE IF NOT EXISTS policy_def_catalog (def_id VARCHAR(100) PRIMARY KEY, rarity VARCHAR(20), name TEXT, description TEXT, icon_key VARCHAR(100), theme VARCHAR(50), badge VARCHAR(50), badge_n INT DEFAULT NULL, max_level INT DEFAULT NULL, effects TEXT, seen_account VARCHAR(255), updated_at DATETIME DEFAULT NULL)`,
     // PK был только def_id — но одна политика бывает в НЕСКОЛЬКИХ редкостях с тем же def_id, и

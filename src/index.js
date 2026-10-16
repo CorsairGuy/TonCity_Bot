@@ -15,6 +15,7 @@ const {runMarketPriceLoop}=require('./modules/marketPrices');
 const {runWordleOnce,runWordleLoop}=require('./modules/wordle');
 const {runLoyalty}=require('./modules/loyalty');
 const {runBoosterAutomationLoop}=require('./modules/boosterAutomation');
+const {runCivicDrawLoop}=require('./modules/civicDrawAuto');
 const accountLoops=require('./utils/accountLoops');
 const {apiForAcc}=require('./web/lib/api');
 const ApiClient=require('./api/client');
@@ -184,6 +185,9 @@ async function startAccountLoops(api,account){
     // автозапуск очереди Технофабрики — самосогласованный цикл: сам проверяет через hasBuilding,
     // есть ли у гильдии это здание, и тихо завершается, если нет (тот же приём, что у cap-loop)
     loops.push(runTechFactoryLoop(api,name,account.id));
+    // автосбор городского розыгрыша — будильник по прогнозу готовности (modules/civicDrawAuto.js);
+    // галочку features.civicDraw цикл читает сам на каждом шаге, поэтому запускается всегда
+    loops.push(runCivicDrawLoop(api,name,account.id));
     // автоактивация ускорителей — отдельный непрерывный цикл (не гейтится features, включается per-
     // аккаунт из UI): once-in-a-day runAccount не годился ("всегда держать активным" требует знать
     // ТОЧНОЕ время окончания текущего буста, см. modules/boosterAutomation.js).
