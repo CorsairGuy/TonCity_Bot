@@ -291,24 +291,23 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
                   </Box>
                   {o && (
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2 }}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {/* строки 22 px вплотную: полоса 16 px + бывший зазор входят в саму строку, щелей для мыши нет */}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', my: '-3px' }}>
                         {g.cells.map(c => {
                           const off = removed.has(c.key);
                           const tip = `${c.key} · ${c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`}`;
-                          // клик помечает клетку к удалению (полоса бледнеет и перечёркнута), повторный — возвращает
+                          // под курсором полоса краснеет; клик помечает клетку к удалению (бледнеет и перечёркнута), повторный — возвращает
                           return (
                             <Tooltip key={c.key} text={tip} direction="n">
                               <Box as="button" type="button" aria-label={tip} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)} {...hover([c.key])}
                                 sx={{
-                                  position: 'relative', display: 'flex', alignItems: 'center', gap: 1, height: 16, p: 0, border: 0, bg: 'transparent', cursor: 'pointer',
-                                  '& .x': { visibility: 'hidden' }, '&:hover .x': { visibility: off ? 'hidden' : 'visible' },
+                                  position: 'relative', display: 'flex', alignItems: 'center', height: 22, p: 0, border: 0, bg: 'transparent', cursor: 'pointer',
                                   '&:hover .bar .pb-fill': off ? undefined : { bg: 'danger.emphasis' },
                                 }}>
                                 <Box className="bar" sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
                                   <PlanBar done={c.done} wip={c.wip} span={c.span} />
                                 </Box>
-                                {off && <Box sx={{ position: 'absolute', left: 0, right: 16, top: '50%', height: '1px', bg: 'danger.fg' }} />}
-                                <Box className="x" sx={{ width: 12, display: 'flex', color: 'danger.fg' }}><Octicon icon={XIcon} size={12} /></Box>
+                                {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
                               </Box>
                             </Tooltip>
                           );
@@ -317,9 +316,9 @@ export function PlanPanel({ targets, owned, labelFor, brushLevel, onBrushLevel, 
                       {g.marked > 0 && <Text sx={{ fontSize: 0, color: 'danger.fg', textAlign: 'center' }}>{g.marked} {cellsWord(g.marked)} {g.marked === 1 ? 'уйдёт' : 'уйдут'} из плана при сохранении</Text>}
                       {g.marked < g.cells.length
                         ? <Button size="small" block variant="invisible" leadingVisual={TrashIcon} onClick={() => onMarkRemoved(g.cells.map(c => c.key), true)}
-                            sx={{ color: 'danger.fg', bg: 'canvas.default', '& svg': { color: 'danger.fg' } }}>Убрать все клетки</Button>
+                            sx={{ color: 'danger.fg', bg: 'canvas.default', '& svg': { color: 'danger.fg' }, '&:hover:not([disabled])': { bg: 'danger.subtle' }, '&:active:not([disabled])': { bg: 'danger.muted' } }}>Убрать все клетки</Button>
                         : <Button size="small" block variant="invisible" leadingVisual={UndoIcon} onClick={() => onMarkRemoved(g.cells.map(c => c.key), false)}
-                            sx={{ bg: 'canvas.default' }}>Вернуть все клетки</Button>}
+                            sx={{ bg: 'canvas.default', '&:hover:not([disabled])': { bg: 'neutral.muted' }, '&:active:not([disabled])': { bg: 'neutral.muted' } }}>Вернуть все клетки</Button>}
                     </Box>
                   )}
                 </Box>
