@@ -29,7 +29,7 @@ BOT="${BOT_CONTAINER:?нужен BOT_CONTAINER}"
 SERVICE="${BOT_SERVICE:-bot}"
 POLL="${POLL_SECONDS:-3}"
 HEARTBEAT="${HEARTBEAT_SECONDS:-20}"
-VERSION=5
+VERSION=6
 PORTAINER_URL="${PORTAINER_URL:-}"
 PORTAINER_TOKEN="${PORTAINER_TOKEN:-}"
 
@@ -207,6 +207,25 @@ process(){ # id tag
   files=$(label "$src" com.docker.compose.project.config_files)
   [ -n "$dir" ] && [ -n "$project" ] || { status "$id" error "$tag" "не найдены метки docker compose (бот запущен не через docker-compose.yml?)"; return; }
   case "$files" in *docker-compose.dev.yml*) status "$id" error "$tag" "режим разработки (docker-compose.dev.yml): образ собирается локально, переключение канала не поддерживается"; return;; esac
+  # Docker Desktop на Windows пишет в метки путь хоста вида D:\TonCity_Bot. Внутри контейнера (Linux)
+  # такой путь — относительное имя с обратными слешами: compose склеивал его с рабочей папкой и
+  # искал /D:\TonCity_Bot/D:\TonCity_Bot/docker-compose.yml. Берём путь папки проекта так, как его
+  # видит Docker Engine (источник тома /project у обновлятеля), а файлы — относительно неё.
+  case "$dir" in [A-Za-z]:[\\/]*|*\\*)
+    wdir=$(printf '%s' "$dir" | tr '\\' / | sed 's|/*$||')
+    edir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "'"$PROJECT_MNT"'"}}{{.Source}}{{end}}{{end}}' "$(hostname)" 2>/dev/null)
+    [ -n "$edir" ] || edir="/run/desktop/mnt/host/$(printf '%s' "${wdir%%:*}" | tr 'A-Z' 'a-z')${wdir#?:}"
+    nf=; old_ifs=$IFS; IFS=,
+    for f in $files; do
+      f=$(printf '%s' "$f" | tr '\\' /)
+      lf=$(printf '%s' "$f" | tr 'A-Z' 'a-z'); lw=$(printf '%s' "$wdir/" | tr 'A-Z' 'a-z')
+      case "$lf" in "$lw"*) f="$edir/${f#"$wdir/"}";; [A-Za-z]:/*) f="$edir/${f##*/}";; esac
+      nf="${nf:+$nf,}$f"
+    done
+    IFS=$old_ifs
+    log "$id: путь Windows $dir → $edir"
+    dir="$edir"; files="$nf";;
+  esac
   if [ "$dir" != "$PROJECT_MNT" ] && [ ! -e "$dir" ]; then mkdir -p "$(dirname "$dir")" && ln -s "$PROJECT_MNT" "$dir"; fi
 
   set -- -p "$project" --project-directory "$dir"
