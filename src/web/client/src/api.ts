@@ -1531,6 +1531,8 @@ export interface PolicyProgress {
   level_shards_needed: number | null;
   can_level_up: boolean;
   level_blockers: string[];
+  promote_shard_item_id: number | null; // осколки ЦЕЛЕВОЙ редкости — ими платится повышение
+  promote_have_shards: number;
   promote_shards_needed: number | null;
   promote_target_rarity: string | null;
   can_promote: boolean;

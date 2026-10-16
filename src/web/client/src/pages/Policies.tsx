@@ -226,10 +226,11 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
             {prog.promote_shards_needed != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 1, py: '2px' }}>
                 <Text sx={{ color: 'fg.muted' }}>
-                  Осколков на редкость
+                  {/* повышение оплачивается осколками НОВОЙ редкости, как в игре */}
+                  Осколков на редкость{prog.promote_target_rarity ? ` (${(RARITY_NAME[prog.promote_target_rarity] ?? prog.promote_target_rarity).toLowerCase()})` : ''}
                 </Text>
-                <Text className="mono" sx={{ whiteSpace: 'nowrap', ml: 2, color: prog.have_shards >= prog.promote_shards_needed ? 'success.fg' : 'danger.fg' }}>
-                  {prog.have_shards} / {prog.promote_shards_needed}
+                <Text className="mono" sx={{ whiteSpace: 'nowrap', ml: 2, color: prog.promote_have_shards >= prog.promote_shards_needed ? 'success.fg' : 'danger.fg' }}>
+                  {prog.promote_have_shards} / {prog.promote_shards_needed}
                 </Text>
               </Box>
             )}
@@ -625,7 +626,7 @@ export function Policies() {
           snapshotAt={policyModal.snapshotAt}
           reformStones={policyModal.reformStones}
           policiesUnlocked={policyModal.policiesUnlocked}
-          onStale={() => load(true)}
+          onStale={() => refreshOpenPolicy({ accountId: policyModal.accountId, policyId: policyModal.policy.id })}
           onClose={() => setPolicyModal(null)}
           onChanged={(newPolicyId) => refreshOpenPolicy({ accountId: policyModal.accountId, policyId: policyModal.policy.id, newPolicyId })}
         />

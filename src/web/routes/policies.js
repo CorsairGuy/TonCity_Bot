@@ -50,7 +50,9 @@ const shardItemIdFor=rarity=>{
 //   next_level_shards  — сколько осколков СВОЕЙ редкости нужно на следующий уровень
 //   next_level_tenure  — сколько дней стажа нужно (null = уровень максимальный)
 //   tenure_points      — накопленный стаж НА МОМЕНТ СНИМКА
-//   promotion:{shard_cost,target_rarity,tenure_carry} — повышение редкости
+//   promotion:{shard_cost,target_rarity,tenure_carry} — повышение редкости; shard_cost — в осколках
+//                        ЦЕЛЕВОЙ редкости (target_rarity), а не своей: клиент игры (chunks/storage-*,
+//                        PolicyDialog) сверяет его с targetShardsOwned=осколки(promotion.target_rarity)
 //   max_level          — потолок уровня
 // Стаж идёт, пока политика НАДЕТА (enacted_slot!=null), и ПЕРЕНОСИТСЯ при переодевании: на живых
 // данных встретилась политика со стажем 15 при 4.9 днях с последнего enacted_at — поэтому считать
@@ -74,6 +76,10 @@ function policyProgress(inst,snapshotAt,shardQtyByItemId){
   }
 
   const promoCost=inst?.promotion?.shard_cost==null?null:Number(inst.promotion.shard_cost);
+  // 16.10.2026: раньше сверяли с осколками СВОЕЙ редкости — эпическая 8/8 показывала «31 / 24»
+  // (31 эпический), а игра отвечала 400 «Недостаточно осколков этой редкости»: нужны легендарные.
+  const promoShardId=shardItemIdFor(inst?.promotion?.target_rarity);
+  const promoHaveShards=promoShardId==null?0:(shardQtyByItemId.get(promoShardId)||0);
   const promoBlockers=[];
   if(promoCost==null)promoBlockers.push('повышение редкости недоступно'); // игра не прислала promotion — либо потолок редкости, либо условие не выполнено
   else{
@@ -81,7 +87,7 @@ function policyProgress(inst,snapshotAt,shardQtyByItemId){
     // promotion.shard_cost и на первом уровне, поэтому кнопка была активна на «Ур. 1/5» и
     // упиралась бы в отказ игры (замечено 13.08).
     if(!atMaxLevel)promoBlockers.push(`нужен максимальный уровень (${Number(inst?.level||0)}/${inst?.max_level??'?'})`);
-    if(haveShards<promoCost)promoBlockers.push(`осколков ${haveShards}/${promoCost}`);
+    if(promoHaveShards<promoCost)promoBlockers.push(`осколков новой редкости ${promoHaveShards}/${promoCost}`);
   }
 
   return{
@@ -92,6 +98,8 @@ function policyProgress(inst,snapshotAt,shardQtyByItemId){
     level_shards_needed:needShards,
     can_level_up:levelBlockers.length===0,
     level_blockers:levelBlockers,
+    promote_shard_item_id:promoShardId,
+    promote_have_shards:promoHaveShards,
     promote_shards_needed:promoCost,
     promote_target_rarity:inst?.promotion?.target_rarity??null,
     can_promote:promoBlockers.length===0,
