@@ -90,6 +90,7 @@ def windows(n, o, rgb, a):
         m &= inc
     if 'ex' in o: m &= ~rects_mask(a.shape, o['ex'])
     if 'exp' in o: m &= ~poly_mask(a.shape, o['exp'])
+    if o.get('close'): m = nd.binary_closing(m, np.ones((3, 3))) & solid  # залатать крапинки в стёклах
     if o.get('open'): m = nd.binary_opening(m, np.ones((2, 2)))
     lab, _ = nd.label(m, structure=np.ones((3, 3)) if o.get('conn8', True) else None)
     out = np.zeros(a.shape, np.int32)
@@ -154,20 +155,53 @@ def emissive(n, o, rgb, a):
         g = e.get('g', 1.0)
         if t == 'emit':
             # светящиеся вывески, неон, витрины: пиксели прямоугольника (по цвету, если задан)
+            rgb_, a_ = rgb, a
+            if e.get('src'):
+                # взять область с другого спрайта того же размера (одинаковая звезда у разных звёздностей)
+                si = np.asarray(sprite(e['src'])).astype(float)
+                rgb, a = si[..., :3], si[..., 3]
             m = rects_mask(a.shape, [e['r']]) & (a > 120)
+            if e.get('ex'): m &= ~rects_mask(a.shape, e['ex'])
             if 'rgb' in e:
                 r_, g_, b_, tol = e['rgb']
                 m &= np.abs(rgb - [r_, g_, b_]).max(-1) <= tol
             if e.get('minsat'):
                 mx = rgb.max(-1); mn = rgb.min(-1)
                 m &= (mx - mn) / np.maximum(mx, 1) >= e['minsat']
-            if e.get('own', True):
-                c = np.clip(rgb * e.get('k', 1.25) + 30, 0, 255)
+            if e.get('minarea'):
+                # отбросить мелкие куски (подоконники, лепнина) — светятся только длинные карнизы
+                lab, k = nd.label(m)
+                if k:
+                    sz = nd.sum(m, lab, range(1, k + 1))
+                    m &= np.isin(lab, np.nonzero(sz >= e['minarea'])[0] + 1)
+            m0 = m.copy()
+            if e.get('edge'):
+                # неоновый контур: только кромка найденных областей шириной edge px
+                m &= ~nd.binary_erosion(m, iterations=e['edge'])
+            if e.get('lower'):
+                # только нижние кромки (внешний край крыши над фасадом), без стыков со стенами выше
+                full = m0 if e.get('edge') else m
+                below = np.zeros_like(full); below[:-e['lower']] = full[e['lower']:]
+                m &= ~below
+            if e.get('shade'):
+                # цвет c с рельефом исходника: грани остаются различимы, не заливаются плоским пятном
+                # яркость растягивается на весь диапазон области, так что и бледная звезда получает объём
+                L = rgb @ [0.299, 0.587, 0.114]
+                lo, hi = (np.percentile(L[m], 3), np.percentile(L[m], 97)) if m.any() else (0, 255)
+                t = np.clip((L - lo) / max(hi - lo, 1), 0, 1) ** e['shade']
+                c = np.clip(col * (e.get('lo', 0.35) + (1 - e.get('lo', 0.35)) * t)[..., None] * e.get('k', 1.0), 0, 255)
+            elif e.get('own', True):
+                c = np.clip(rgb * e.get('k', 1.25) + e.get('add', 30), 0, 255)
             else:
                 c = np.broadcast_to(col, rgb.shape)
             layer = np.where(m[..., None], c, 0) * g
+            if e.get('fade'):
+                # свет снизу: к верху прямоугольника яркость спадает (степень fade)
+                y0, y1 = e['r'][1] * h, e['r'][3] * h
+                layer = layer * (np.clip((np.arange(h) - y0) / max(y1 - y0, 1), 0, 1) ** e['fade'])[:, None, None]
             blur = np.asarray(Image.fromarray(layer.clip(0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(e.get('blur', 3)))).astype(float)
             acc += layer + blur * e.get('halo', 0.8)
+            rgb, a = rgb_, a_
         elif t == 'spot':
             # пятно света на земле / стене: эллипс, сплюснутый под изометрию
             cx, cy, r = e['x'] * w, e['y'] * h, e.get('rad', 0.08) * w
