@@ -8,7 +8,7 @@ import { getPreparedSprite, pickMip, requestSprite, onSpritesReady } from './map
 import { startFpsCounter, type FpsCounter } from './fpsCounter';
 import {
   type DayNightMode, type Phase, ensureNight, hourFor, stepOf, phaseAt, setPhase, shownPhase, nightBusy, onNightChange,
-  wantGraded, gradedSprite, litMask, hasWindows, lampsOf, drawBuildingLights,
+  wantGraded, gradedSprite, litMask, hasWindows, lampsOf, lampOn, drawBuildingLights,
 } from './mapNight';
 
 // Рендер — из CityMapCanvas.tsx (реальная карта аккаунта, спрайты, badges). Hover-подсветка клетки,
@@ -524,9 +524,9 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
               const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
               want.push([env.asset, dw]);
               items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, z: 0, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
-              // фонари на тротуарах — через один, чтобы не стояли частоколом
-              if (s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly], li) => {
-                if ((gx + gy + li) % 2) return;
+              // фонари на тротуарах вдоль бордюра — через клетку, чтобы не стояли частоколом
+              if (s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly, k]) => {
+                if (!lampOn(k, gx, gy)) return;
                 const x = dx + lx * dw, y = dy + ly * dh;
                 s.lampGlows.push({ x, y });
                 items.push({ x0: x - TW * 0.5, y0: y - TH * 1.2, x1: x + TW * 0.5, y1: y + TH * 0.6, draw: ctx => drawLampPost(ctx, x, y) });

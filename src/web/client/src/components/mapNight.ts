@@ -136,7 +136,9 @@ interface NightBld {
   shade: Mip;            // стёкла без света ночью темнее: множитель для режима multiply
   emit: Mip | null;      // внешняя подсветка, режим 'lighter'
 }
-interface Meta { w: number; lamps: Record<string, [number, number][]>; b: Map<string, NightBld> }
+// фонарь дорожного тайла: доли кадра и правило прореживания (см. scripts/night/export.py lamps)
+export type Lamp = [number, number, number];
+interface Meta { w: number; lamps: Record<string, Lamp[]>; b: Map<string, NightBld> }
 let meta: Meta | null = null;
 let metaState: 'idle' | 'loading' | 'ready' | 'failed' = 'idle';
 let metaPromise: Promise<void> | null = null;
@@ -209,7 +211,12 @@ export function ensureNight(): Promise<void> {
 }
 
 export function nightReady(): boolean { return metaState === 'ready' || metaState === 'failed'; }
-export function lampsOf(asset: string): [number, number][] { return meta?.lamps[asset] || []; }
+export function lampsOf(asset: string): Lamp[] { return meta?.lamps[asset] || []; }
+// стоит ли фонарь на клетке gx,gy: на полосах вдоль дороги — через клетку, по разные стороны дороги
+// вразбежку (k 1/3 — полоса вдоль x, 2/4 — вдоль y), у углов кварталов и на поворотах (k 0) — всегда
+export function lampOn(k: number, gx: number, gy: number): boolean {
+  return !k || ((k & 1 ? gx : gy) + (k > 2 ? 1 : 0)) % 2 === 0;
+}
 export function hasWindows(id: string): boolean { const b = meta?.b.get(id); return !!b && b.idx.length > 0; }
 
 // место вырезки ночного слоя здания на карте, если само здание нарисовано прямоугольником dx,dy,dw,dh
