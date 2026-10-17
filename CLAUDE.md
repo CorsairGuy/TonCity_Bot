@@ -175,6 +175,8 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 
 Название предмета по id на любой странице — `itemName(id, catalog)`/`knownItemName` из `hooks/useItemCatalog.ts` (локализация игры → `ITEMS_BY_ID` → слаг → «Предмет #id»), страница вызывает `useItemCatalog()`, чтобы перерисоваться после загрузки каталога.
 
+**Смена суток на карте города** (17.10.2026): `components/mapNight.ts` + ночной проход в `CityActionsCanvas.tsx` (проп `dayNight`, режим из `config.ui.mapDayNight`). Окна и подсветка — готовые слои `src/web/sprites/night/` из `scripts/night/export.py` по ручной разметке `scripts/night/ov/*.json`; после обновления спрайтов игры их пересобирать. Днём ночной код не работает вовсе. Столица — без разметки.
+
 Утилиты формата `src/web/client/src/utils.ts`: `fmt` (сокращения K/M/B/T), `fmtInt` (точное целое, разделение тысяч — баланс алмазов), `fmtCr` (дробное до 1 знака — прибыль в алмазах), `fmtDate`, `sortByName`. API-обёртка — `src/web/client/src/api.ts`.
 
 ---

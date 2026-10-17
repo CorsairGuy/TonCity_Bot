@@ -725,7 +725,7 @@ export interface DailyAdsRow {
 
 export interface AppConfig {
   logLevel: string;
-  ui?: { navOpenGroups?: string[] };
+  ui?: { navOpenGroups?: string[]; mapDayNight?: 'auto' | 'day' | 'night' };
   update?: { auto?: boolean };
   telegram?: {
     botToken?: string;

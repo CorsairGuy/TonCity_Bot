@@ -6,6 +6,10 @@ import cityRoadMapData from '../data/road-map.json';
 import capitalRoadMapData from '../data/capital-road-map.json';
 import { getPreparedSprite, pickMip, requestSprite, onSpritesReady } from './mapSprites';
 import { startFpsCounter, type FpsCounter } from './fpsCounter';
+import {
+  type DayNightMode, type Phase, ensureNight, hourFor, stepOf, phaseAt, setPhase, shownPhase, nightBusy, onNightChange,
+  wantGraded, gradedSprite, litMask, hasWindows, lampsOf, drawBuildingLights,
+} from './mapNight';
 
 // Рендер — из CityMapCanvas.tsx (реальная карта аккаунта, спрайты, badges). Hover-подсветка клетки,
 // drag-select прямоугольником ("кисть") и математика сетки — из MapEditor.tsx. ЛКМ-drag в режимах,
@@ -71,9 +75,26 @@ function getDpr(): number {
   return deviceDpr();
 }
 
-interface DrawItem { x0: number; y0: number; x1: number; y1: number; draw: (ctx: CanvasRenderingContext2D, r: number) => void }
+// z — слой при ночной отрисовке куска (см. renderChunk): 0 — плоская земля (пустые клетки, дороги), 1 —
+// здания, лес и фонари, 2 — бейджи поверх тонирования. Днём всё рисуется одним проходом по порядку списка
+interface DrawItem { x0: number; y0: number; x1: number; y1: number; z?: 0 | 1 | 2; draw: (ctx: CanvasRenderingContext2D, r: number) => void }
 // кусок — свой <canvas> в DOM-контейнере своего масштаба
 interface Chunk { el: HTMLCanvasElement; ver: number }
+
+// мягкие пятна света ночью: на земле под фонарём и плафон фонаря
+const glows: Record<string, HTMLCanvasElement> = {};
+function glowSprite(kind: 'ground' | 'bulb'): HTMLCanvasElement {
+  let c = glows[kind];
+  if (c) return c;
+  const n = kind === 'ground' ? 64 : 32;
+  c = document.createElement('canvas'); c.width = n; c.height = n;
+  const x = c.getContext('2d')!, g = x.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+  if (kind === 'ground') { g.addColorStop(0, 'rgba(255,190,110,1)'); g.addColorStop(1, 'rgba(255,170,90,0)'); }
+  else { g.addColorStop(0, 'rgba(255,240,200,1)'); g.addColorStop(0.35, 'rgba(255,220,150,.8)'); g.addColorStop(1, 'rgba(255,200,120,0)'); }
+  x.fillStyle = g; x.fillRect(0, 0, n, n);
+  glows[kind] = c;
+  return c;
+}
 
 function releaseChunk(ch: Chunk) {
   ch.el.remove();
@@ -193,9 +214,17 @@ interface Props {
   // слой при этом не перерисовывается: сверху плавно проявляется полупрозрачная пелена цвета фона,
   // а выделенные клетки дорисовываются над ней на отдельном canvas — без мигания кусков карты
   focusSet?: Set<string> | null;
+  // смена суток (только город — у столицы ночной разметки нет): по часам устройства, всегда день или
+  // всегда ночь. По умолчанию — день, карта рисуется как раньше
+  dayNight?: DayNightMode;
 }
 
-export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet }: Props) {
+// сколько карта ждёт ночной набор спрайтов, прежде чем рисовать без него
+const NIGHT_HOLD_MAX_MS = 4000;
+// как часто сверяться с часами: свет в окнах и ступень суток
+const NIGHT_TICK_MS = 20000;
+
+export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day' }: Props) {
   // "x_y" клетки закрытой секции → id секции — только город, только пока секция не в unlockedSections
   const lockedCells = useMemo(() => {
     const m = new Map<string, string>();
@@ -216,6 +245,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   const fpsRef = useRef<HTMLCanvasElement>(null);
   const focusWrapRef = useRef<HTMLDivElement>(null);
   const focusCanvasRef = useRef<HTMLCanvasElement>(null);
+  const focusVeilRef = useRef<HTMLDivElement>(null);
   const fpsCtl = useRef<FpsCounter | null>(null);
   // какую карту (тип+ключ) уже центрировали — сбрасывается только при реальном переключении карты,
   // не при каждом обновлении данных той же карты (см. Props.mapKey)
@@ -283,6 +313,20 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     catalog: [] as BuildingDef[],
     // выделение поверх пелены: пока пелена гаснет, рисуется последнее непустое выделение
     focusShown: null as Set<string> | null,
+    // смена суток: nightOn — режим не «всегда день» и это город; ph — ступень, под которую перекрашены
+    // спрайты (null — день, карта рисуется как раньше); lit — горящие группы квартир по клеткам;
+    // itemBox — мировой bbox здания (какие куски перерисовать, когда в нём зажглось или погасло окно);
+    // dirty — такие куски, они перерисовываются, только пока карту не тянут; lampGlows — пятна света
+    // фонарей на земле; nightHold — карта ждёт ночной набор и пока не рисует новые куски
+    nightOn: false,
+    dayNight: 'day' as DayNightMode,
+    ph: null as Phase | null,
+    lit: new Map<string, number>(),
+    itemBox: new Map<string, { x0: number; y0: number; x1: number; y1: number }>(),
+    dirty: new Set<string>(),
+    lampGlows: [] as { x: number; y: number }[],
+    nightHold: false,
+    nightHoldTimer: null as ReturnType<typeof setTimeout> | null,
   });
   state.current.mode = mode;
   state.current.validSet = validSet;
@@ -382,6 +426,13 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const info = s.spriteMap[id];
     if (!info) return false;
     const tw = spriteTargetW(drawW);
+    if (s.ph) {
+      // ночью — только перекрашенный под ступень суток; пока его нет, заглушка, как у неготового спрайта
+      const g = gradedSprite(id, tw);
+      if (!g) { wantGraded(id, tw); if (!getPreparedSprite(id, tw)) requestSprite(id, info, tw); return false; }
+      ctx.drawImage(pickMip(g, dw * r), dx, dy, dw, dh);
+      return true;
+    }
     const sp = getPreparedSprite(id, tw);
     if (!sp) { requestSprite(id, info, tw); return false; }
     ctx.drawImage(pickMip(sp, dw * r), dx, dy, dw, dh);
@@ -397,6 +448,15 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const want: [string, number][] = [];
     const nowMs = Date.now();
     let nextEnd = Infinity;
+    s.itemBox = new Map();
+    s.lampGlows = [];
+    // клетки под большими деревьями леса (2×2) — фонарей там нет
+    const underForest = new Set<string>();
+    if (s.nightOn) for (const [k, v] of Object.entries(s.roadMap)) {
+      if (!v.big) continue;
+      const i = k.indexOf('_'), x = +k.slice(0, i), y = +k.slice(i + 1);
+      for (const [ax, ay] of [[0, 0], [1, 0], [0, 1], [1, 1], [-1, 0], [0, -1]]) underForest.add(`${x + ax}_${y + ay}`);
+    }
     for (let d = 0; d <= (s.cols - 1) + (s.rows - 1); d++) {
       for (let col = 0; col <= d; col++) {
         const row = d - col;
@@ -409,7 +469,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         if (lockedSectionId) {
           // закрытая секция — тёмный тайл с замком вместо обычной травы/построек (там их и не может
           // быть, пока секция не открыта); клик по клетке ловится отдельно, см. onMouseUp/onTouchEnd
-          items.push({ x0: sx, y0: sy, x1: sx + TW, y1: sy + TH, draw: ctx => drawTile(ctx, sx, sy, 'rgba(8,8,12,.62)', 'rgba(255,255,255,.15)', '🔒') });
+          items.push({ x0: sx, y0: sy, x1: sx + TW, y1: sy + TH, z: 0, draw: ctx => drawTile(ctx, sx, sy, 'rgba(8,8,12,.62)', 'rgba(255,255,255,.15)', '🔒') });
         } else if (b) {
           const cat = buildingCat(b.id);
           const cc = MAP_CAT_COLORS[cat] || { fill: 'rgba(100,100,100,.3)', stroke: 'rgba(150,150,150,.6)' };
@@ -428,10 +488,16 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           const dh = sp ? sp.frame.h * TW / 753 * RS : TH;
           const dx = sx - (dw - TW) / 2, dy = sy + TH - dh;
           want.push([spriteId, dw]);
-          items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: sy + TH, draw: (ctx, r) => {
+          const key = `${gx}_${gy}`;
+          const box = { x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: sy + TH };
+          if (!underConstruction) s.itemBox.set(key, box);
+          items.push({ ...box, draw: (ctx, r) => {
             if (hideAsInapplicable) ctx.globalAlpha = 0.12;
-            if (!drawSprite(ctx, spriteId, dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, cc.fill, cc.stroke, buildingLabel(b.id));
+            const ok = drawSprite(ctx, spriteId, dw, r, dx, dy, dw, dh);
+            if (!ok) drawTile(ctx, sx, sy, cc.fill, cc.stroke, buildingLabel(b.id));
             if (hideAsInapplicable) ctx.globalAlpha = 1;
+            // ночью — горящие окна и подсветка поверх перекрашенного спрайта
+            else if (ok && s.ph && !underConstruction) drawBuildingLights(ctx, s.ph, spriteId, s.lit.get(key) ?? 0, spriteTargetW(dw), r, dx, dy, dw, dh);
           } });
         } else if (valid) {
           const empSp = s.spriteMap['empty.png'];
@@ -439,7 +505,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           const dh0 = empSp ? empSp.frame.h * TW / 753 : TH, dh = dh0 * RS;
           const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
           want.push(['empty.png', dw]);
-          items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: Math.max(sy + TH, dy + dh), draw: (ctx, r) => {
+          items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: Math.max(sy + TH, dy + dh), z: 0, draw: (ctx, r) => {
             if (!drawSprite(ctx, 'empty.png', dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.18)');
           } });
         } else {
@@ -457,7 +523,14 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
               const dw = TW * RS, dh = dh0 * RS;
               const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
               want.push([env.asset, dw]);
-              items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
+              items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, z: 0, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
+              // фонари на тротуарах — через один, чтобы не стояли частоколом
+              if (s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly], li) => {
+                if ((gx + gy + li) % 2) return;
+                const x = dx + lx * dw, y = dy + ly * dh;
+                s.lampGlows.push({ x, y });
+                items.push({ x0: x - TW * 0.5, y0: y - TH * 1.2, x1: x + TW * 0.5, y1: y + TH * 0.6, draw: ctx => drawLampPost(ctx, x, y) });
+              });
             }
           }
         }
@@ -479,7 +552,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const { x: sx, y: sy } = isoToScreen(col, row);
       const bx = sx + TW / 2, by = sy + TH / 2;
       const hw = Math.max(mctx.measureText(label).width + 8, fsz + 6) / 2 + 8, hh = (fsz + 5) / 2 + 8; // +8 — тень
-      items.push({ x0: bx - hw, y0: by - hh, x1: bx + hw, y1: by + hh, draw: ctx => drawLevelBadge(ctx, bx, by, label, fsz) });
+      items.push({ x0: bx - hw, y0: by - hh, x1: bx + hw, y1: by + hh, z: 2, draw: ctx => drawLevelBadge(ctx, bx, by, label, fsz) });
     }
 
     const w = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
@@ -495,8 +568,101 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // сразу ставим в очередь подготовку всех спрайтов карты, не дожидаясь, пока до них доскроллят
     for (const [id, drawW] of want) {
       const info = s.spriteMap[id];
-      if (info) requestSprite(id, info, spriteTargetW(drawW));
+      if (!info) continue;
+      requestSprite(id, info, spriteTargetW(drawW));
+      if (s.nightOn) wantGraded(id, spriteTargetW(drawW));
     }
+  }
+
+  // ── смена суток ──
+  // столб и плафон фонаря (днём фонарей на карте нет)
+  function drawLampPost(ctx: CanvasRenderingContext2D, x: number, y: number) {
+    const ph = state.current.ph;
+    if (!ph) return;
+    ctx.strokeStyle = `rgba(${Math.round(70 * ph.S[0] / 255)},${Math.round(74 * ph.S[1] / 255)},${Math.round(84 * ph.S[2] / 255)},.9)`;
+    ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - TH * 0.55); ctx.stroke();
+    if (ph.lamps > 0.01) {
+      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = ph.lamps;
+      ctx.drawImage(glowSprite('bulb'), x - TW * 0.06, y - TH * 0.55 - TW * 0.06, TW * 0.12, TW * 0.12);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    }
+  }
+
+  // ночной проход куска: земля, пятна света фонарей, здания с окнами, тонирование стороны солнца и
+  // дымки у горизонта, бейджи поверх
+  function paintNight(ctx: CanvasRenderingContext2D, r: number, ph: Phase, wx0: number, wy0: number, wx1: number, wy1: number) {
+    const s = state.current;
+    const hit = (it: { x0: number; y0: number; x1: number; y1: number }) => !(it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1);
+    for (const it of s.drawList) if (it.z === 0 && hit(it)) it.draw(ctx, r);
+    if (ph.lamps > 0.01 && s.lampGlows.length) {
+      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.36 * ph.lamps;
+      const gw = TW * 0.84, gh = gw * 0.58, g = glowSprite('ground');
+      for (const l of s.lampGlows) {
+        if (l.x + gw / 2 < wx0 || l.x - gw / 2 > wx1 || l.y + gh / 2 < wy0 || l.y - gh / 2 > wy1) continue;
+        ctx.drawImage(g, l.x - gw / 2, l.y - gh / 2, gw, gh);
+      }
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    }
+    for (const it of s.drawList) if ((it.z ?? 1) === 1 && hit(it)) it.draw(ctx, r);
+    const w = s.world;
+    // сторона солнца: освещённый край карты теплее и светлее, противоположный холоднее
+    if (ph.sunA > 0.02) {
+      const g = ctx.createLinearGradient(w.x0, w.y0, w.x1, w.y0 + (w.x1 - w.x0) * 0.3), a = ph.sunA;
+      const warm = ph.sun > 0 ? `rgba(255,190,150,${a})` : `rgba(255,150,60,${a})`, cool = `rgba(60,70,170,${a * 0.75})`;
+      g.addColorStop(0, ph.sun < 0 ? warm : cool); g.addColorStop(1, ph.sun < 0 ? cool : warm);
+      ctx.globalCompositeOperation = 'soft-light'; ctx.fillStyle = g; ctx.fillRect(wx0, wy0, wx1 - wx0, wy1 - wy0);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    // дымка у горизонта (верх карты дальше от зрителя): утром гуще
+    if (ph.mist > 0.02) {
+      const g = ctx.createLinearGradient(0, w.y0, 0, w.y0 + (w.y1 - w.y0) * 0.75);
+      const c = ph.sun > 0 ? '255,226,222' : '255,180,150';
+      g.addColorStop(0, `rgba(${c},${0.42 * ph.mist})`); g.addColorStop(1, `rgba(${c},0)`);
+      ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = g; ctx.fillRect(wx0, wy0, wx1 - wx0, wy1 - wy0);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    for (const it of s.drawList) if (it.z === 2 && hit(it)) it.draw(ctx, r);
+  }
+
+  // какие группы квартир горят в час hour; markDirty — пометить куски зданий, где что-то поменялось
+  function updateLit(hour: number, markDirty: boolean): boolean {
+    const s = state.current;
+    const cw = CHUNK / (s.layerR || 1);
+    let changed = false;
+    for (const b of s.blist) {
+      const key = `${b.x}_${b.y}`, box = s.itemBox.get(key);
+      if (!box || !hasWindows(b.id)) continue;
+      const m = litMask(key, hour);
+      if (s.lit.get(key) === m) continue;
+      s.lit.set(key, m);
+      changed = true;
+      if (!markDirty || !s.layerR || !s.ph) continue;
+      for (let cy = Math.floor(box.y0 / cw); cy <= Math.floor(box.y1 / cw); cy++)
+        for (let cx = Math.floor(box.x0 / cw); cx <= Math.floor(box.x1 / cw); cx++) s.dirty.add(`${s.layerR}:${cx}:${cy}`);
+    }
+    return changed;
+  }
+
+  // сверка с часами: ступень суток (перекраска спрайтов идёт в фоне) и свет в окнах
+  function nightTick() {
+    const s = state.current;
+    if (!s.nightOn) return;
+    const hour = hourFor(s.dayNight), ph = phaseAt(stepOf(hour));
+    setPhase(ph);
+    // ночной набор ещё не готов — новые куски не рисуем (на экране остаются прежние), пока не будет
+    if (!ph.isDay && !s.ph && nightBusy() && !s.nightHold) {
+      s.nightHold = true;
+      if (s.nightHoldTimer) clearTimeout(s.nightHoldTimer);
+      s.nightHoldTimer = setTimeout(() => { s.nightHoldTimer = null; s.nightHold = false; requestRedraw(); }, NIGHT_HOLD_MAX_MS);
+    }
+    if (updateLit(hour, true)) requestRedraw();
+  }
+
+  function applyGround() {
+    const bg = state.current.ph?.ground ?? MAP_BG;
+    if (wrapRef.current) wrapRef.current.style.background = bg;
+    if (focusVeilRef.current) focusVeilRef.current.style.background = bg;
   }
 
   // служебный контекст 1×1 — только для measureText при сборке картинок бейджей
@@ -546,7 +712,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     }
     const ctx = el.getContext('2d', { alpha: false })!;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = MAP_BG;
+    ctx.fillStyle = s.ph ? s.ph.ground : MAP_BG;
     ctx.fillRect(0, 0, CHUNK, CHUNK);
     // 'low' = обычная билинейная выборка: нужный mip-уровень уже выбран (сжатие не больше 2:1), а
     // 'high' заставляет GPU строить свои mip-цепочки для каждого спрайта при каждой отрисовке куска
@@ -555,6 +721,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // запас 2 мировых px: обводка тайла и сглаживание краёв спрайта выходят за bbox на полпикселя
     const wx0 = cx * cw - 2, wy0 = cy * cw - 2, wx1 = (cx + 1) * cw + 2, wy1 = (cy + 1) * cw + 2;
     ctx.setTransform(r, 0, 0, r, -cx * CHUNK, -cy * CHUNK);
+    s.dirty.delete(`${r}:${cx}:${cy}`);
+    if (s.ph) { paintNight(ctx, r, s.ph, wx0, wy0, wx1, wy1); return { el, ver: s.ver }; }
     for (const it of s.drawList) {
       if (it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1) continue;
       it.draw(ctx, r);
@@ -587,6 +755,12 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const tf = `translate(${Math.round(s.ox * s.dpr) / s.dpr}px,${Math.round(s.oy * s.dpr) / s.dpr}px) scale(${desired / lr})`;
       if (el.dataset.tf !== tf) { el.dataset.tf = tf; el.style.transform = tf; }
     }
+    // ночной набор спрайтов ещё готовится — на экране остаются прежние куски
+    if (s.nightHold) return false;
+    // куски, где зажглись или погасли окна, перерисовываются, только пока карту не тянут и не зумят:
+    // на это время они копятся
+    const allowDirty = !s.dragging && s.pinchDist == null && !s.zoomTimer;
+    const isDirty = (key: string) => allowDirty && s.dirty.size > 0 && s.dirty.has(key);
     // видимая область в мировых координатах, обрезанная по содержимому карты
     const vx0 = Math.max(-s.ox / s.scale, s.world.x0), vy0 = Math.max(-s.oy / s.scale, s.world.y0);
     const vx1 = Math.min((W - s.ox) / s.scale, s.world.x1), vy1 = Math.min((H - s.oy) / s.scale, s.world.y1);
@@ -606,7 +780,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const ch = s.chunks.get(key);
       if (!ch) anyMissing = true;
       else { s.chunks.delete(key); s.chunks.set(key, ch); } // отметка использования для LRU
-      if (!ch || ch.ver !== s.ver) need.push({ cx, cy, d: Math.hypot(cx - ccx, cy - ccy) });
+      if (!ch || ch.ver !== s.ver || isDirty(key)) need.push({ cx, cy, d: Math.hypot(cx - ccx, cy - ccy) });
     }
     // недостающие и устаревшие видимые куски — от центра экрана, в пределах бюджета кадра
     need.sort((a, b) => a.d - b.d);
@@ -632,7 +806,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         if ((cx + 1) * cw < s.world.x0 || cx * cw > s.world.x1 || (cy + 1) * cw < s.world.y0 || cy * cw > s.world.y1) continue;
         const key = `${r}:${cx}:${cy}`;
         const old = s.chunks.get(key);
-        if (old && old.ver === s.ver) continue;
+        if (old && old.ver === s.ver && !isDirty(key)) continue;
         if (ringLeft <= 0 || performance.now() - t0 > FRAME_BUDGET_MS) { pending = true; break outer; }
         s.chunks.delete(key); s.chunks.set(key, renderChunk(r, cx, cy, old));
         ringLeft--;
@@ -640,6 +814,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     }
     const visible = (vr.cx1 - vr.cx0 + 1) * (vr.cy1 - vr.cy0 + 1);
     evictChunks(Math.max(24, visible * 3));
+    // отложенные из-за пана окна: когда отпустят, их нужно дорисовать — без этого кадр не запросится
+    if (!allowDirty && s.dirty.size) {
+      for (let cy = vr.cy0; cy <= vr.cy1; cy++) for (let cx = vr.cx0; cx <= vr.cx1; cx++) if (s.dirty.has(`${r}:${cx}:${cy}`)) return true;
+    }
     return pending;
   }
 
@@ -1019,6 +1197,44 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     };
   }, []);
 
+  // смена суток: ступень и свет в окнах сверяются с часами раз в NIGHT_TICK_MS; готовый набор
+  // перекрашенных спрайтов (или ночные слои) — перерисовка всей карты
+  useEffect(() => {
+    const s = state.current;
+    s.dayNight = dayNight;
+    s.nightOn = type === 'city' && dayNight !== 'day';
+    const off = onNightChange(() => {
+      s.ph = s.nightOn ? shownPhase() : null;
+      if (s.nightHold && !nightBusy()) {
+        s.nightHold = false;
+        if (s.nightHoldTimer) { clearTimeout(s.nightHoldTimer); s.nightHoldTimer = null; }
+      }
+      if (s.nightOn) updateLit(hourFor(s.dayNight), false);
+      applyGround();
+      s.listDirty = true; invalidateLayer();
+    });
+    let timer: ReturnType<typeof setInterval> | null = null;
+    if (s.nightOn) {
+      void ensureNight();
+      // набор с прошлого открытия карты ещё жив — рисуем им сразу
+      s.ph = shownPhase();
+      applyGround();
+      nightTick();
+      timer = setInterval(nightTick, NIGHT_TICK_MS);
+    } else {
+      // всегда день: перекрашенные наборы больше не нужны
+      setPhase(phaseAt(stepOf(hourFor('day'))));
+      s.ph = null; s.nightHold = false;
+      applyGround();
+    }
+    s.listDirty = true; invalidateLayer();
+    return () => {
+      off();
+      if (timer) clearInterval(timer);
+      if (s.nightHoldTimer) { clearTimeout(s.nightHoldTimer); s.nightHoldTimer = null; }
+    };
+  }, [dayNight, type]);
+
   useEffect(() => {
     const c = fpsRef.current;
     if (!c) return undefined;
@@ -1359,7 +1575,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       <canvas ref={canvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
       <div ref={focusWrapRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, transition: 'opacity 180ms ease' }}
         onTransitionEnd={() => { if (focusWrapRef.current?.style.opacity === '0') state.current.focusShown = null; }}>
-        <div style={{ position: 'absolute', inset: 0, background: MAP_BG, opacity: 0.88 }} />
+        <div ref={focusVeilRef} style={{ position: 'absolute', inset: 0, background: MAP_BG, opacity: 0.88 }} />
         <canvas ref={focusCanvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
       </div>
       <canvas ref={fpsRef} />
