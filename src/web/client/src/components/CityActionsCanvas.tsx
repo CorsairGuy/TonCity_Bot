@@ -452,12 +452,13 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     s.itemBox = new Map();
     s.lampGlows = [];
     s.roadCells = [];
-    // клетки под большими деревьями леса (2×2) — фонарей там нет
+    // клетки под большими деревьями леса — фонарей там нет. Спрайт 2×2 стоит низом на клетке x+1,y
+    // (см. env.big ниже), то есть занимает x..x+1 и y-1..y; дорога рядом с лесом сюда не попадает
     const underForest = new Set<string>();
     if (s.nightOn) for (const [k, v] of Object.entries(s.roadMap)) {
       if (!v.big) continue;
       const i = k.indexOf('_'), x = +k.slice(0, i), y = +k.slice(i + 1);
-      for (const [ax, ay] of [[0, 0], [1, 0], [0, 1], [1, 1], [-1, 0], [0, -1]]) underForest.add(`${x + ax}_${y + ay}`);
+      for (const [ax, ay] of [[0, 0], [1, 0], [0, -1], [1, -1]]) underForest.add(`${x + ax}_${y + ay}`);
     }
     for (let d = 0; d <= (s.cols - 1) + (s.rows - 1); d++) {
       for (let col = 0; col <= d; col++) {
