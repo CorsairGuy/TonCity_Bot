@@ -77,6 +77,8 @@ function getDpr(): number {
 
 // z — слой при ночной отрисовке куска (см. renderChunk): 0 — плоская земля (пустые клетки, дороги), 1 —
 // здания, лес и фонари, 2 — бейджи поверх тонирования. Днём всё рисуется одним проходом по порядку списка
+// тайл окружения выше плоского (434 px в кадре 753) — с деревьями, см. buildDrawList
+const TALL_TILE_H = 445;
 interface DrawItem { x0: number; y0: number; x1: number; y1: number; z?: 0 | 1 | 2; draw: (ctx: CanvasRenderingContext2D, r: number) => void }
 // кусок — свой <canvas> в DOM-контейнере своего масштаба
 interface Chunk { el: HTMLCanvasElement; ver: number }
@@ -541,6 +543,18 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
               items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, z: 0, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
               // клетка дороги — свет фонарей ложится только на такие клетки (асфальт и тротуары)
               if (s.nightOn) s.roadCells.push({ x: sx, y: sy });
+              // ночью плоские тайлы рисуются нижним проходом раньше зданий, а деревья у дороги торчат над
+              // клеткой: здание сзади их перекрыло бы. Часть выше верхних кромок клетки рисуется ещё раз
+              // вместе со зданиями, в порядке художника, как днём
+              if (s.nightOn && f.h > TALL_TILE_H) items.push({ x0: dx, y0: dy, x1: dx + dw, y1: sy + TH / 2, draw: (ctx, r) => {
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(dx, dy); ctx.lineTo(dx + dw, dy); ctx.lineTo(dx + dw, sy + TH / 2); ctx.lineTo(sx + TW, sy + TH / 2);
+                ctx.lineTo(sx + TW / 2, sy); ctx.lineTo(sx, sy + TH / 2); ctx.lineTo(dx, sy + TH / 2); ctx.closePath();
+                ctx.clip();
+                drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh);
+                ctx.restore();
+              } });
               // фонари на тротуарах вдоль бордюра
               if (s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly]) => {
                 const x = dx + lx * dw, y = dy + ly * dh;
