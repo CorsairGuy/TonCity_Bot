@@ -165,11 +165,22 @@ def emissive(n, o, rgb, a):
             if e.get('edge'):
                 # неоновый контур: только кромка найденных областей шириной edge px
                 m &= ~nd.binary_erosion(m, iterations=e['edge'])
-            if e.get('own', True):
-                c = np.clip(rgb * e.get('k', 1.25) + 30, 0, 255)
+            if e.get('shade'):
+                # цвет c с рельефом исходника: грани остаются различимы, не заливаются плоским пятном
+                # яркость растягивается на весь диапазон области, так что и бледная звезда получает объём
+                L = rgb @ [0.299, 0.587, 0.114]
+                lo, hi = (np.percentile(L[m], 3), np.percentile(L[m], 97)) if m.any() else (0, 255)
+                t = np.clip((L - lo) / max(hi - lo, 1), 0, 1) ** e['shade']
+                c = np.clip(col * (e.get('lo', 0.35) + (1 - e.get('lo', 0.35)) * t)[..., None] * e.get('k', 1.0), 0, 255)
+            elif e.get('own', True):
+                c = np.clip(rgb * e.get('k', 1.25) + e.get('add', 30), 0, 255)
             else:
                 c = np.broadcast_to(col, rgb.shape)
             layer = np.where(m[..., None], c, 0) * g
+            if e.get('fade'):
+                # свет снизу: к верху прямоугольника яркость спадает (степень fade)
+                y0, y1 = e['r'][1] * h, e['r'][3] * h
+                layer = layer * (np.clip((np.arange(h) - y0) / max(y1 - y0, 1), 0, 1) ** e['fade'])[:, None, None]
             blur = np.asarray(Image.fromarray(layer.clip(0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(e.get('blur', 3)))).astype(float)
             acc += layer + blur * e.get('halo', 0.8)
         elif t == 'spot':
