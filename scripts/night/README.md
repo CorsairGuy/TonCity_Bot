@@ -11,6 +11,7 @@
 
 ```bash
 python3 scripts/night/export.py     # пересобрать src/web/sprites/night/ (≈20 с)
+python3 scripts/night/export.py --lamps   # только фонари на дорогах (слои зданий не трогает)
 ```
 
 ## Когда пересобирать

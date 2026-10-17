@@ -325,6 +325,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     itemBox: new Map<string, { x0: number; y0: number; x1: number; y1: number }>(),
     dirty: new Set<string>(),
     lampGlows: [] as { x: number; y: number }[],
+    roadCells: [] as { x: number; y: number }[],
     nightHold: false,
     nightHoldTimer: null as ReturnType<typeof setTimeout> | null,
   });
@@ -450,12 +451,14 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     let nextEnd = Infinity;
     s.itemBox = new Map();
     s.lampGlows = [];
-    // клетки под большими деревьями леса (2×2) — фонарей там нет
+    s.roadCells = [];
+    // клетки под большими деревьями леса — фонарей там нет. Спрайт 2×2 стоит низом на клетке x+1,y
+    // (см. env.big ниже), то есть занимает x..x+1 и y-1..y; дорога рядом с лесом сюда не попадает
     const underForest = new Set<string>();
     if (s.nightOn) for (const [k, v] of Object.entries(s.roadMap)) {
       if (!v.big) continue;
       const i = k.indexOf('_'), x = +k.slice(0, i), y = +k.slice(i + 1);
-      for (const [ax, ay] of [[0, 0], [1, 0], [0, 1], [1, 1], [-1, 0], [0, -1]]) underForest.add(`${x + ax}_${y + ay}`);
+      for (const [ax, ay] of [[0, 0], [1, 0], [0, -1], [1, -1]]) underForest.add(`${x + ax}_${y + ay}`);
     }
     for (let d = 0; d <= (s.cols - 1) + (s.rows - 1); d++) {
       for (let col = 0; col <= d; col++) {
@@ -524,9 +527,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
               const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
               want.push([env.asset, dw]);
               items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, z: 0, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
-              // фонари на тротуарах — через один, чтобы не стояли частоколом
-              if (s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly], li) => {
-                if ((gx + gy + li) % 2) return;
+              // клетка дороги — свет фонарей ложится только на такие клетки (асфальт и тротуары)
+              if (s.nightOn) s.roadCells.push({ x: sx, y: sy });
+              // фонари на тротуарах вдоль бордюра
+              if (s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly]) => {
                 const x = dx + lx * dw, y = dy + ly * dh;
                 s.lampGlows.push({ x, y });
                 items.push({ x0: x - TW * 0.5, y0: y - TH * 1.2, x1: x + TW * 0.5, y1: y + TH * 0.6, draw: ctx => drawLampPost(ctx, x, y) });
@@ -579,12 +583,14 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   function drawLampPost(ctx: CanvasRenderingContext2D, x: number, y: number) {
     const ph = state.current.ph;
     if (!ph) return;
-    ctx.strokeStyle = `rgba(${Math.round(70 * ph.S[0] / 255)},${Math.round(74 * ph.S[1] / 255)},${Math.round(84 * ph.S[2] / 255)},.9)`;
-    ctx.lineWidth = 0.7;
-    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - TH * 0.55); ctx.stroke();
+    // невысокий тонкий столб и маленький тусклый плафон — не спорят со светом окон
+    const hp = TH * 0.4, b = TW * 0.075;
+    ctx.strokeStyle = `rgba(${Math.round(70 * ph.S[0] / 255)},${Math.round(74 * ph.S[1] / 255)},${Math.round(84 * ph.S[2] / 255)},.55)`;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - hp); ctx.stroke();
     if (ph.lamps > 0.01) {
-      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = ph.lamps;
-      ctx.drawImage(glowSprite('bulb'), x - TW * 0.06, y - TH * 0.55 - TW * 0.06, TW * 0.12, TW * 0.12);
+      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.6 * ph.lamps;
+      ctx.drawImage(glowSprite('bulb'), x - b / 2, y - hp - b / 2, b, b);
       ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     }
   }
@@ -596,13 +602,21 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const hit = (it: { x0: number; y0: number; x1: number; y1: number }) => !(it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1);
     for (const it of s.drawList) if (it.z === 0 && hit(it)) it.draw(ctx, r);
     if (ph.lamps > 0.01 && s.lampGlows.length) {
-      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.36 * ph.lamps;
-      const gw = TW * 0.84, gh = gw * 0.58, g = glowSprite('ground');
+      // пятна света — только на клетках дорог: свет не заливает пустые участки и подножия зданий
+      ctx.save();
+      ctx.beginPath();
+      for (const c of s.roadCells) {
+        if (c.x + TW < wx0 || c.x > wx1 || c.y + TH < wy0 || c.y > wy1) continue;
+        ctx.moveTo(c.x + TW / 2, c.y); ctx.lineTo(c.x + TW, c.y + TH / 2); ctx.lineTo(c.x + TW / 2, c.y + TH); ctx.lineTo(c.x, c.y + TH / 2); ctx.closePath();
+      }
+      ctx.clip();
+      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.4 * ph.lamps;
+      const gw = TW * 0.9, gh = gw * 0.58, g = glowSprite('ground');
       for (const l of s.lampGlows) {
         if (l.x + gw / 2 < wx0 || l.x - gw / 2 > wx1 || l.y + gh / 2 < wy0 || l.y - gh / 2 > wy1) continue;
         ctx.drawImage(g, l.x - gw / 2, l.y - gh / 2, gw, gh);
       }
-      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      ctx.restore();
     }
     for (const it of s.drawList) if ((it.z ?? 1) === 1 && hit(it)) it.draw(ctx, r);
     const w = s.world;
