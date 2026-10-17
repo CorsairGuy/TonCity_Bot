@@ -4,7 +4,7 @@
 # колец проходят снаружи, поверх лент, и горят целиком, задние — только там, где их видно.
 import numpy as np
 from scipy import ndimage as nd
-from .common import parts, halo, win_layer, disk, padmask, lines, H
+from .common import parts, halo, win_layer, disk, padmask, lines, shaded, H
 
 CX = 378                                  # ось башни
 RY_ = [560, 800, 1000, 1250, 1500, 1660]  # радиус башни по высоте (кадр 753×1800)
@@ -41,10 +41,17 @@ def build(im):
     em += halo(pink[..., None] * np.array([255, 150, 235.]) * 0.8, [(0.6, 2), (0.3, 7)])
     # кольца вокруг верха: эллипсы, передняя половина — сплошной линией
     cx, rx, ry, dy, c0, n = RING
-    vis = nd.binary_dilation(sol & (L > 150) & (g >= r) & (b >= r) & (np.abs(g - b) < 35), iterations=2)
+    # задние дуги видны только вне крыши и корпуса: голубые блины на крыше похожи цветом на кольца
+    roof = ((X - 378) / 168) ** 2 + ((Y - 452) / 74) ** 2 <= 1
+    body = (np.abs(X - CX) < RX + 12) & (Y > 452)
+    vis = nd.binary_dilation(sol & (L > 150) & (g >= r) & (b >= r) & (np.abs(g - b) < 35), iterations=2) & ~roof & ~body
     th = np.linspace(0, np.pi, 240)
     front = [[(cx + rx * np.cos(q), c0 + k * dy + ry * np.sin(q)) for q in th] for k in range(n)]
     back = [[(cx + rx * np.cos(q), c0 + k * dy - ry * np.sin(q)) for q in th] for k in range(n)]
     rm = np.maximum(lines(a.shape, front, 4.2), lines(a.shape, back, 4.2) * vis)
     em += halo(rm[..., None] * np.array([165, 238, 255.]) * 0.85, [(0.75, 2), (0.35, 6), (0.15, 16)])
+    # крыша в свете колец: холодный отсвет по рельефу, голубые блины чуть светятся сами
+    top = roof & sol & ~(rm > 0.05) & ~pale
+    em += shaded(top, (150, 200, 255), L, lo=0.45, p=0.8, k=0.38)
+    em += np.where((top & (b > r + 25))[..., None], rgb * 0.35, 0)
     return win, em
