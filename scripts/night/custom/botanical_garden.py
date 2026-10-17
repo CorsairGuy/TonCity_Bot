@@ -4,9 +4,8 @@ import numpy as np
 from scipy import ndimage as nd
 from .common import parts, halo, bulb, blur
 
-GAIN = 1.0    # сила света внутри
-RIM = 0.50    # блик на рёбрах каркаса
-REFL = 0.15   # отражение неба в стекле (к верху купола больше)
+GAIN = 1.5    # сила света внутри
+REFL = 0.06   # отражение неба в стекле (к верху купола больше)
 
 # оранжерея в долях кадра: купол, стеклянные стены спереди, справа и сзади (лишнее отсекут рёбра и корпус)
 ZONE = [(0.22, 0.12), (0.30, 0.05), (0.73, 0.38), (0.73, 0.63), (0.60, 0.71), (0.44, 0.71), (0.29, 0.61),
@@ -36,10 +35,20 @@ def build(im):
     sd = S.std(0).mean(-1)
     inner = S.mean(0)          # средний по звёздам цвет — интерьер без тона стекла
     hi = sd >= 14
-    # крашеные полы внутри купола — пятна, рёбра — тонкие линии
-    floor = nd.binary_opening(hi, np.ones((9, 9))) & poly(a.shape, DOME)
-    glass = poly(a.shape, ZONE) & solid & (~hi | floor)
-    glass &= ~nd.binary_dilation(hi & ~floor, iterations=1)
+    # каркас: отклонение цвета по звёздам целиком повторяет цвет верхней балки (k≈1) — рёбра, обод, стойки;
+    # рёбра купола крашены иначе, чем балка, но сильнее всего прочего (большой остаток res). Крашеные полы
+    # и стекло окрашены слабее (k≈0.4..0.7, res≈0.3) — так рёбра находятся и над полом, и над бассейном
+    d = (S - inner[None]).transpose(1, 2, 0, 3).reshape(Hh, Ww, 12)
+    fr = d[int(0.19 * Hh):int(0.21 * Hh), int(0.45 * Ww):int(0.47 * Ww)].reshape(-1, 12).mean(0)
+    fn = np.linalg.norm(fr); fu = fr / fn
+    pr = d @ fu
+    k = pr / fn
+    res = np.linalg.norm(d - pr[..., None] * fu, axis=-1) / fn
+    frame = solid & ((k > 0.9) | (res > 0.45))
+    frame = nd.binary_closing(frame, iterations=1)
+    dome = poly(a.shape, DOME)
+    # под куполом стекло и крашеные полы, в стенах — только то, что у всех звёзд одинаково
+    glass = poly(a.shape, ZONE) & solid & ~frame & (~hi | dome)
     lab, n = nd.label(glass)
     sz = nd.sum(glass, lab, range(1, n + 1))
     glass &= np.isin(lab, 1 + np.nonzero(sz >= 25)[0])
@@ -58,12 +67,10 @@ def build(im):
     refl = np.clip(REFL + 0.25 * (0.45 - Y / Hh) / 0.35, REFL * 0.7, REFL + 0.25)
     c = np.clip(D * (1 - refl[..., None]) - base * (1 - refl[..., None]) * 0.8, 0, 255)
     e[glass] = c[glass] * gk[glass][:, None]
-    # рёбра каркаса в своём цвете, подсвечены тёплым изнутри — купол читается как конструкция, как днём
-    bars = poly(a.shape, DOME) & solid & hi & ~floor & ~glass
-    bars = nd.binary_dilation(bars, iterations=1) & poly(a.shape, DOME) & solid & ~glass
-    e[bars] = np.clip(rgb[bars] * np.array([1.0, 0.85, 0.7]) * RIM - base[bars] * 0.5, 0, 255)
+    win = np.zeros(a.shape + (4,), np.uint8)
+    # ореол слабый, и на каркас не ложится: балки непрозрачные, ночью они в цвет здания
+    e = halo(e, [(0.06, 6)])
+    e[frame & poly(a.shape, ZONE)] = 0
     # небольшой фонарь у двери
     bulb(e, X, Y, 0.31 * Ww, 0.69 * Hh, 0.006 * Ww, (255, 215, 150))
-    win = np.zeros(a.shape + (4,), np.uint8)
-    # ореол только наружу и слабый: внутри купола он размывал бы рёбра
-    return win, halo(e, [(0.06, 6)])
+    return win, e
