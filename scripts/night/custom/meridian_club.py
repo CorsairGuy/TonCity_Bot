@@ -87,12 +87,13 @@ def build(im):
     # светлая кромка только вдоль бортика, не по стене дома, которая закрывает угол бассейна
     coping = solid & (L > 185) & (sat < 0.1)
     paint(edge(pool, 2) & nd.binary_dilation(coping, iterations=3), (170, 250, 255), 1.0)
-    # --- пальмы: листья подсвечены снизу, к верхушке слабее; трава в кадках не светится
+    # --- пальмы: листья подсвечены снизу, к верхушке слабее; клумбы и трава в кадках не светятся
     lab, n = nd.label(leaf)
     sz = nd.sum(green, lab, range(1, n + 1))
     for i in np.nonzero(sz >= 150)[0] + 1:
         cr = lab == i
         ys = Y[cr]; y0, y1 = ys.min(), ys.max()
+        if y1 - y0 < 30: continue          # низкие клумбы у ограды — не пальмы
         m = cr & green
         tt = (Y[m] - y0) / max(1, y1 - y0)
         rel = np.clip((L[m] - 70) / 140, 0, 1)
