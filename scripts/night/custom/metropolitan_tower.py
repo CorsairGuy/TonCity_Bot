@@ -3,7 +3,7 @@
 # стеклянный атриум у основания горит янтарным, бассейн, вход, фонари по кольцу площади.
 import numpy as np
 from scipy import ndimage as nd
-from .common import H, parts, halo, bulb, win_layer, NG
+from .common import parts, halo, bulb, win_layer
 
 
 def build(im):
@@ -41,13 +41,18 @@ def build(im):
     # окна — тонкие тёмные ленты между плитами (толстые тёмные пятна — тени у силуэта); у силуэта
     # отступ в 1 px, иначе концы лент оставались тёмными
     near = nd.binary_dilation(a < 100, iterations=1)
-    dk = body & (L < 85) & ~near
+    # тонкая линия — темнее и того, что над ней, и того, что под ней (серые линии на светлых плитах),
+    # плюс бирюзовые стёкла в щелях
+    up = np.minimum(np.roll(L, 2, 0), np.roll(L, 3, 0)); dn = np.minimum(np.roll(L, -2, 0), np.roll(L, -3, 0))
+    thin = (L < up - 22) & (L < dn - 22) & (L < 150)
+    teal_g = (b > r + 25) & (L < 130)
+    dk = body & ((((L < 85) | teal_g) & ~near) | (thin & ~nd.binary_dilation(a < 100, iterations=4)))
     thick = nd.binary_opening(dk, np.ones((10, 1)))
     gap = dk & ~thick
     # нижние ленты над атриумом горят всегда и целиком, вместе с бирюзовыми стёклами и до самого края
     teal = (b > r + 30) & (L < 120)
     # только сами тёмные линии (без серых полутонов вокруг), иначе свет ложится прямоугольниками
-    bd = solid & (Y > 498) & (Y < 556) & (X > 272) & (X < 505) & ((L < 60) | (teal & (L < 100)))
+    bd = solid & (Y > 498) & (Y < 556) & (X > 272) & (X < 505) & ((L < 60) | (teal & (L < 120)))
     base_band = bd & ~nd.binary_opening(bd, np.ones((5, 1)))   # тонкие линии, ячейки атриума толще
     # мягкая маска по самой линии: сила света — насколько пиксель тёмный (сглаженные края линии),
     # так свет повторяет изгиб линии, а не ложится ступеньками и прямоугольниками
@@ -56,17 +61,22 @@ def build(im):
     gap &= ~base_band & (Y < 498)   # ниже — только постоянные ленты
     # ленты вытянуты вдоль плит: короткие и вертикальные куски (тени, стойки перил) — не окна.
     # Пунктирные линии (их режут стойки перил) склеиваем по горизонтали, чтобы проверять ленту целиком
+    edge4 = nd.binary_dilation(a < 100, iterations=4)
     gl0, gn0 = nd.label(nd.binary_dilation(gap, np.ones((1, 7))))
     for i, sl in enumerate(nd.find_objects(gl0)):
         hh = sl[0].stop - sl[0].start; ww = sl[1].stop - sl[1].start
-        if ww < 2.5 * hh or ww < 12: gap[sl][gl0[sl] == i + 1] = False
+        m = gl0[sl] == i + 1
+        # лента — тонкая (в среднем до 4 px на колонку) и длинная, наклонные ленты тоже проходят
+        mg = gap[sl] & m
+        # куски, лежащие в основном у силуэта, — тени и перила на торцах, а не ленты
+        if ww < 12 or ww < 1.5 * hh or mg.sum() > 4 * ww or edge4[sl][mg].mean() > 0.5: gap[sl][m] = False
     dn2 = lambda m, k: np.roll(m, -k, 0)
     lower = body & (Y < 470) & (L > 105) & (dn2(L < 75, 2) | dn2(L < 75, 1)) & ~gap & ~nd.binary_dilation(a < 100, iterations=2)
 
     # окна: ленты между плитами горят всегда и целиком, как нижние (решение 17.10.2026: без пропусков)
     win = win_layer(a.shape, [])
     g_zone = nd.binary_dilation(gap, iterations=1) & solid & ~atrium & ~bb_zone
-    g_k = np.where(g_zone, np.clip((150 - L) / 90, 0, 1), 0)
+    g_k = np.where(gap, 1.0, np.where(g_zone, np.clip((150 - L) / 90, 0, 1), 0))
 
     e = np.zeros_like(rgb)
     # подсветка снизу: всё, что выше верхней кромки атриума в своей колонке
