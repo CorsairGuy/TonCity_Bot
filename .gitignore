@@ -31,3 +31,6 @@ src/web/dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# кэш Python (scripts/night)
+__pycache__/

@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
-import { CheckIcon, ChevronLeftIcon, SyncIcon, XIcon } from '@primer/octicons-react';
+import { ActionList, ActionMenu, Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
+import { CheckIcon, ChevronLeftIcon, ClockIcon, MoonIcon, SunIcon, SyncIcon, XIcon } from '@primer/octicons-react';
 import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { useMapDayNight } from '../hooks/useMapDayNight';
+import type { DayNightMode } from '../components/mapNight';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
@@ -219,6 +221,36 @@ function logLabel(r: CityActionLogRow, labelFor: (id: string) => string, booster
   }
 }
 
+// время суток на карте: по часам устройства (рассвет, закат, ночь со светом в окнах), всегда день или ночь
+const DAY_NIGHT: { value: DayNightMode; label: string; icon: typeof SunIcon }[] = [
+  { value: 'auto', label: 'По часам устройства', icon: ClockIcon },
+  { value: 'day', label: 'Всегда день', icon: SunIcon },
+  { value: 'night', label: 'Всегда ночь', icon: MoonIcon },
+];
+function DayNightMenu({ value, onChange }: { value: DayNightMode; onChange: (m: DayNightMode) => void }) {
+  const cur = DAY_NIGHT.find(o => o.value === value) ?? DAY_NIGHT[0];
+  return (
+    <ActionMenu>
+      <ActionMenu.Anchor>
+        <IconButton icon={cur.icon} aria-label={`Время суток на карте: ${cur.label.toLowerCase()}`} />
+      </ActionMenu.Anchor>
+      <ActionMenu.Overlay width="small">
+        <ActionList selectionVariant="single">
+          <ActionList.Group>
+            <ActionList.GroupHeading>Время суток</ActionList.GroupHeading>
+            {DAY_NIGHT.map(o => (
+              <ActionList.Item key={o.value} selected={o.value === value} onSelect={() => onChange(o.value)}>
+                <ActionList.LeadingVisual><o.icon /></ActionList.LeadingVisual>
+                {o.label}
+              </ActionList.Item>
+            ))}
+          </ActionList.Group>
+        </ActionList>
+      </ActionMenu.Overlay>
+    </ActionMenu>
+  );
+}
+
 export function CityMapCity() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -226,6 +258,7 @@ export function CityMapCity() {
 
   const account = searchParams.get('account') ?? '';
   const mapType = 'city' as const;
+  const [dayNight, setDayNight] = useMapDayNight();
 
   const [rows, setRows] = useState<CityRow[] | CapitalRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -933,6 +966,7 @@ export function CityMapCity() {
                 : <>Зданий: {owned.length}{row?.updated_at && ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}`}</>}
             </Text>
           </Box>
+          <DayNightMenu value={dayNight} onChange={setDayNight} />
           <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>
         </Box>
 
@@ -964,6 +998,7 @@ export function CityMapCity() {
                 unlockedSections={unlockedSections ?? undefined}
                 onUnlockCell={onUnlockCell}
                 focusSet={mode === 'upgrade' ? planFocus : null}
+                dayNight={dayNight}
               />
           }
           {/* док по центру; в «Плане» справа от него — уровень кисти (док при этом не сдвигается) */}
