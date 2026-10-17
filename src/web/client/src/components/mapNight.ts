@@ -26,13 +26,15 @@ export interface Phase {
 
 export const STEPS = 48; // ступень — полчаса
 const NG = 8;
+const NIGHT_DESAT = 0.35, NIGHT_GROUND_DIM = 0.5;
 const GRADE_SLICE_MS = 4;
 const LIT_CACHE_LIMIT = 400;
 const TONES = [[255, 205, 130], [255, 236, 196], [206, 226, 255]]; // тёплый, белый, холодный офисный
 
 type KF = Omit<Phase, 'step' | 'T' | 'isDay' | 'ground'>;
-// ночь — дневные цвета зданий, только темнее: без синего оттенка, иначе белое и бежевое уходят в синий
-const N: KF = { S: [50, 50, 56], Hc: [105, 104, 112], haze: [0, 0, 0, 0], mist: 0, sun: 0, sunA: 0, lamps: 1, dark: 1 };
+// ночь: темно и прохладно, как при луне, но без перекраски — белое становится серо-голубым, а не
+// синим, свои цвета у зданий остаются (краски лишь блекнут, см. NIGHT_DESAT)
+const N: KF = { S: [22, 26, 44], Hc: [86, 96, 130], haze: [0, 0, 0, 0], mist: 0, sun: 0, sunA: 0, lamps: 1, dark: 1 };
 const D: KF = { S: [255, 255, 255], Hc: [255, 255, 255], haze: [0, 0, 0, 0], mist: 0, sun: 0, sunA: 0, lamps: 0, dark: 0 };
 const KEYS: [number, KF][] = [
   [0.0, N], [4.6, N],
@@ -46,7 +48,7 @@ const KEYS: [number, KF][] = [
   // закат: освещённое оранжевое, тени фиолетовые
   [19.3, { S: [124, 100, 170], Hc: [282, 196, 140], haze: [255, 150, 120, 0.03], mist: 0.18, sun: -1, sunA: 0.6, lamps: 0.2, dark: 0.12 }],
   // сумерки
-  [20.3, { S: [64, 64, 80], Hc: [160, 140, 158], haze: [0, 0, 0, 0], mist: 0, sun: -1, sunA: 0.2, lamps: 0.75, dark: 0.7 }],
+  [20.3, { S: [52, 56, 84], Hc: [150, 138, 165], haze: [0, 0, 0, 0], mist: 0, sun: -1, sunA: 0.2, lamps: 0.75, dark: 0.7 }],
   [21.3, N], [24.0, N],
 ];
 
@@ -85,17 +87,21 @@ export function phaseAt(step: number): Phase {
   p = { step, ...o, T, isDay, ground: '' };
   const g = new Uint8ClampedArray([216, 216, 216, 255]); // фон карты днём — MAP_BG
   gradePixels(g, p);
-  p.ground = `rgb(${g[0]},${g[1]},${g[2]})`;
+  // фон за картой ночью темнее самой карты — город остаётся светлым пятном в темноте
+  const gk = 1 - NIGHT_GROUND_DIM * p.dark;
+  p.ground = `rgb(${Math.round(g[0] * gk)},${Math.round(g[1] * gk)},${Math.round(g[2] * gk)})`;
   phases.set(step, p);
   return p;
 }
 
 function gradePixels(d: Uint8ClampedArray, ph: Phase) {
-  const T = ph.T, hz = ph.haze, ha = hz[3];
+  const T = ph.T, hz = ph.haze, ha = hz[3], k = 1 - NIGHT_DESAT * ph.dark;
   const h0 = 1 - ha * hz[0] / 255, h1 = 1 - ha * hz[1] / 255, h2 = 1 - ha * hz[2] / 255;
   for (let p = 0; p < d.length; p += 4) {
     if (!d[p + 3]) continue;
-    const r = d[p], g = d[p + 1], b = d[p + 2], l = ((r * 77 + g * 150 + b * 29) >> 8) * 3;
+    const y = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8, l = y * 3;
+    // ночью краски блекнут (глаз в темноте хуже различает цвет), но не пропадают совсем
+    const r = y + (d[p] - y) * k, g = y + (d[p + 1] - y) * k, b = y + (d[p + 2] - y) * k;
     let o0 = r * T[l], o1 = g * T[l + 1], o2 = b * T[l + 2];
     if (ha > 0.005) {
       o0 = 255 - (255 - Math.min(255, o0)) * h0; o1 = 255 - (255 - Math.min(255, o1)) * h1; o2 = 255 - (255 - Math.min(255, o2)) * h2;
