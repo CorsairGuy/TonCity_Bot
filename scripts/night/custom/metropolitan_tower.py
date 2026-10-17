@@ -23,7 +23,8 @@ def build(im):
     for i in range(1, dn + 1):
         m = dl == i; ys = Y[m]
         if 480 < ys.mean() < 580 and m.sum() > 15 and zone[m].mean() > 0.6: atrium |= m
-    lobby = solid & (L < 60) & (Y > 565) & (Y < 620) & (X > 330) & (X < 450)
+    # проезд под башней — тёмный кусок под центром атриума целиком (не прямоугольник)
+    lobby = dl == dl[585, 388] if dl[585, 388] else np.zeros_like(solid)
     atrium &= ~lobby
     # длинные тонкие полосы у основания — остекление низа башни, а не ячейки атриума
     al, an = nd.label(atrium)
@@ -44,9 +45,14 @@ def build(im):
     gap = dk & ~thick
     # нижние ленты над атриумом горят всегда и целиком, вместе с бирюзовыми стёклами и до самого края
     teal = (b > r + 30) & (L < 120)
-    bd = solid & (Y > 505) & (Y < 552) & (X > 272) & (X < 505) & ((L < 120) | teal)
+    # только сами тёмные линии (без серых полутонов вокруг), иначе свет ложится прямоугольниками
+    bd = solid & (Y > 498) & (Y < 556) & (X > 272) & (X < 505) & ((L < 60) | (teal & (L < 100)))
     base_band = bd & ~nd.binary_opening(bd, np.ones((5, 1)))   # тонкие линии, ячейки атриума толще
-    gap &= ~base_band
+    # мягкая маска по самой линии: сила света — насколько пиксель тёмный (сглаженные края линии),
+    # так свет повторяет изгиб линии, а не ложится ступеньками и прямоугольниками
+    bb_zone = nd.binary_dilation(base_band, iterations=1) & solid & ~atrium
+    bb_k = np.where(bb_zone, np.clip((150 - L) / 90, 0, 1), 0)
+    gap &= ~base_band & (Y < 498)   # ниже — только постоянные ленты
     # ленты вытянуты вдоль плит: короткие и вертикальные куски (тени, стойки перил) — не окна
     gl0, gn0 = nd.label(gap)
     for i, sl in enumerate(nd.find_objects(gl0)):
@@ -67,7 +73,7 @@ def build(im):
 
     e = np.zeros_like(rgb)
     # подсветка снизу: всё, что выше верхней кромки атриума в своей колонке
-    um = body & ~gap & ~base_band
+    um = body & ~gap
     w = np.exp(-np.clip((540 - Y) / 480, 0, 1) * 2.6)
     e[um] = np.array([255, 175, 80.])[None] * (0.42 * w[um] * (0.3 + 0.9 * L[um] / 230))[:, None]
     # золотой неон по нижним кромкам плит
@@ -76,7 +82,8 @@ def build(im):
     t = np.clip((Y - 480) / 90, 0, 1)
     e[atrium] = np.array([255, 180, 90.])[None] * (1.0 - 0.45 * t[atrium])[:, None]
     # нижние ленты окон: ровный тёплый свет по всей длине, к краям чуть мягче
-    e[base_band] = np.array([255, 205, 130.])[None] * (0.95 - 0.25 * (np.abs(X[base_band] - 388) / 125) ** 2)[:, None]
+    bk = bb_k * (0.95 - 0.25 * (np.abs(X - 388) / 125) ** 2)
+    e[bb_zone] = np.maximum(e[bb_zone] * (1 - bb_k[bb_zone, None]), np.array([255, 205, 130.])[None] * bk[bb_zone][:, None])
     e[lobby] = np.array([255, 210, 150.])[None] * (0.6 + 0.4 * np.clip((Y[lobby] - 565) / 40, 0, 1))[:, None]
     e[water] = np.array([60, 190, 255.])[None] * (0.5 * (0.5 + 0.8 * L[water] / 255))[:, None]
     # фонари по внешнему кольцу площади, через равный угол
