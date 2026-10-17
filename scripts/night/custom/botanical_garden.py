@@ -1,11 +1,11 @@
 # Ботанический сад (все звёзды), ночь: окон-квартир нет, сквозь стеклянный купол видно освещённую
-# оранжерею — тёплый свет на растениях, дорожках и бассейне, рёбра каркаса остаются тёмными.
+# оранжерею — тёплый свет на растениях, дорожках и бассейне, рёбра каркаса и корпус как у всего города ночью.
 import numpy as np
 from scipy import ndimage as nd
 from .common import parts, halo, bulb, blur
 
-GAIN = 1.5    # сила света внутри
-REFL = 0.06   # отражение неба в стекле (к верху купола больше)
+GAIN = 1.3    # сила света внутри
+REFL = 0.15   # отражение неба в стекле (к верху купола больше)
 
 # оранжерея в долях кадра: купол, стеклянные стены спереди, справа и сзади (лишнее отсекут рёбра и корпус)
 ZONE = [(0.22, 0.12), (0.30, 0.05), (0.73, 0.38), (0.73, 0.63), (0.60, 0.71), (0.44, 0.71), (0.29, 0.61),
@@ -44,37 +44,36 @@ def build(im):
     pr = d @ fu
     k = pr / fn
     res = np.linalg.norm(d - pr[..., None] * fu, axis=-1) / fn
-    frame = solid & ((k > 0.9) | (res > 0.45))
-    frame = nd.binary_closing(frame, iterations=1)
+    # насколько пиксель — каркас (0..1): края рёбер сглажены, как в спрайте, рёбра не толще дневных
+    fk = np.clip(np.maximum((k - 0.7) / 0.2, (res - 0.3) / 0.15), 0, 1) * solid
     dome = poly(a.shape, DOME)
     # под куполом стекло и крашеные полы, в стенах — только то, что у всех звёзд одинаково
-    glass = poly(a.shape, ZONE) & solid & ~frame & (~hi | dome)
+    glass = poly(a.shape, ZONE) & solid & (fk < 1) & (~hi | dome)
     lab, n = nd.label(glass)
     sz = nd.sum(glass, lab, range(1, n + 1))
     glass &= np.isin(lab, 1 + np.nonzero(sz >= 25)[0])
-    Li = inner @ [0.299, 0.587, 0.114]
-    gk = np.clip(blur(glass[..., None].astype(float), 0.8)[..., 0] * 1.4 - 0.2, 0, 1) * glass
+    gk = glass.astype(float)
     e = np.zeros_like(rgb)
-    # цвет за стеклом: интерьер с лёгким тоном стекла своей звезды
-    col = inner * 0.65 + rgb * 0.35
-    Lc = col @ [0.299, 0.587, 0.114]
-    sat = np.clip(Lc[..., None] + (col - Lc[..., None]) * 1.2, 0, 255)
     water = (inner[..., 2] > inner[..., 0] + 25) & (inner[..., 2] > inner[..., 1] + 5) & (Y > 0.47 * Hh)
     # только сам бассейн: тонкие голубоватые колонны рядом с ним светятся тёплым, как всё вокруг
     water = nd.binary_opening(water, np.ones((7, 7)))
     # вода — ровный голубой (150,181,210); колонна, уходящая в бассейн, темнее и серее
     water = nd.binary_dilation(water, iterations=2) & (np.abs(inner - [150, 181, 210]).max(-1) < 22)
     lightc = np.where(water[..., None], np.array([0.6, 0.85, 1.0]), np.array([1.0, 0.76, 0.46]))
-    D = sat * lightc * GAIN
+    # под стеклом — сам спрайт игры (стекло со своим тоном и всем, что за ним), только залитый светом
+    D = rgb * lightc * GAIN
     # стекло: часть ночного неба отражается, к верху купола сильнее — свет изнутри видно сквозь стекло, а не вместо него
     base = rgb * np.array([62, 78, 140.]) / 255
     refl = np.clip(REFL + 0.25 * (0.45 - Y / Hh) / 0.35, REFL * 0.7, REFL + 0.25)
-    c = np.clip(D * (1 - refl[..., None]) - base * (1 - refl[..., None]) * 0.8, 0, 255)
+    # отражение — холодный блик в цвете самого стекла, как днём у верха купола
+    sky = rgb * np.array([0.6, 0.75, 1.0]) * 0.75
+    c = np.clip(D * (1 - refl[..., None]) + sky * refl[..., None] - base, 0, 255)
     e[glass] = c[glass] * gk[glass][:, None]
     win = np.zeros(a.shape + (4,), np.uint8)
     # ореол слабый, и на каркас не ложится: балки непрозрачные, ночью они в цвет здания
     e = halo(e, [(0.06, 6)])
-    e[frame & poly(a.shape, ZONE)] = 0
+    zone = poly(a.shape, ZONE)
+    e[zone] *= (1 - fk[zone])[:, None]
     # небольшой фонарь у двери
     bulb(e, X, Y, 0.31 * Ww, 0.69 * Hh, 0.006 * Ww, (255, 215, 150))
     return win, e
