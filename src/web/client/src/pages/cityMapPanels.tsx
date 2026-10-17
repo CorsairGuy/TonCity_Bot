@@ -78,8 +78,8 @@ export function MapBrushLevel({ value, onChange }: { value: number; onChange: (v
 }
 
 // ── каркас сайдбара ─────────────────────────────────────────────────────────
-// gap — зазор между блоками содержимого (по умолчанию 16px; «План» — 8px, как отступы по бокам)
-export function PanelShell({ mode, count, hint, actions, footer, gap = 3, children }: { mode: PanelMode; count?: number; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; gap?: number; children: ReactNode }) {
+// gap — зазор между блоками содержимого: 8px, как отступы по бокам (Строительство — 16px)
+export function PanelShell({ mode, count, hint, actions, footer, gap = 2, children }: { mode: PanelMode; count?: number; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; gap?: number; children: ReactNode }) {
   const [help, setHelp] = useState(false);
   const t = toolFor(mode);
   return (
@@ -93,7 +93,8 @@ export function PanelShell({ mode, count, hint, actions, footer, gap = 3, childr
       </Box>
       {/* полоса прокрутки поверх содержимого (как в прежнем сайдбаре) — отступ ровно 8px со всех сторон */}
       <Scrollable>
-        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap, '& > *': { flexShrink: 0 } }}>
+        {/* подпись группы при ритме 8px идёт вплотную к своему блоку, при 16px — с прежним отступом */}
+        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap, '& > *': { flexShrink: 0 }, '& .panel-caption': { pb: gap > 2 ? 2 : 0 } }}>
           {help && <Text as="p" sx={{ m: 0, fontSize: 0, color: 'fg.muted', bg: 'canvas.subtle', p: 2, borderRadius: 2 }}>{hint}</Text>}
           {children}
         </Box>
@@ -107,7 +108,7 @@ const muted = { fontSize: 0, color: 'fg.muted' } as const;
 const num = { fontVariantNumeric: 'tabular-nums' } as const;
 export function Caption({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, pb: 2 }}>
+    <Box className="panel-caption" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
       <Text sx={{ fontSize: 0, fontWeight: 'semibold', color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{children}</Text>
       {right != null && <Text sx={muted}>{right}</Text>}
     </Box>
@@ -288,7 +289,6 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
         <Row key={k} lead={<IconThumb icon={ic} color={c} />} title={v} sub={k}
           trail={after !== v ? <Text sx={{ ...muted, ...num, flexShrink: 0 }}>→ {after}</Text> : undefined} />
       ))}
-      <Caption right="покрытие">Сервисы</Caption>
       {(Object.keys(SERVICE_LABEL) as ServiceCat[]).map(k => {
         const v = Math.round(s.serviceRatios[k] * 100);
         const ok = v >= 90;
@@ -548,7 +548,7 @@ export function MovePanel({ from, moves, labelFor, disabled, onCancel, onRemove 
           <Row lead={from.id ? <Thumb id={from.id} size={36} bg="canvas.default" /> : <IconThumb icon={ArrowBothIcon} />} title={from.id ? labelFor(from.id) : '—'}
             sub={`откуда ${from.x},${from.y}${from.level ? ` · ур. ${from.level}` : ''}`} fill={fillOf([[FILL_WIP, 100]])}
             trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Отменить выбор" onClick={onCancel} />} />
-          <Box sx={{ display: 'grid', placeItems: 'center', color: 'fg.muted', my: -1 }}><Octicon icon={ArrowDownIcon} /></Box>
+          <Box sx={{ display: 'grid', placeItems: 'center', color: 'fg.muted' }}><Octicon icon={ArrowDownIcon} /></Box>
           <Dashed h={52}>Куда? Кликните пустую клетку</Dashed>
         </>
       ) : <Dashed h={52}>Кликните здание, которое хотите переместить</Dashed>}
