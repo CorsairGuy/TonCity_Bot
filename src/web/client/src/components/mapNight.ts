@@ -94,8 +94,14 @@ export function phaseAt(step: number): Phase {
   return p;
 }
 
-function gradePixels(d: Uint8ClampedArray, ph: Phase) {
-  const T = ph.T, hz = ph.haze, ha = hz[3], k = 1 - NIGHT_DESAT * ph.dark;
+function gradePixels(d: Uint8ClampedArray, ph: Phase, ground = false) {
+  const hz = ph.haze, ha = hz[3], k = 1 - NIGHT_DESAT * ph.dark;
+  let T = ph.T;
+  if (ground) {
+    // земля ночью освещена фонарями, а не луной: без холодного оттенка и темнее стен
+    T = new Float32Array(T);
+    for (let c = 0; c < 3; c++) { const f = 1 - ph.dark * (1 - GROUND_TINT[c]); for (let l = c; l < T.length; l += 3) T[l] *= f; }
+  }
   const h0 = 1 - ha * hz[0] / 255, h1 = 1 - ha * hz[1] / 255, h2 = 1 - ha * hz[2] / 255;
   for (let p = 0; p < d.length; p += 4) {
     if (!d[p + 3]) continue;
@@ -374,9 +380,53 @@ function grade(src: Mip, id: string, ph: Phase): PreparedSprite {
     x.globalCompositeOperation = 'source-over';
   }
   const im = x.getImageData(0, 0, w, h);
-  gradePixels(im.data, ph);
+  const pad = ph.dark > 0.05 ? padMask(im.data, w, h, id) : null;
+  gradePixels(im.data, ph, isGroundSprite(id));
+  if (pad) nightPad(im.data, pad, ph, id !== 'empty.png');
   x.putImageData(im, 0, 0);
   return { mips: halfChain(c, 32) };
+}
+
+// ── площадка клетки ночью ──
+// Под каждым зданием игра рисует светло-серую площадку (204,204,204) прямо в спрайте здания. Ночью
+// она, перекрашенная вместе со зданием, становится ровным синевато-серым ромбом. Поэтому ночью
+// площадка вырезается из спрайта здания, а под здание отдельно кладётся пустая клетка (empty.png),
+// перекрашенная в ночную мостовую: на неё, как на дорогу, ложатся пятна фонарей и отсвет окон.
+const PAD_RGB = 204;
+const PAD_TOL = 5;
+const isBuildingSprite = (id: string) => /^(COM|RES|SER|SPE)_|^construction/.test(id);
+const isGroundSprite = (id: string) => /^(road_|crossroads|crosswalk|t_turn|turn_|roundabout|asphalt|empty)/.test(id);
+const GROUND_TINT = [0.9, 0.78, 0.58]; // множитель ночной таблицы для земли: убирает лунную синеву
+const NIGHT_PAVE = [28, 27, 32]; // мостовая ночью без фонарей
+
+function padMask(d: Uint8ClampedArray, w: number, h: number, id: string): Uint8Array | null {
+  if (id !== 'empty.png' && !isBuildingSprite(id)) return null;
+  // ромб клетки внизу кадра: у пустой клетки кадр 753×434, ромб — ширина кадра × половина ширины
+  const dh = w / 2, top = h - w * 434 / 753, cx = w / 2, cy = top + dh / 2;
+  const m = new Uint8Array(w * h);
+  let any = false;
+  for (let y = Math.max(0, Math.floor(top)); y < h; y++) {
+    const ry = Math.abs(y + 0.5 - cy) / (dh / 2);
+    if (ry > 1) continue;
+    const half = (1 - ry) * w / 2, x0 = Math.max(0, Math.floor(cx - half)), x1 = Math.min(w, Math.ceil(cx + half));
+    for (let x = x0; x < x1; x++) {
+      const i = y * w + x, p = i * 4;
+      if (d[p + 3] < 250) continue;
+      const r = d[p], g = d[p + 1], b = d[p + 2];
+      if (Math.abs(r - PAD_RGB) <= PAD_TOL && Math.abs(g - PAD_RGB) <= PAD_TOL && Math.abs(b - PAD_RGB) <= PAD_TOL) { m[i] = 1; any = true; }
+    }
+  }
+  return any ? m : null;
+}
+
+function nightPad(d: Uint8ClampedArray, m: Uint8Array, ph: Phase, cut: boolean) {
+  const k = Math.min(1, ph.dark);
+  for (let i = 0; i < m.length; i++) {
+    if (!m[i]) continue;
+    const p = i * 4;
+    if (cut && k > 0.5) { d[p + 3] = 0; continue; }
+    d[p] += (NIGHT_PAVE[0] - d[p]) * k; d[p + 1] += (NIGHT_PAVE[1] - d[p + 1]) * k; d[p + 2] += (NIGHT_PAVE[2] - d[p + 2]) * k;
+  }
 }
 
 async function pump() {

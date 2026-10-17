@@ -79,6 +79,8 @@ function getDpr(): number {
 // здания, лес и фонари, 2 — бейджи поверх тонирования. Днём всё рисуется одним проходом по порядку списка
 // тайл окружения выше плоского (434 px в кадре 753) — с деревьями, см. buildDrawList
 const TALL_TILE_H = 445;
+// сила отсвета горящих окон на площадку под зданием
+const SPILL = 1.4;
 interface DrawItem { x0: number; y0: number; x1: number; y1: number; z?: 0 | 1 | 2; draw: (ctx: CanvasRenderingContext2D, r: number) => void }
 // кусок — свой <canvas> в DOM-контейнере своего масштаба
 interface Chunk { el: HTMLCanvasElement; ver: number }
@@ -339,6 +341,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     itemBox: new Map<string, { x0: number; y0: number; x1: number; y1: number }>(),
     dirty: new Set<string>(),
     lampGlows: [] as { x: number; y: number }[],
+    spill: [] as { x: number; y: number; key: string }[], // клетки зданий: отсвет окон на площадку
     roadCells: [] as { x: number; y: number }[],
     nightHold: false,
     nightHoldTimer: null as ReturnType<typeof setTimeout> | null,
@@ -465,6 +468,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     let nextEnd = Infinity;
     s.itemBox = new Map();
     s.lampGlows = [];
+    s.spill = [];
     s.roadCells = [];
     // клетки под большими деревьями леса — фонарей там нет. Спрайт 2×2 стоит низом на клетке x+1,y
     // (см. env.big ниже), то есть занимает x..x+1 и y-1..y; дорога рядом с лесом сюда не попадает
@@ -508,6 +512,16 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           const key = `${gx}_${gy}`;
           const box = { x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: sy + TH };
           if (!underConstruction) s.itemBox.set(key, box);
+          // ночью площадка вырезана из спрайта здания (см. padMask в mapNight.ts): под здание кладётся
+          // пустая клетка-мостовая, и свет фонарей и окон ложится на неё так же, как на дорогу
+          const empSp = s.spriteMap['empty.png'];
+          if (s.nightOn && s.type === 'city' && empSp) {
+            const gh = empSp.frame.h * TW / 753 * RS, gy = sy + TH - gh;
+            want.push(['empty.png', dw]);
+            items.push({ x0: dx, y0: gy, x1: dx + dw, y1: gy + gh, z: 0, draw: (ctx, r) => { drawSprite(ctx, 'empty.png', dw, r, dx, gy, dw, gh); } });
+            s.roadCells.push({ x: sx, y: sy });
+            if (!underConstruction) s.spill.push({ x: sx + TW / 2, y: sy + TH * 0.72, key });
+          }
           items.push({ ...box, draw: (ctx, r) => {
             if (hideAsInapplicable) ctx.globalAlpha = 0.12;
             const ok = drawSprite(ctx, spriteId, dw, r, dx, dy, dw, dh);
@@ -522,6 +536,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           const dh0 = empSp ? empSp.frame.h * TW / 753 : TH, dh = dh0 * RS;
           const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
           want.push(['empty.png', dw]);
+          if (s.nightOn) s.roadCells.push({ x: sx, y: sy });
           items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: Math.max(sy + TH, dy + dh), z: 0, draw: (ctx, r) => {
             if (!drawSprite(ctx, 'empty.png', dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.18)');
           } });
@@ -628,7 +643,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const hit = (it: { x0: number; y0: number; x1: number; y1: number }) => !(it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1);
     for (const it of s.drawList) if (it.z === 0 && hit(it)) it.draw(ctx, r);
     if (ph.lamps > 0.01 && s.lampGlows.length) {
-      // пятна света — только на клетках дорог: свет не заливает пустые участки и подножия зданий
+      // пятна света — только на земле (дороги, пустые клетки, площадки под зданиями)
       ctx.save();
       ctx.beginPath();
       for (const c of s.roadCells) {
@@ -646,6 +661,17 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         if (l.x + gw / 2 < wx0 || l.x - gw / 2 > wx1 || l.y + gh / 2 < wy0 || l.y - gh / 2 > wy1) continue;
         gl.drawImage(g, l.x - gw / 2, l.y - gh / 2, gw, gh);
       }
+      // отсвет окон на площадку у здания: чем больше квартир горит, тем ярче
+      const sw = TW * 1.1, sh = sw * 0.58;
+      for (const c of s.spill) {
+        if (c.x + sw / 2 < wx0 || c.x - sw / 2 > wx1 || c.y + sh / 2 < wy0 || c.y - sh / 2 > wy1) continue;
+        let m = s.lit.get(c.key) ?? 0, n = 0;
+        while (m) { n += m & 1; m >>= 1; }
+        if (!n) continue;
+        gl.globalAlpha = Math.min(1, SPILL * (0.4 + 0.6 * n / 8));
+        gl.drawImage(g, c.x - sw / 2, c.y - sh / 2, sw, sh);
+      }
+      gl.globalAlpha = 1;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.45 * ph.lamps;
       ctx.drawImage(gl.canvas, 0, 0, cv.width, cv.height, 0, 0, cv.width, cv.height);
