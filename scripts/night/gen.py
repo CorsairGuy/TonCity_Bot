@@ -156,12 +156,19 @@ def emissive(n, o, rgb, a):
         if t == 'emit':
             # светящиеся вывески, неон, витрины: пиксели прямоугольника (по цвету, если задан)
             m = rects_mask(a.shape, [e['r']]) & (a > 120)
+            if e.get('ex'): m &= ~rects_mask(a.shape, e['ex'])
             if 'rgb' in e:
                 r_, g_, b_, tol = e['rgb']
                 m &= np.abs(rgb - [r_, g_, b_]).max(-1) <= tol
             if e.get('minsat'):
                 mx = rgb.max(-1); mn = rgb.min(-1)
                 m &= (mx - mn) / np.maximum(mx, 1) >= e['minsat']
+            if e.get('minarea'):
+                # отбросить мелкие куски (подоконники, лепнина) — светятся только длинные карнизы
+                lab, k = nd.label(m)
+                if k:
+                    sz = nd.sum(m, lab, range(1, k + 1))
+                    m &= np.isin(lab, np.nonzero(sz >= e['minarea'])[0] + 1)
             if e.get('edge'):
                 # неоновый контур: только кромка найденных областей шириной edge px
                 m &= ~nd.binary_erosion(m, iterations=e['edge'])
