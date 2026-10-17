@@ -26,16 +26,22 @@ export interface Phase {
 
 export const STEPS = 48; // ступень — полчаса
 const NG = 8;
+// фонари на дорогах и земля, освещённая ими (мостовая под зданиями, отсвет окон, тёплые дороги).
+// Пока выключено: ночь лунная, дороги без подсветки, как у столицы (решение 17.10.2026)
+export const ROAD_LIGHTS = false;
+const NIGHT_DESAT = 0.35, NIGHT_GROUND_DIM = 0.5;
 const GRADE_SLICE_MS = 4;
 const LIT_CACHE_LIMIT = 400;
 const TONES = [[255, 205, 130], [255, 236, 196], [206, 226, 255]]; // тёплый, белый, холодный офисный
 
 type KF = Omit<Phase, 'step' | 'T' | 'isDay' | 'ground'>;
-const N: KF = { S: [52, 64, 128], Hc: [92, 108, 172], haze: [0, 0, 0, 0], mist: 0, sun: 0, sunA: 0, lamps: 1, dark: 1 };
+// ночь: темно и прохладно, как при луне, но без перекраски — белое становится серо-голубым, а не
+// синим, свои цвета у зданий остаются (краски лишь блекнут, см. NIGHT_DESAT)
+const N: KF = { S: [22, 26, 44], Hc: [86, 96, 130], haze: [0, 0, 0, 0], mist: 0, sun: 0, sunA: 0, lamps: 1, dark: 1 };
 const D: KF = { S: [255, 255, 255], Hc: [255, 255, 255], haze: [0, 0, 0, 0], mist: 0, sun: 0, sunA: 0, lamps: 0, dark: 0 };
 const KEYS: [number, KF][] = [
   [0.0, N], [4.6, N],
-  [5.5, { S: [78, 90, 150], Hc: [160, 150, 205], haze: [120, 120, 180, 0.04], mist: 0.25, sun: 1, sunA: 0.25, lamps: 0.85, dark: 0.85 }],
+  [5.5, { S: [72, 74, 90], Hc: [150, 144, 170], haze: [120, 120, 150, 0.04], mist: 0.25, sun: 1, sunA: 0.25, lamps: 0.85, dark: 0.85 }],
   // рассвет: холодные голубые тени, персиковый свет с востока, дымка вдали
   [6.4, { S: [150, 172, 218], Hc: [276, 226, 206], haze: [255, 220, 216, 0.05], mist: 0.55, sun: 1, sunA: 0.5, lamps: 0.15, dark: 0.25 }],
   [7.4, { S: [228, 234, 248], Hc: [266, 252, 238], haze: [255, 238, 228, 0.03], mist: 0.22, sun: 1, sunA: 0.2, lamps: 0, dark: 0 }],
@@ -44,8 +50,8 @@ const KEYS: [number, KF][] = [
   [18.5, { S: [205, 178, 190], Hc: [282, 236, 172], haze: [0, 0, 0, 0], mist: 0, sun: -1, sunA: 0.4, lamps: 0, dark: 0 }],
   // закат: освещённое оранжевое, тени фиолетовые
   [19.3, { S: [124, 100, 170], Hc: [282, 196, 140], haze: [255, 150, 120, 0.03], mist: 0.18, sun: -1, sunA: 0.6, lamps: 0.2, dark: 0.12 }],
-  // синий час
-  [20.3, { S: [70, 76, 142], Hc: [178, 142, 184], haze: [0, 0, 0, 0], mist: 0, sun: -1, sunA: 0.2, lamps: 0.75, dark: 0.7 }],
+  // сумерки
+  [20.3, { S: [52, 56, 84], Hc: [150, 138, 165], haze: [0, 0, 0, 0], mist: 0, sun: -1, sunA: 0.2, lamps: 0.75, dark: 0.7 }],
   [21.3, N], [24.0, N],
 ];
 
@@ -84,17 +90,27 @@ export function phaseAt(step: number): Phase {
   p = { step, ...o, T, isDay, ground: '' };
   const g = new Uint8ClampedArray([216, 216, 216, 255]); // фон карты днём — MAP_BG
   gradePixels(g, p);
-  p.ground = `rgb(${g[0]},${g[1]},${g[2]})`;
+  // фон за картой ночью темнее самой карты — город остаётся светлым пятном в темноте
+  const gk = 1 - NIGHT_GROUND_DIM * p.dark;
+  p.ground = `rgb(${Math.round(g[0] * gk)},${Math.round(g[1] * gk)},${Math.round(g[2] * gk)})`;
   phases.set(step, p);
   return p;
 }
 
-function gradePixels(d: Uint8ClampedArray, ph: Phase) {
-  const T = ph.T, hz = ph.haze, ha = hz[3];
+function gradePixels(d: Uint8ClampedArray, ph: Phase, ground = false) {
+  const hz = ph.haze, ha = hz[3], k = 1 - NIGHT_DESAT * ph.dark;
+  let T = ph.T;
+  if (ground) {
+    // земля ночью освещена фонарями, а не луной: без холодного оттенка и темнее стен
+    T = new Float32Array(T);
+    for (let c = 0; c < 3; c++) { const f = 1 - ph.dark * (1 - GROUND_TINT[c]); for (let l = c; l < T.length; l += 3) T[l] *= f; }
+  }
   const h0 = 1 - ha * hz[0] / 255, h1 = 1 - ha * hz[1] / 255, h2 = 1 - ha * hz[2] / 255;
   for (let p = 0; p < d.length; p += 4) {
     if (!d[p + 3]) continue;
-    const r = d[p], g = d[p + 1], b = d[p + 2], l = ((r * 77 + g * 150 + b * 29) >> 8) * 3;
+    const y = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8, l = y * 3;
+    // ночью краски блекнут (глаз в темноте хуже различает цвет), но не пропадают совсем
+    const r = y + (d[p] - y) * k, g = y + (d[p + 1] - y) * k, b = y + (d[p + 2] - y) * k;
     let o0 = r * T[l], o1 = g * T[l + 1], o2 = b * T[l + 2];
     if (ha > 0.005) {
       o0 = 255 - (255 - Math.min(255, o0)) * h0; o1 = 255 - (255 - Math.min(255, o1)) * h1; o2 = 255 - (255 - Math.min(255, o2)) * h2;
@@ -367,9 +383,53 @@ function grade(src: Mip, id: string, ph: Phase): PreparedSprite {
     x.globalCompositeOperation = 'source-over';
   }
   const im = x.getImageData(0, 0, w, h);
-  gradePixels(im.data, ph);
+  const pad = ROAD_LIGHTS && ph.dark > 0.05 ? padMask(im.data, w, h, id) : null;
+  gradePixels(im.data, ph, ROAD_LIGHTS && isGroundSprite(id));
+  if (pad) nightPad(im.data, pad, ph, id !== 'empty.png');
   x.putImageData(im, 0, 0);
   return { mips: halfChain(c, 32) };
+}
+
+// ── площадка клетки ночью ──
+// Под каждым зданием игра рисует светло-серую площадку (204,204,204) прямо в спрайте здания. Ночью
+// она, перекрашенная вместе со зданием, становится ровным синевато-серым ромбом. Поэтому ночью
+// площадка вырезается из спрайта здания, а под здание отдельно кладётся пустая клетка (empty.png),
+// перекрашенная в ночную мостовую: на неё, как на дорогу, ложатся пятна фонарей и отсвет окон.
+const PAD_RGB = 204;
+const PAD_TOL = 5;
+const isBuildingSprite = (id: string) => /^(COM|RES|SER|SPE)_|^construction/.test(id);
+const isGroundSprite = (id: string) => /^(road_|crossroads|crosswalk|t_turn|turn_|roundabout|asphalt|empty)/.test(id);
+const GROUND_TINT = [0.9, 0.78, 0.58]; // множитель ночной таблицы для земли: убирает лунную синеву
+const NIGHT_PAVE = [28, 27, 32]; // мостовая ночью без фонарей
+
+function padMask(d: Uint8ClampedArray, w: number, h: number, id: string): Uint8Array | null {
+  if (id !== 'empty.png' && !isBuildingSprite(id)) return null;
+  // ромб клетки внизу кадра: у пустой клетки кадр 753×434, ромб — ширина кадра × половина ширины
+  const dh = w / 2, top = h - w * 434 / 753, cx = w / 2, cy = top + dh / 2;
+  const m = new Uint8Array(w * h);
+  let any = false;
+  for (let y = Math.max(0, Math.floor(top)); y < h; y++) {
+    const ry = Math.abs(y + 0.5 - cy) / (dh / 2);
+    if (ry > 1) continue;
+    const half = (1 - ry) * w / 2, x0 = Math.max(0, Math.floor(cx - half)), x1 = Math.min(w, Math.ceil(cx + half));
+    for (let x = x0; x < x1; x++) {
+      const i = y * w + x, p = i * 4;
+      if (d[p + 3] < 250) continue;
+      const r = d[p], g = d[p + 1], b = d[p + 2];
+      if (Math.abs(r - PAD_RGB) <= PAD_TOL && Math.abs(g - PAD_RGB) <= PAD_TOL && Math.abs(b - PAD_RGB) <= PAD_TOL) { m[i] = 1; any = true; }
+    }
+  }
+  return any ? m : null;
+}
+
+function nightPad(d: Uint8ClampedArray, m: Uint8Array, ph: Phase, cut: boolean) {
+  const k = Math.min(1, ph.dark);
+  for (let i = 0; i < m.length; i++) {
+    if (!m[i]) continue;
+    const p = i * 4;
+    if (cut && k > 0.5) { d[p + 3] = 0; continue; }
+    d[p] += (NIGHT_PAVE[0] - d[p]) * k; d[p + 1] += (NIGHT_PAVE[1] - d[p + 1]) * k; d[p + 2] += (NIGHT_PAVE[2] - d[p + 2]) * k;
+  }
 }
 
 async function pump() {
