@@ -62,7 +62,8 @@ def build(im):
     water = (inner[..., 2] > inner[..., 0] + 25) & (inner[..., 2] > inner[..., 1] + 5) & (Y > 0.47 * Hh)
     # только сам бассейн: тонкие голубоватые колонны рядом с ним светятся тёплым, как всё вокруг
     water = nd.binary_opening(water, np.ones((7, 7)))
-    water = nd.binary_dilation(water, iterations=2) & (inner[..., 2] > inner[..., 0] + 25)
+    # вода — ровный голубой (150,181,210); колонна, уходящая в бассейн, темнее и серее
+    water = nd.binary_dilation(water, iterations=2) & (np.abs(inner - [150, 181, 210]).max(-1) < 22)
     lightc = np.where(water[..., None], np.array([0.6, 0.85, 1.0]), np.array([1.0, 0.76, 0.46]))
     D = sat * lightc * GAIN
     # стекло: часть ночного неба отражается, к верху купола сильнее — свет изнутри видно сквозь стекло, а не вместо него
