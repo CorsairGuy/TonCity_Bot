@@ -1,9 +1,12 @@
 # Столичная Башня (город), ночь — вариант «Прожекторы и золото» (17.10.2026): белые плиты
-# подсвечены снизу тёплым светом, по нижним кромкам плит золотой неон, окна-ленты между плитами,
+# подсвечены снизу тёплым светом, тёмные ленты под кромками плит — постоянная тёплая подсветка,
 # стеклянный атриум у основания горит янтарным, бассейн, вход, фонари по кольцу площади.
 import numpy as np
 from scipy import ndimage as nd
 from .common import H, parts, halo, bulb, win_layer, NG
+
+NEON = False                # золотой неон по нижним кромкам плит
+STRIP = [255, 205, 130.]   # подсветка в тёмных лентах под кромками плит
 
 
 def build(im):
@@ -61,15 +64,36 @@ def build(im):
     dn2 = lambda m, k: np.roll(m, -k, 0)
     lower = body & (Y < 470) & (L > 105) & (dn2(L < 75, 2) | dn2(L < 75, 1)) & ~gap & ~nd.binary_dilation(a < 100, iterations=2)
 
-    # окна: ленты между плитами, квартиры — куски ленты по 13 px
-    gl, _ = nd.label(nd.binary_dilation(gap, iterations=1))
-    gi = gl * 1000 + np.floor(X / 13).astype(int)
-    items = []
-    for v in np.unique(gi[gap]):
-        if H('w', v) > 0.85: continue
-        sel = gap & (gi == v)
-        items.append((sel, int(H('g', v) * NG), 0 if H('t', v) < 0.6 else 1, 150))
-    win = win_layer(a.shape, items)
+    # тёмные ленты под кромками плит — не окна, а подсветка: горят всегда и целиком, как нижние ленты;
+    # сила света — насколько пиксель тёмный, так свет повторяет изгиб линии
+    # лента тянется от края до края плиты: от найденных кусков свет идёт по тёмной линии влево и вправо
+    # столбец за столбцом (линия темнее соседей сверху и снизу), включая посветлевшие хвосты у силуэта
+    rid = np.zeros_like(solid)
+    for k in (2, 3, 4):
+        rid |= (L < np.roll(L, k, 0) - 12) & (L < np.roll(L, -k, 0) - 12)
+    rid = (rid | (L < 75)) & solid & (a > 230) & (L < 150)
+    strip = gap.copy()
+    sl_, sn_ = nd.label(gap, np.ones((3, 3)))
+    for i, sl in enumerate(nd.find_objects(sl_)):
+        cm = sl_ == i + 1
+        xs = np.nonzero(cm.any(0))[0]
+        for x0, step in ((xs.min(), -1), (xs.max(), 1)):
+            ys = np.nonzero(cm[:, x0])[0]
+            y, th, dy, miss, x = ys.mean(), max(len(ys), 2), 0.0, 0, x0
+            while 0 < x + step < Ww - 1 and miss < 6:
+                x += step
+                yp = y + dy; y0 = int(round(yp)) - 1
+                c = np.nonzero(rid[y0:y0 + 3, x])[0]
+                if not len(c): miss += 1; y = yp; continue
+                yn = y0 + c[np.argmin(np.abs(y0 + c - yp))]
+                # линия плавная: новый шаг лишь немного поправляет наклон
+                dy = 0.85 * dy + 0.15 * (yn - y); y = 0.5 * yp + 0.5 * yn; miss = 0
+                strip[int(y - th / 2 + 0.5):int(y - th / 2 + 0.5) + th, x] = True
+    strip &= body | nd.binary_dilation(body, iterations=8)
+    st_zone = nd.binary_dilation(strip, iterations=1) & solid & ~atrium & ~base_band & (Y < 498)
+    # на самой линии — полный свет по всей длине, по краю — сколько пиксель тёмный (сглаженные края)
+    st_k = np.where(strip, 1.0, np.where(st_zone, np.clip((150 - L) / 90, 0, 1), 0))
+    win = win_layer(a.shape, [])
 
     e = np.zeros_like(rgb)
     # подсветка снизу: всё, что выше верхней кромки атриума в своей колонке
@@ -78,12 +102,13 @@ def build(im):
     e[um] = np.array([255, 175, 80.])[None] * (0.42 * w[um] * (0.3 + 0.9 * L[um] / 230))[:, None]
     # золотой неон по нижним кромкам плит
     sh = np.clip(0.55 + 0.6 * L / 220, 0, 1.2) * 0.9
-    e[lower] = np.maximum(e[lower], np.array([255, 196, 90.])[None] * sh[lower][:, None])
+    if NEON: e[lower] = np.maximum(e[lower], np.array([255, 196, 90.])[None] * sh[lower][:, None])
     t = np.clip((Y - 480) / 90, 0, 1)
     e[atrium] = np.array([255, 180, 90.])[None] * (1.0 - 0.45 * t[atrium])[:, None]
     # нижние ленты окон: ровный тёплый свет по всей длине, к краям чуть мягче
     bk = bb_k * (0.95 - 0.25 * (np.abs(X - 388) / 125) ** 2)
     e[bb_zone] = np.maximum(e[bb_zone] * (1 - bb_k[bb_zone, None]), np.array([255, 205, 130.])[None] * bk[bb_zone][:, None])
+    e[st_zone] = np.maximum(e[st_zone] * (1 - st_k[st_zone, None]), np.array(STRIP)[None] * (st_k[st_zone] * 0.95)[:, None])
     e[lobby] = np.array([255, 210, 150.])[None] * (0.6 + 0.4 * np.clip((Y[lobby] - 565) / 40, 0, 1))[:, None]
     e[water] = np.array([60, 190, 255.])[None] * (0.5 * (0.5 + 0.8 * L[water] / 255))[:, None]
     # фонари по внешнему кольцу площади, через равный угол
