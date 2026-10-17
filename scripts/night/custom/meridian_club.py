@@ -82,10 +82,10 @@ def build(im):
     Lp = nd.gaussian_filter(np.where(pool, L, 0), 3) / np.maximum(nd.gaussian_filter(pool.astype(float), 3), 1e-3)
     lo, hi = np.percentile(Lp[pool], 3), np.percentile(Lp[pool], 97)
     t = np.clip((Lp - lo) / max(hi - lo, 1), 0, 1)
-    paint(pool, (40, 230, 255), 0.45 * (0.45 + 0.55 * t))
+    paint(pool, (40, 230, 255), 0.18 * (0.45 + 0.55 * t))
     # светлая кромка только вдоль бортика, не по стене дома, которая закрывает угол бассейна
     coping = solid & (L > 185) & (sat < 0.1)
-    paint(edge(pool, 2) & nd.binary_dilation(coping, iterations=3), (150, 235, 255), 0.55)
+    paint(edge(pool, 2) & nd.binary_dilation(coping, iterations=3), (150, 235, 255), 0.22)
     # --- фонари на колоннах ограды и у ворот
     for x, y in PILLARS + GATE:
         glow(e, X, Y, x, y, (255, 214, 150))
