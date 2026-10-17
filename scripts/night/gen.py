@@ -169,9 +169,15 @@ def emissive(n, o, rgb, a):
                 if k:
                     sz = nd.sum(m, lab, range(1, k + 1))
                     m &= np.isin(lab, np.nonzero(sz >= e['minarea'])[0] + 1)
+            m0 = m.copy()
             if e.get('edge'):
                 # неоновый контур: только кромка найденных областей шириной edge px
                 m &= ~nd.binary_erosion(m, iterations=e['edge'])
+            if e.get('lower'):
+                # только нижние кромки (внешний край крыши над фасадом), без стыков со стенами выше
+                full = m0 if e.get('edge') else m
+                below = np.zeros_like(full); below[:-e['lower']] = full[e['lower']:]
+                m &= ~below
             if e.get('shade'):
                 # цвет c с рельефом исходника: грани остаются различимы, не заливаются плоским пятном
                 # яркость растягивается на весь диапазон области, так что и бледная звезда получает объём
