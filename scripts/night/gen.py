@@ -90,6 +90,7 @@ def windows(n, o, rgb, a):
         m &= inc
     if 'ex' in o: m &= ~rects_mask(a.shape, o['ex'])
     if 'exp' in o: m &= ~poly_mask(a.shape, o['exp'])
+    if o.get('close'): m = nd.binary_closing(m, np.ones((3, 3))) & solid  # залатать крапинки в стёклах
     if o.get('open'): m = nd.binary_opening(m, np.ones((2, 2)))
     lab, _ = nd.label(m, structure=np.ones((3, 3)) if o.get('conn8', True) else None)
     out = np.zeros(a.shape, np.int32)
@@ -161,6 +162,9 @@ def emissive(n, o, rgb, a):
             if e.get('minsat'):
                 mx = rgb.max(-1); mn = rgb.min(-1)
                 m &= (mx - mn) / np.maximum(mx, 1) >= e['minsat']
+            if e.get('edge'):
+                # неоновый контур: только кромка найденных областей шириной edge px
+                m &= ~nd.binary_erosion(m, iterations=e['edge'])
             if e.get('own', True):
                 c = np.clip(rgb * e.get('k', 1.25) + 30, 0, 255)
             else:
