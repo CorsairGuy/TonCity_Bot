@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import type { DayNightMode } from '../components/mapNight';
 
-// Время суток на карте города: по часам устройства, всегда день или всегда ночь. Источник истины —
+// Время суток на карте (город и столица): по часам устройства, всегда день или всегда ночь. Источник истины —
 // config.ui.mapDayNight на сервере (localStorage PWA на iOS чистится, см. App.tsx saveOpenGroups),
 // localStorage — только чтобы карта сразу открылась в нужном режиме, не дожидаясь ответа сервера.
 const LS_KEY = 'tc_map_daynight';

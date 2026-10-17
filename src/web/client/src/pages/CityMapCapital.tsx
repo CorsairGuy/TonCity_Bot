@@ -7,6 +7,8 @@ import { api, type CapitalRow, type MapBuilding, type CapitalStrategyTarget, typ
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { useMapDayNight } from '../hooks/useMapDayNight';
+import { DayNightMenu } from '../components/DayNightMenu';
 import { Scrollable } from '../components/Scrollable';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
@@ -144,6 +146,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const { flash, showFlash } = useFlash();
 
   const [rows, setRows] = useState<CapitalRow[]>([]);
+  const [dayNight, setDayNight] = useMapDayNight();
   const [loading, setLoading] = useState(true);
   const [catalog, setCatalog] = useState<CapitalBuildingDef[]>([]);
   const [targets, setTargets] = useState<CapitalStrategyTarget[]>([]);
@@ -412,6 +415,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
               {row?.updated_at && ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}`}
             </Text>
           </Box>
+          <DayNightMenu value={dayNight} onChange={setDayNight} />
           <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>
         </Box>
 
@@ -432,6 +436,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
                 globalPlan={globalPlan}
                 catalog={[]}
                 onPick={handlePick}
+                dayNight={dayNight}
               />
           }
         </Box>
