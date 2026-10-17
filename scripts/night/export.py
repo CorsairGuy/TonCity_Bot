@@ -17,13 +17,12 @@ AW = 2048
 
 
 def lamps(n):
-    """Фонари дорожного тайла: [fx, fy, k] — доли кадра и правило прореживания k на карте.
+    """Фонари дорожного тайла: [fx, fy] — доли кадра.
 
     Тротуар (светлые тёплые пиксели) переводится в координаты клетки (u — вдоль x сетки, v — вдоль y),
-    фонарь ставится у бордюра: на полосе вдоль дороги — посередине клетки (или рядом, если там дерево),
-    k = 1/2 — полоса вдоль x/y, +2 — полоса по другую сторону дороги (на карте фонари на полосах стоят
-    через клетку, по разные стороны дороги вразбежку); на углу квартала — у угла бордюра, на повороте —
-    на середине дуги, k = 0 (всегда). Островок посреди дороги (кольцо) без фонаря."""
+    фонарь ставится у бордюра: на полосе вдоль дороги — один на клетку, по разные стороны дороги
+    вразбежку (на четверти и на трёх четвертях клетки, рядом — если там дерево), на углу квартала — у угла
+    бордюра, на повороте — на середине дуги. Островок посреди дороги (кольцо) без фонаря."""
     from scipy import ndimage as nd
     im = np.asarray(gen.sprite(n)).astype(int)
     h, w = im.shape[:2]
@@ -43,8 +42,8 @@ def lamps(n):
         x = int((.5 + (u - v) / 2) * w); y = int(oy + (u + v) / 2 * hd)
         return not tree[max(0, y - int(.6 * hd)):y + 3, max(0, x - 4):x + 5].any()
 
-    def along(f):
-        for t in (.5, .25, .75, .15, .85):
+    def along(f, t0):
+        for t in (t0, .5, 1 - t0, .15, .85):
             if clear(*f(t)): return f(t)
         return None
 
@@ -59,22 +58,22 @@ def lamps(n):
         cu, cv = u.mean(), v.mean()
         if u1 - u0 > .7 and v1 - v0 < .45:
             vv = v1 - I if cv < av else v0 + I
-            p = along(lambda t: (t, vv))
-            if p: out.append((*p, 1 if cv < av else 3))
+            p = along(lambda t: (t, vv), .25 if cv < av else .75)
+            if p: out.append(p)
         elif v1 - v0 > .7 and u1 - u0 < .45:
             uu = u1 - I if cu < au else u0 + I
-            p = along(lambda t: (uu, t))
-            if p: out.append((*p, 2 if cu < au else 4))
+            p = along(lambda t: (uu, t), .25 if cu < au else .75)
+            if p: out.append(p)
         elif u1 - u0 < .45 and v1 - v0 < .45:
-            out.append((u1 - I if cu < au else u0 + I, v1 - I if cv < av else v0 + I, 0))
+            out.append((u1 - I if cu < au else u0 + I, v1 - I if cv < av else v0 + I))
         else:
             c = m & near
             pu, pv = U[c], V[c]
             ang = np.angle(np.exp(1j * (np.arctan2(pv - av, pu - au) - np.arctan2(cv - av, cu - au))))
             j = np.argsort(ang)[len(ang) // 2]
             d = np.hypot(pu[j] - au, pv[j] - av)
-            out.append((pu[j] + (pu[j] - au) / d * I, pv[j] + (pv[j] - av) / d * I, 0))
-    return [[round(.5 + (u - v) / 2, 4), round((oy + (u + v) / 2 * hd) / h, 4), q] for u, v, q in out]
+            out.append((pu[j] + (pu[j] - au) / d * I, pv[j] + (pv[j] - av) / d * I))
+    return [[round(.5 + (u - v) / 2, 4), round((oy + (u + v) / 2 * hd) / h, 4)] for u, v in out]
 
 
 def road_lamps(smap):
