@@ -1,9 +1,10 @@
 # Штаб-квартира гильдии (столица), ночь — вариант «Офисные огни» (17.10.2026): окна этажей между
-# линиями перекрытий горят тёплым/белым/холодным светом зеркально относительно оси, корона и
-# решётки горят всегда, рёбра и парапет — золотой неон, звезда светится своим рельефом.
+# линиями перекрытий горят тёплым/белым/холодным светом зеркально относительно оси, рёбра — золотой
+# неон, звезда светится своим рельефом. Сложный верх (большие стёкла и решётки) перерисован в спрайте
+# обычной сеткой этажей (scripts/night/patch_hq_sprite.py), окна идут до самой крыши, крыша тёмная.
 import numpy as np
 from scipy import ndimage as nd
-from .common import H, parts, edge, halo, bulb, win_layer, NG
+from .common import H, parts, edge, halo, win_layer, NG
 
 CX = 376.0
 SL = 0.58                                   # наклон линий этажей на боковых гранях
@@ -32,14 +33,10 @@ def build(im):
     K = np.where(FL, np.floor((uL - P_L[0]) / P_L[1]), np.where(FR, np.floor((uR - P_R[0]) / P_R[1]), np.floor((Y - P_C[0]) / P_C[1])))
     FF = np.where(FL, ((uL - P_L[0]) / P_L[1]) % 1, np.where(FR, ((uR - P_R[0]) / P_R[1]) % 1, ((Y - P_C[0]) / P_C[1]) % 1))
     DX = np.abs(X - CX)
-    crown = FC & (Y < 372)
-    recess = crown & (g < 56) & (Y > 225) & (Y < 352)
-    grill = FC & (Y > 385) & (Y < 500) & (g < 52)
-    roof = frame & (Y < 165) & (X > 228) & (X < 525)
 
     # окна-панели: между линиями этажей, колонки от оси (зеркально), обрезки у рёбер не светятся
     j = np.floor(DX / P); fx = (DX / P) % 1
-    pm = FACE & ~line & (FF > 0.16) & (FF < 0.96) & (fx * P > 1) & (fx * P < P - 1) & ~crown & ~(FC & (Y > 375) & (Y < 505)) & ~star
+    pm = FACE & ~line & (FF > 0.16) & (FF < 0.96) & (fx * P > 1) & (fx * P < P - 1) & ~star
     face = np.where(FL, 0, np.where(FR, 1, 2))
     key = np.where(pm, (K.astype(np.int64) + 100) * 1000 + j.astype(np.int64) * 4 + face, -1)
     u, inv = np.unique(key, return_inverse=True); inv = inv.reshape(key.shape)
@@ -50,7 +47,6 @@ def build(im):
     for i in range(1, len(u)):
         if area[i] < full * 0.55: continue
         k = int(u[i]) // 1000 - 100; jj = (int(u[i]) % 1000) // 4
-        if H('o', k, jj) > 0.85: continue   # часть кабинетов не горит никогда — рисунок фасада
         sel = plab == i
         t = int(H('o', 't', k // 2) * 3)
         if H('o', 'x', k, jj) < 0.15: t = int(H('o', 'y', k, jj) * 3)
@@ -65,23 +61,10 @@ def build(im):
     GOLD = (255, 196, 90)
     ef = edge(frame, 2) & ~plate
     paint(ef, GOLD, np.clip((0.65 + 0.5 * L / 255) * 0.9, 0, 1.4))
-    paint(edge(roof, 2), GOLD, 0.85)
-    pr = roof & ~edge(roof, 2)
-    t = np.clip((Y - 8) / 150, 0, 1)
-    paint(pr, GOLD, 0.45 * t ** 2.2 * (0.6 + 0.6 * L / 110))
-    # проёмы короны: свет из комнат, к низу ярче
-    rl, rn = nd.label(recess)
-    for i in range(1, rn + 1):
-        m = rl == i
-        if m.sum() < 30: continue
-        ys = Y[m]; tt = (ys - ys.min()) / max(1, ys.max() - ys.min())
-        e[m] = np.array([255, 200, 120.])[None] * (0.7 + 0.35 * tt)[:, None]
-    paint(grill, (255, 170, 90), 0.4)
     # звезда: рельеф исходника, золото не выгорает в белое
     rel = (L - L[star].min()) / max(1, L[star].max() - L[star].min())
     kk = (0.38 + 0.72 * rel[star]) ** 1.1
     col = np.array([255, 190, 80.])[None] * kk[:, None]
     col[:, 1] += 28 * rel[star] ** 3; col[:, 2] += 40 * rel[star] ** 4
     e[star] = np.clip(col, 0, 255)
-    bulb(e, X, Y, 236, 8); bulb(e, X, Y, 517, 8)
     return win, halo(e, [(0.3, 2), (0.12, 6)])
