@@ -226,6 +226,13 @@ def emissive(n, o, rgb, a):
                 ph = (tpar * nsp) % 1
                 f *= 0.45 + 0.55 * np.cos((ph - 0.5) * np.pi) ** 2
             acc += (f * sil)[..., None] * col * g * 0.8
+        elif t == 'mod':
+            # подсветка, нарисованная кодом (custom/<mod>.py, emit(кадр в родном размере, имя) → RGB с ореолом)
+            import importlib
+            f = sprite_map()[n]['frame']
+            full = np.asarray(sprite(n, f['w'])).astype(float)
+            ef = importlib.import_module('custom.' + e['mod']).emit(full, n)
+            acc += np.asarray(Image.fromarray(ef.clip(0, 255).astype(np.uint8)).resize((w, h), Image.BOX)).astype(float) * g
         elif t == 'bulb':
             cx, cy, r = e['x'] * w, e['y'] * h, e.get('rad', 0.018) * w
             yy, xx = np.mgrid[0:h, 0:w]
