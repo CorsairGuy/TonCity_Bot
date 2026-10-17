@@ -155,6 +155,11 @@ def emissive(n, o, rgb, a):
         g = e.get('g', 1.0)
         if t == 'emit':
             # светящиеся вывески, неон, витрины: пиксели прямоугольника (по цвету, если задан)
+            rgb_, a_ = rgb, a
+            if e.get('src'):
+                # взять область с другого спрайта того же размера (одинаковая звезда у разных звёздностей)
+                si = np.asarray(sprite(e['src'])).astype(float)
+                rgb, a = si[..., :3], si[..., 3]
             m = rects_mask(a.shape, [e['r']]) & (a > 120)
             if e.get('ex'): m &= ~rects_mask(a.shape, e['ex'])
             if 'rgb' in e:
@@ -196,6 +201,7 @@ def emissive(n, o, rgb, a):
                 layer = layer * (np.clip((np.arange(h) - y0) / max(y1 - y0, 1), 0, 1) ** e['fade'])[:, None, None]
             blur = np.asarray(Image.fromarray(layer.clip(0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(e.get('blur', 3)))).astype(float)
             acc += layer + blur * e.get('halo', 0.8)
+            rgb, a = rgb_, a_
         elif t == 'spot':
             # пятно света на земле / стене: эллипс, сплюснутый под изометрию
             cx, cy, r = e['x'] * w, e['y'] * h, e.get('rad', 0.08) * w
