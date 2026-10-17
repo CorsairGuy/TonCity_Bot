@@ -96,6 +96,18 @@ function glowSprite(kind: 'ground' | 'bulb'): HTMLCanvasElement {
   return c;
 }
 
+// общий черновой холст для пятен света фонарей (см. paintNight): очищается при каждой выдаче
+let glowCtx: CanvasRenderingContext2D | null = null;
+function glowLayer(w: number, h: number): CanvasRenderingContext2D {
+  if (!glowCtx) glowCtx = document.createElement('canvas').getContext('2d')!;
+  const c = glowCtx.canvas;
+  if (c.width < w || c.height < h) { c.width = Math.max(c.width, w); c.height = Math.max(c.height, h); }
+  glowCtx.setTransform(1, 0, 0, 1, 0, 0);
+  glowCtx.globalCompositeOperation = 'source-over';
+  glowCtx.clearRect(0, 0, w, h);
+  return glowCtx;
+}
+
 function releaseChunk(ch: Chunk) {
   ch.el.remove();
   ch.el.width = 0; ch.el.height = 0;
@@ -610,12 +622,19 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         ctx.moveTo(c.x + TW / 2, c.y); ctx.lineTo(c.x + TW, c.y + TH / 2); ctx.lineTo(c.x + TW / 2, c.y + TH); ctx.lineTo(c.x, c.y + TH / 2); ctx.closePath();
       }
       ctx.clip();
-      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.4 * ph.lamps;
+      // пятна сначала собираются на отдельном холсте режимом 'screen', а не суммой: где рядом стоят
+      // несколько фонарей (углы перекрёстков), свет плавно сливается, а не складывается в пересвет
+      const cv = ctx.canvas, gl = glowLayer(cv.width, cv.height);
+      gl.setTransform(ctx.getTransform());
+      gl.globalCompositeOperation = 'screen';
       const gw = TW * 0.9, gh = gw * 0.58, g = glowSprite('ground');
       for (const l of s.lampGlows) {
         if (l.x + gw / 2 < wx0 || l.x - gw / 2 > wx1 || l.y + gh / 2 < wy0 || l.y - gh / 2 > wy1) continue;
-        ctx.drawImage(g, l.x - gw / 2, l.y - gh / 2, gw, gh);
+        gl.drawImage(g, l.x - gw / 2, l.y - gh / 2, gw, gh);
       }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.45 * ph.lamps;
+      ctx.drawImage(gl.canvas, 0, 0, cv.width, cv.height, 0, 0, cv.width, cv.height);
       ctx.restore();
     }
     for (const it of s.drawList) if ((it.z ?? 1) === 1 && hit(it)) it.draw(ctx, r);
