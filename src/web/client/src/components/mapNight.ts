@@ -26,6 +26,9 @@ export interface Phase {
 
 export const STEPS = 48; // ступень — полчаса
 const NG = 8;
+// фонари на дорогах и земля, освещённая ими (мостовая под зданиями, отсвет окон, тёплые дороги).
+// Пока выключено: ночь лунная, дороги без подсветки, как у столицы (решение 17.10.2026)
+export const ROAD_LIGHTS = false;
 const NIGHT_DESAT = 0.35, NIGHT_GROUND_DIM = 0.5;
 const GRADE_SLICE_MS = 4;
 const LIT_CACHE_LIMIT = 400;
@@ -380,8 +383,8 @@ function grade(src: Mip, id: string, ph: Phase): PreparedSprite {
     x.globalCompositeOperation = 'source-over';
   }
   const im = x.getImageData(0, 0, w, h);
-  const pad = ph.dark > 0.05 ? padMask(im.data, w, h, id) : null;
-  gradePixels(im.data, ph, isGroundSprite(id));
+  const pad = ROAD_LIGHTS && ph.dark > 0.05 ? padMask(im.data, w, h, id) : null;
+  gradePixels(im.data, ph, ROAD_LIGHTS && isGroundSprite(id));
   if (pad) nightPad(im.data, pad, ph, id !== 'empty.png');
   x.putImageData(im, 0, 0);
   return { mips: halfChain(c, 32) };

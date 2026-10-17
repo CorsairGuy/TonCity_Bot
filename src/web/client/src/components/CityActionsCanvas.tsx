@@ -8,7 +8,7 @@ import { getPreparedSprite, pickMip, requestSprite, onSpritesReady } from './map
 import { startFpsCounter, type FpsCounter } from './fpsCounter';
 import {
   type DayNightMode, type Phase, ensureNight, hourFor, stepOf, phaseAt, setPhase, shownPhase, nightBusy, onNightChange,
-  wantGraded, gradedSprite, litMask, hasWindows, lampsOf, drawBuildingLights,
+  wantGraded, gradedSprite, litMask, hasWindows, lampsOf, drawBuildingLights, ROAD_LIGHTS,
 } from './mapNight';
 
 // Рендер — из CityMapCanvas.tsx (реальная карта аккаунта, спрайты, badges). Hover-подсветка клетки,
@@ -515,7 +515,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           // ночью площадка вырезана из спрайта здания (см. padMask в mapNight.ts): под здание кладётся
           // пустая клетка-мостовая, и свет фонарей и окон ложится на неё так же, как на дорогу
           const empSp = s.spriteMap['empty.png'];
-          if (s.nightOn && s.type === 'city' && empSp) {
+          if (ROAD_LIGHTS && s.nightOn && s.type === 'city' && empSp) {
             const gh = empSp.frame.h * TW / 753 * RS, gy = sy + TH - gh;
             want.push(['empty.png', dw]);
             items.push({ x0: dx, y0: gy, x1: dx + dw, y1: gy + gh, z: 0, draw: (ctx, r) => { drawSprite(ctx, 'empty.png', dw, r, dx, gy, dw, gh); } });
@@ -571,7 +571,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
                 ctx.restore();
               } });
               // фонари на тротуарах вдоль бордюра
-              if (s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly]) => {
+              if (ROAD_LIGHTS && s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly]) => {
                 const x = dx + lx * dw, y = dy + ly * dh;
                 s.lampGlows.push({ x, y });
                 items.push({ x0: x - TW * 0.5, y0: y - TH * 1.2, x1: x + TW * 0.5, y1: y + TH * 0.6, draw: ctx => drawLampPost(ctx, x, y) });
