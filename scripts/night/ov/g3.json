@@ -286,76 +286,16 @@
   ]
  },
  "COM_startup_hub.png": {
-  "colors": [
-   [
-    44,
-    54,
-    55,
-    24
-   ],
-   [
-    34,
-    40,
-    40,
-    16
-   ]
-  ],
-  "amin": 4,
-  "amax": 400,
-  "split": [
-   10,
-   8
-  ],
-  "unit": 2,
-  "warm": 45,
-  "fill": 0.12,
-  "bigfill": 0.25,
-  "lights": [
-   {
-    "t": "spot",
-    "x": 0.5,
-    "y": 0.88,
-    "rad": 0.3,
-    "sq": 0.4,
-    "c": [
-     150,
-     200,
-     255
-    ],
-    "g": 0.4
-   },
-   {
-    "t": "bulb",
-    "x": 0.5,
-    "y": 0.035,
-    "rad": 0.014,
-    "c": [
-     255,
-     60,
-     50
-    ],
-    "g": 1
-   }
-  ]
+  "custom": "startup_hub"
  },
  "COM_startup_hub_1_star.png": {
-  "same": "COM_startup_hub.png"
+  "custom": "startup_hub"
  },
  "COM_startup_hub_2_star.png": {
-  "same": "COM_startup_hub.png"
+  "custom": "startup_hub"
  },
  "COM_startup_hub_3_star.png": {
-  "same": "COM_startup_hub.png",
-  "colors": [
-   [
-    85,
-    14,
-    8,
-    7
-   ]
-  ],
-  "amin": 8,
-  "fill": 0.2
+  "custom": "startup_hub"
  },
  "COM_wonderland_kingdom.png": {
   "colors": [
