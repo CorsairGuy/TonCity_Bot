@@ -1,15 +1,9 @@
 # Столичная Башня (город), ночь — вариант «Прожекторы и золото» (17.10.2026): белые плиты
-# подсвечены снизу тёплым светом, окна — внутренний пол этажей вокруг шахты
-# (каждый этаж по своему расписанию), тёмные полосы под кромками плит ночью тёмные,
+# подсвечены снизу тёплым светом, по нижним кромкам плит золотой неон, окна-ленты между плитами,
 # стеклянный атриум у основания горит янтарным, бассейн, вход, фонари по кольцу площади.
 import numpy as np
 from scipy import ndimage as nd
 from .common import H, parts, halo, bulb, win_layer, NG
-
-NEON = False                # золотой неон по нижним кромкам плит
-# шахты этажей (y, x в родном кадре) и точки рядом с ними, от которых ищется пол этажа
-CORES = [(95, 372), (163, 367), (230, 370), (297, 373), (363, 377), (430, 377), (488, 380)]
-SEEDS = [(-14, -2), (-18, -5), (-10, -8), (20, -2), (26, 2), (0, -12), (-24, -8)]
 
 
 def build(im):
@@ -67,20 +61,14 @@ def build(im):
     dn2 = lambda m, k: np.roll(m, -k, 0)
     lower = body & (Y < 470) & (L > 105) & (dn2(L < 75, 2) | dn2(L < 75, 1)) & ~gap & ~nd.binary_dilation(a < 100, iterations=2)
 
-    # тёмные полосы под кромками плит ночью остаются тёмными. Окна — внутренний пол каждого этажа вокруг
-    # шахты, видный сквозь стекло: гладкая (без перепадов яркости) область рядом с шахтой этажа
-    Ls = nd.gaussian_filter(L, 0.5)
-    sm, _ = nd.label(solid & (np.hypot(nd.sobel(Ls, 1), nd.sobel(Ls, 0)) < 45))
+    # окна: ленты между плитами, квартиры — куски ленты по 13 px
+    gl, _ = nd.label(nd.binary_dilation(gap, iterations=1))
+    gi = gl * 1000 + np.floor(X / 13).astype(int)
     items = []
-    for fl, (cy, cx) in enumerate(CORES):
-        m = np.zeros_like(solid)
-        for dx, dy in SEEDS:
-            l = sm[cy + dy, cx + dx]
-            if l and 80 < (sm == l).sum() < 2500: m |= sm == l
-        m = nd.binary_fill_holes(nd.binary_closing(m, np.ones((5, 5)))) & solid
-        # этаж горит целиком, по своему расписанию: свет повторяет форму пола, без нарезки
-        v = 7 * fl + 3
-        items.append((m, int(H('g', v) * NG), 0 if H('t', v) < 0.6 else 1, 150))
+    for v in np.unique(gi[gap]):
+        if H('w', v) > 0.85: continue
+        sel = gap & (gi == v)
+        items.append((sel, int(H('g', v) * NG), 0 if H('t', v) < 0.6 else 1, 150))
     win = win_layer(a.shape, items)
 
     e = np.zeros_like(rgb)
@@ -90,7 +78,7 @@ def build(im):
     e[um] = np.array([255, 175, 80.])[None] * (0.42 * w[um] * (0.3 + 0.9 * L[um] / 230))[:, None]
     # золотой неон по нижним кромкам плит
     sh = np.clip(0.55 + 0.6 * L / 220, 0, 1.2) * 0.9
-    if NEON: e[lower] = np.maximum(e[lower], np.array([255, 196, 90.])[None] * sh[lower][:, None])
+    e[lower] = np.maximum(e[lower], np.array([255, 196, 90.])[None] * sh[lower][:, None])
     t = np.clip((Y - 480) / 90, 0, 1)
     e[atrium] = np.array([255, 180, 90.])[None] * (1.0 - 0.45 * t[atrium])[:, None]
     # нижние ленты окон: ровный тёплый свет по всей длине, к краям чуть мягче
