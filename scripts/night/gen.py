@@ -244,6 +244,8 @@ def build(n, ov):
         base = dict(ov.get(o['same'], {}))
         base.update({k: v for k, v in o.items() if k != 'same'})
         o = base
+    if 'custom' in o:
+        return build_custom(n, o)
     im = np.asarray(sprite(n)).astype(float)
     rgb, a = im[..., :3], im[..., 3]
     win, nw = windows(n, o, rgb, a)
@@ -258,6 +260,30 @@ def build(n, ov):
         tone[sel] = 0 if r < o.get('warm', 70) else (1 if r < 88 else 2)
     em = emissive(n, o, rgb, a)
     return dict(o=o, im=im, win=win, nw=nw, un=un, nu=nu, grp=grp, tone=tone, em=em)
+
+
+def build_custom(n, o):
+    """Здание с ручной отрисовкой (custom/<модуль>.py): окна и подсветка считаются в родном размере
+    кадра и уменьшаются до ширины W. Группы и тоны окон задаёт модуль (зеркальный рисунок)."""
+    import importlib
+    mod = importlib.import_module('custom.' + o['custom'])
+    f = sprite_map()[n]['frame']
+    full = np.asarray(sprite(n, f['w'])).astype(float)
+    wf, ef = mod.build(full)
+    small = sprite(n); w, h = small.size
+    # окна: доля покрытия ≥ 35%, группа/тон/яркость — ближайший горящий пиксель исходника
+    cov = np.asarray(Image.fromarray(wf[..., 3]).resize((w, h), Image.BOX)).astype(float)
+    m = cov >= 90
+    rgbx = np.stack([nd.grey_dilation(wf[..., c], size=(3, 3)) for c in range(3)], -1).astype(np.uint8)
+    rgbx = np.asarray(Image.fromarray(rgbx).resize((w, h), Image.NEAREST)).astype(int)
+    lab, nw = nd.label(m)
+    grp = np.where(m, (rgbx[..., 1] >> 5).clip(0, NG - 1), 0).astype(np.uint8)
+    tone = np.where(m, (rgbx[..., 2] // 80).clip(0, 2), 0).astype(np.uint8)
+    em3 = np.asarray(Image.fromarray(ef.clip(0, 255).astype(np.uint8)).resize((w, h), Image.BOX)).astype(float)
+    em = np.zeros((h, w, 4)); em[..., :3] = em3; em[..., 3] = 255
+    im = np.asarray(small).astype(float)
+    return dict(o=o, im=im, win=lab, nw=nw, un=lab, nu=nw, grp=grp, tone=tone, em=em.astype(np.uint8),
+                wr=np.where(m, rgbx[..., 0], 0))
 
 
 TONES = [np.array([255, 205, 130]), np.array([255, 236, 196]), np.array([206, 226, 255])]

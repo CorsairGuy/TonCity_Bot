@@ -1235,7 +1235,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   useEffect(() => {
     const s = state.current;
     s.dayNight = dayNight;
-    s.nightOn = type === 'city' && dayNight !== 'day';
+    s.nightOn = dayNight !== 'day';
     const off = onNightChange(() => {
       s.ph = s.nightOn ? shownPhase() : null;
       if (s.nightHold && !nightBusy()) {

@@ -104,7 +104,7 @@ def main():
         y0, y1, x0, x1 = max(0, ys.min() - 1), ys.max() + 2, max(0, xs.min() - 1), xs.max() + 2
         L = b['im'][..., :3] @ [0.299, 0.587, 0.114]
         win = np.zeros(wm.shape + (4,), np.uint8)
-        win[..., 0] = np.where(wm, L, 0)
+        win[..., 0] = np.where(wm, b.get('wr', L), 0)
         win[..., 1] = np.where(wm, b['grp'].astype(int) * 32 + 16, 0)
         win[..., 2] = np.where(wm, b['tone'].astype(int) * 80 + 40, 0)
         win[..., 3] = np.where(wm, 255, 0)
