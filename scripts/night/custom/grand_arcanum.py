@@ -19,21 +19,22 @@ COLS = ((180, 236), (334, 384), (518, 572))   # угловые стеклянн�
 #           washc/washc2 — цвет внизу/вверху башни (между ними — плавный переход по высоте);
 #   crown — корона залита светом снизу; dome — стеклянные купола-шары; cols — стеклянные угловые колонны
 #           светятся изнутри; slits — окна короны; rim — кромка крыши короны; glow — витражи светятся целиком
-#           ровным светом изнутри (вместо отдельных окон); *c — цвет.
+#           ровным светом изнутри (вместо отдельных окон), glowcols — и стеклянные колонны, glowslats — и ниши
+#           решёток левой грани; *c — цвет.
 GOLD = (255, 190, 105); CYAN = (70, 215, 255); AMBER = (255, 170, 80); VIOLET = (175, 95, 255)
 VARIANTS = {
     'empire': dict(lit=0.22, pod=0.3, tone=(0.6, 0.3, 0.1), wash=0.6, washc=GOLD, washc2=GOLD, crown=0.8,
                    crownc=GOLD, dome=0.6, domec=GOLD, slits=0.8, slitc=AMBER),
     'neon': dict(lit=0.22, pod=0.3, tone=(0.55, 0.35, 0.1), cols=0.95, colc=CYAN, dome=1.0, domec=CYAN,
                  slits=1.0, slitc=CYAN, rim=0.9, rimc=CYAN),
-    'lantern': dict(lit=0, pod=0.35, tone=(0.6, 0.3, 0.1), glow=0.6, glowc=AMBER, crown=0.45, crownc=GOLD,
-                    dome=0.5, domec=GOLD, slits=0.7, slitc=AMBER),
+    'lantern': dict(lit=0, pod=1.0, tone=(0.6, 0.3, 0.1), glow=0.6, glowc=AMBER, glowcols=True, glowslats=True,
+                    crown=0.45, crownc=GOLD, dome=0.5, domec=GOLD, slits=0.7, slitc=AMBER),
     'amethyst': dict(lit=0.22, pod=0.3, tone=(0.5, 0.35, 0.15), wash=0.6, washc=VIOLET, washc2=(255, 120, 200),
                      crown=0.85, crownc=GOLD, dome=0.7, domec=GOLD, slits=0.8, slitc=AMBER),
     'beacon': dict(lit=0.2, pod=0.3, tone=(0.6, 0.3, 0.1), crown=1.0, crownc=GOLD, rim=1.0, rimc=(255, 220, 150),
                    dome=1.0, domec=GOLD, slits=1.0, slitc=AMBER, cols=0.35, colc=AMBER),
 }
-VARIANT = 'empire'      # по умолчанию «Эмпайр»; остальные — варианты на выбор
+VARIANT = 'lantern'     # «Фонарь» выбран владельцем 18.10.2026; остальные — запасные варианты
 _ref = {}
 
 
@@ -77,8 +78,12 @@ def _anatomy(w):
     copper = solid & ~g & (Y > 200) & (sky < 1285) & ~nd.binary_dilation(crown | top, iterations=1)
     dn = np.zeros_like(top); dn[:-4] = top[4:]
     rim = top & ~dn                                       # нижние (передние) кромки крыши короны
+    # решётки левой грани: на правой грани в этих ярусах стеклянные прорези, на левой — медные рейки с тёмными
+    # нишами между ними; ниши светятся как окна
+    slats = solid & ~g & (L < 110) & (X > 238) & (X < 334) & (((sky > 317) & (sky < 412)) | ((sky > 957) & (sky < 1067)))
+    slats = nd.binary_opening(slats, np.ones((2, 2)))
     _ref[w] = dict(L=L, win=win, pod=pod, dome=dome, col=col, slit=slit, crown=crown, Y=Y, X=X,
-                   sky=sky, copper=copper, rim=rim, top=top)
+                   sky=sky, copper=copper, rim=rim, top=top, slats=slats)
     return _ref[w]
 
 
@@ -145,8 +150,12 @@ def build(im):
         e += halo(shaded(m, (1, 1, 1), Lr, lo=0.35, p=1.0, k=g('wash')) * col * f[..., None], ((0.2, 3), (0.1, 10)))
     if g('glow'):
         # витражи светятся целиком изнутри: видна фактура стекла, импосты тёмные
-        m = r['win'] & ~r['pod'] & ~star
-        e += halo(shaded(m, c('glowc'), Lr, lo=0.45, p=0.8, k=g('glow')), ((0.2, 3), (0.1, 9)))
+        # glowcols — стеклянные колонны так же, glowslats — ниши решёток левой грани
+        m = r['win'] & ~r['pod']
+        if g('glowcols'): m = m | r['col']
+        e += halo(shaded(m & ~star, c('glowc'), Lr, lo=0.6, p=0.8, k=g('glow')), ((0.2, 3), (0.1, 9)))
+        if g('glowslats'):
+            e += halo(shaded(r['slats'], c('glowc'), Lr, lo=0.6, p=0.8, k=g('glow') * 0.9), ((0.2, 3), (0.1, 9)))
     if g('crown'):
         m = r['crown']
         f = 0.35 + 0.65 * np.clip((Y - 70) / 220, 0, 1) ** 1.2
