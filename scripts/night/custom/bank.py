@@ -106,6 +106,8 @@ def emit(im, name):
     if st.any():
         lo, hi = np.percentile(L[st], 3), np.percentile(L[st], 97)
         sv[st] = np.array([255, 210, 60.]) * (0.4 + 0.6 * np.clip((L[st] - lo) / max(hi - lo, 1), 0, 1) ** 1.5)[:, None]
-    sv[_stem(st, Y, X)] = 0  # ножка звезды не светится (решение владельца)
+    stem = _stem(st, Y, X)
+    sv[stem] = 0
     e[st] = 0; e += sv + blur(sv, 6) * 0.4
+    e[stem] = 0  # ножка звезды не светится совсем, даже ореолом звезды (решение владельца)
     return e
