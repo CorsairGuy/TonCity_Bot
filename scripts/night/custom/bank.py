@@ -1,7 +1,8 @@
 # Городской банк (все звёзды), ночь — варианты «Ступени и колонны» + «Свет из-под карниза» (17.10.2026):
 # тёплый свет стекает по стенам из-под карниза, из-под межэтажного пояса и козырька портика; по кромкам
-# ступеней и цоколя — тёплые световые линии, колонны портика подсвечены снизу, буквы BANK горят золотом,
-# звёзды на крыше мягко подсвечены и заслоняют подсветку карниза. Пятна от фонаря у входа нет (решение владельца).
+# ступеней и цоколя — тёплые световые линии, колонны портика подсвечены снизу; звёзды заслоняют подсветку карниза.
+# 18.10.2026: у букв BANK горит лицевая грань, боковины тёмные, стена за буквами без света — надпись читается;
+# звёзды — насыщенное жёлтое золото, как у Великого Арканума. Пятна от фонаря у входа нет (решение владельца).
 # Окна — по обычной разметке ov, фонтаны 2★/3★ — своими emit там же, отсюда только подсветка: {"t": "mod", "mod": "bank"}.
 # Геометрия у всех звёзд одна, поэтому карниз, буквы, пояс и ступени берутся с базового спрайта.
 import numpy as np
@@ -10,6 +11,10 @@ from .common import parts, halo
 
 REF = 'COM_bank.png'
 WARM = np.array([255, 200, 140.])
+FACE = np.array([255, 232, 160.])   # лицевые грани букв — светлое золото
+SIDE = np.array([140, 80, 28.])     # боковины букв — тёмная медь: на ней читается контур каждой буквы
+RINGS = ((0.15, 1.5),)              # ореол букв: узкий, чтобы буквы не слились в одно пятно
+STAR_LO = 0.65     # яркость тёмных граней звезды относительно светлых
 _ref = {}
 
 
@@ -48,7 +53,9 @@ def _anatomy(w):
     comps = [(lb == i + 1) & m for i, sl in enumerate(nd.find_objects(lb)) if sl[1].stop - sl[1].start >= 40]
     pick = lambda ids: np.any([comps[i] for i in ids], axis=0)
     cols = (((X >= 237) & (X <= 251) & (Y >= 340) & (Y <= 436)) | ((X >= 317) & (X <= 334) & (Y >= 372) & (Y <= 475))) & (L > 140) & solid
-    _ref[w] = dict(tan=tan, corn=corn, let=let, filled=filled, cl=cl, ledge=pick([0, 2]), canopy=pick([3]), steps=pick([4, 5]), cols=cols)
+    # стена за буквами остаётся тёмной: светлые буквы читаются на тёмном
+    back = nd.binary_dilation(let, iterations=10)
+    _ref[w] = dict(rgb=rgb, back=back, tan=tan, corn=corn, let=let, filled=filled, cl=cl, ledge=pick([0, 2]), canopy=pick([3]), steps=pick([4, 5]), cols=cols)
     return _ref[w]
 
 
@@ -72,11 +79,11 @@ def _relief(m, L, c, lo=0.35):
 def emit(im, name):
     rgb, a, L, Y, X = parts(im)
     r = _anatomy(a.shape[1])
-    st = _gold(rgb, a, Y, 0.4) & ~r['let']
-    lab, k = nd.label(nd.binary_closing(st, np.ones((3, 3))))
-    st = nd.binary_fill_holes(np.isin(lab, np.nonzero(nd.sum(np.ones_like(st), lab, range(1, k + 1)) >= 150)[0] + 1)) & (a > 200)
+    # звёзды — всё, чем верх звёздного спрайта отличается от базового (у базового звёзд нет)
+    st = (np.abs(rgb - r['rgb']).max(-1) > 12) & (a > 200) & (Y < 0.4 * a.shape[0])
+    st = nd.binary_opening(st, np.ones((3, 3)))
     hide = nd.binary_dilation(st, iterations=2)  # звёзды заслоняют подсветку карниза
-    wall = (a > 200) & ~r['tan'] & ~r['filled']
+    wall = (a > 200) & ~r['tan'] & ~r['filled'] & ~r['back']
     e = np.zeros(rgb.shape)
     # свет из-под карниза и полоска у его нижней кромки
     cl = r['cl'] & ~hide
@@ -92,7 +99,13 @@ def emit(im, name):
     c = r['cols']; cv = np.zeros(rgb.shape)
     cv[c] = np.array([255, 205, 140.]) * (0.2 + 0.45 * np.clip((L[c] - 140) / 90, 0, 1))[:, None] * np.clip(1 - (yb - Y) / 110, 0.15, 1)[c][:, None]
     e += halo(cv, ((0.35, 3), (0.15, 9)))
-    # буквы и звёзды — золото с рельефом
-    e += halo(_relief(r['let'], L, np.array([255, 195, 100.])), ((0.5, 3), (0.25, 10)))
-    e += halo(_relief(st, L, np.array([255, 185, 80.]), 0.3), ((0.35, 3), (0.15, 9)))
+    # буквы: горит только лицевая грань (во дне она темнее светлых боковин), боковины — тёмная медь;
+    # ореол узкий, чтобы буквы не сливались в одно пятно
+    let = r['let']; face = let & (L < 150)
+    e[let] = 0
+    side = np.zeros(rgb.shape); side[let & ~face] = SIDE
+    e += halo(_relief(face, L, FACE, 0.8) + side, RINGS)
+    # звёзды — как у Великого Арканума: насыщенное жёлтое золото с объёмом граней, мягкий ореол
+    e[st] = 0
+    e += halo(_relief(st, L, np.array([255, 210, 60.]), STAR_LO), ((0.4, 6),))
     return e
