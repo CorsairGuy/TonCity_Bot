@@ -1,5 +1,5 @@
 # Великий Арканум (все звёзды), ночь — переделка 18.10.2026: прежний вариант (горят почти все стёкла
-# витражей, неоновый контур по всем кромкам, корона залита) слепил. Теперь башня тёмная, светится немногое.
+# витражей, неоновый контур по всем кромкам, корона залита) слепил. Первый набор вариантов отклонён, этот — второй.
 # Геометрия у всех звёзд одна, поэтому стёкла, колонны, купола и корона размечаются по базовому спрайту;
 # на звёздных версиях из этого вычитаются сами звёзды (их подсветка — прежняя, в ov через "lights").
 # Витражи режутся на этажи по линиям изометрии (наклон ±0.577): горит этаж-полоса, а не стекло в два этажа.
@@ -13,16 +13,27 @@ FL = 20               # высота этажа в витраже, px родно
 XC = 356              # ребро башни: левее — левая грань, правее — правая
 COLS = ((180, 236), (334, 384), (518, 572))   # угловые стеклянные колонны (x)
 
-# Варианты. lit — доля окон-кандидатов (вечером горят почти все кандидаты, к ночи гаснут);
-# tone — доли тёплого/белого/холодного света; остальное — сила подсветок (0 — нет).
+# Варианты (второй заход 18.10.2026). lit — доля окон-кандидатов (вечером горят почти все кандидаты, к ночи
+# гаснут), pod — то же для цоколя; tone — доли тёплого/белого/холодного света. Остальное — подсветки, 0 — нет:
+#   wash  — прожекторы на каждом главном карнизе освещают медь яруса над ним (свет к верху яруса спадает),
+#           washc/washc2 — цвет внизу/вверху башни (между ними — плавный переход по высоте);
+#   crown — корона залита светом снизу; dome — стеклянные купола-шары; cols — стеклянные угловые колонны
+#           светятся изнутри; slits — окна короны; rim — кромка крыши короны; glow — витражи светятся целиком
+#           ровным светом изнутри (вместо отдельных окон); *c — цвет.
+GOLD = (255, 190, 105); CYAN = (70, 215, 255); AMBER = (255, 170, 80); VIOLET = (175, 95, 255)
 VARIANTS = {
-    'quiet': dict(lit=0.3, tone=(0.55, 0.35, 0.10), pod=0.35, dome=0.2, crown=0, cols=0, bands=0, slits=0.4),
-    'crown': dict(lit=0.28, tone=(0.6, 0.3, 0.1), pod=0.3, dome=0.55, crown=0.75, cols=0, bands=0, slits=0.7),
-    'azure': dict(lit=0.24, tone=(0.25, 0.40, 0.35), pod=0.3, dome=0.7, crown=0, cols=0.55, bands=0, slits=0.7, cool=True),
-    'bands': dict(lit=0.28, tone=(0.55, 0.35, 0.10), pod=0.3, dome=0.3, crown=0, cols=0, bands=0.7, slits=0.4),
-    'deco': dict(lit=0.26, tone=(0.6, 0.3, 0.1), pod=0.3, dome=0.5, crown=0.6, cols=0, bands=0.5, slits=0.6),
+    'empire': dict(lit=0.22, pod=0.3, tone=(0.6, 0.3, 0.1), wash=0.6, washc=GOLD, washc2=GOLD, crown=0.8,
+                   crownc=GOLD, dome=0.6, domec=GOLD, slits=0.8, slitc=AMBER),
+    'neon': dict(lit=0.22, pod=0.3, tone=(0.55, 0.35, 0.1), cols=0.95, colc=CYAN, dome=1.0, domec=CYAN,
+                 slits=1.0, slitc=CYAN, rim=0.9, rimc=CYAN),
+    'lantern': dict(lit=0, pod=0.35, tone=(0.6, 0.3, 0.1), glow=0.6, glowc=AMBER, crown=0.45, crownc=GOLD,
+                    dome=0.5, domec=GOLD, slits=0.7, slitc=AMBER),
+    'amethyst': dict(lit=0.22, pod=0.3, tone=(0.5, 0.35, 0.15), wash=0.6, washc=VIOLET, washc2=(255, 120, 200),
+                     crown=0.85, crownc=GOLD, dome=0.7, domec=GOLD, slits=0.8, slitc=AMBER),
+    'beacon': dict(lit=0.2, pod=0.3, tone=(0.6, 0.3, 0.1), crown=1.0, crownc=GOLD, rim=1.0, rimc=(255, 220, 150),
+                   dome=1.0, domec=GOLD, slits=1.0, slitc=AMBER, cols=0.35, colc=AMBER),
 }
-VARIANT = 'crown'      # по умолчанию «Корона»; остальные — варианты на выбор (18.10.2026)
+VARIANT = 'empire'      # по умолчанию «Эмпайр»; остальные — варианты на выбор
 _ref = {}
 
 
@@ -43,7 +54,6 @@ def _anatomy(w):
     objs = nd.find_objects(lab)
     incol = np.zeros(a.shape, bool)
     for x0, x1 in COLS: incol |= (X >= x0) & (X < x1) & (Y > 255) & (Y < 1260)
-    kinds = {}
     dome = np.zeros_like(g); col = np.zeros_like(g); slit = np.zeros_like(g)
     for i, sl in enumerate(objs):
         m = lab == i + 1
@@ -62,18 +72,13 @@ def _anatomy(w):
     crown = solid & ~g & (np.asarray(pi) > 0)
     top = crown & (L > 150) & (Y < 140)   # плоская светлая крыша короны
     crown &= ~nd.binary_dilation(top, iterations=2)
-    # пояса: нижние кромки главных карнизов — длинные перепады яркости вниз, охватывающие колонны
-    d = np.zeros_like(L); d[:-2] = L[:-2] - L[2:]
-    m = (d > 20) & nd.binary_erosion(solid, iterations=3) & ~g & (Y > 300) & (Y < 1290)
-    lb, kb = nd.label(nd.binary_dilation(m, np.ones((1, 3))), structure=np.ones((3, 3)))
-    bands = np.zeros_like(m)
-    for i, sl in enumerate(nd.find_objects(lb)):
-        mm = (lb[sl] == i + 1) & m[sl]
-        xs = np.nonzero(mm.any(0))[0] + sl[1].start
-        # главный карниз заходит на колонну (на её кольцо), мелкие кромки витражей — нет
-        if xs.max() - xs.min() >= 40 and any((xs.min() <= x1) and (xs.max() >= x0) for x0, x1 in COLS):
-            bands[sl] |= mm
-    _ref[w] = dict(L=L, win=win, pod=pod, dome=dome, col=col, slit=slit, crown=crown, bands=bands, Y=Y, X=X)
+    sky = Y - np.where(X < XC, SK, -SK) * (X - XC)
+    # медь башни (опоры, импосты, карнизы) — от короны до крыши цоколя, без стекла
+    copper = solid & ~g & (Y > 200) & (sky < 1285) & ~nd.binary_dilation(crown | top, iterations=1)
+    dn = np.zeros_like(top); dn[:-4] = top[4:]
+    rim = top & ~dn                                       # нижние (передние) кромки крыши короны
+    _ref[w] = dict(L=L, win=win, pod=pod, dome=dome, col=col, slit=slit, crown=crown, Y=Y, X=X,
+                   sky=sky, copper=copper, rim=rim, top=top)
     return _ref[w]
 
 
@@ -124,32 +129,45 @@ def build(im):
     win = win_layer(a.shape, [(m & ~star, g, t, b) for m, g, t, b in _units(r, V) if (m & ~star).sum() >= 12])
     e = np.zeros(rgb.shape)
     Lr = r['L']
-    warm = np.array([255, 190, 110.]); gold = np.array([255, 205, 120.])
-    teal = np.array([120, 215, 255.])
-    if V['dome']:
-        # купола: стекло светится изнутри, блики и рисунок стекла видны
-        c = teal if V.get('cool') else gold
-        e += halo(shaded(r['dome'] & ~star, c, Lr, lo=0.25, p=0.8, k=V['dome']), ((0.35, 3), (0.2, 9)))
-    if V['slits']:
-        c = teal if V.get('cool') else warm
-        e += halo(shaded(r['slit'], c, Lr, lo=0.4, k=V['slits']), ((0.3, 2), (0.15, 6)))
-    if V['cols']:
-        # колонны: холодный свет изнутри, ярче к низу каждого стеклянного отрезка — видны кольца
+    g = lambda k, d=0: V.get(k, d)
+    c = lambda k: np.array(V[k], float)
+    if g('wash'):
+        # прожекторы у нижней кромки каждого яруса (высоты — «sky», по линиям этажей): карниз над ними залит
+        # светом сильнее всего, выше по ярусу свет спадает до четверти; рельеф меди сохраняется
+        sky = r['sky']; f = np.zeros(a.shape)
+        S = (250, 490, 755, 1025, 1115, 1255, 1290)
+        for s0, s1 in zip(S[:-1], S[1:]):
+            t = np.clip((s1 - sky) / (s1 - s0), 0, 1)
+            f = np.where((sky > s0) & (sky <= s1), 0.25 + 0.75 * (1 - t) ** 1.5, f)
+        hgt = np.clip((1280 - sky) / 1000, 0, 1)[..., None]
+        col = c('washc') * (1 - hgt) + c('washc2') * hgt
+        m = r['copper'] & ~star
+        e += halo(shaded(m, (1, 1, 1), Lr, lo=0.35, p=1.0, k=g('wash')) * col * f[..., None], ((0.2, 3), (0.1, 10)))
+    if g('glow'):
+        # витражи светятся целиком изнутри: видна фактура стекла, импосты тёмные
+        m = r['win'] & ~r['pod'] & ~star
+        e += halo(shaded(m, c('glowc'), Lr, lo=0.45, p=0.8, k=g('glow')), ((0.2, 3), (0.1, 9)))
+    if g('crown'):
+        m = r['crown']
+        f = 0.35 + 0.65 * np.clip((Y - 70) / 220, 0, 1) ** 1.2
+        e += halo(shaded(m, c('crownc'), Lr, lo=0.3, k=g('crown')) * f[..., None], ((0.3, 4), (0.12, 12)))
+    if g('rim'):
+        n = np.zeros(rgb.shape); n[r['rim']] = c('rimc') * g('rim')
+        e += halo(n, ((0.6, 2), (0.25, 7)))
+    if g('dome'):
+        # купола — светящиеся шары: стекло светится изнутри, блики видны, вокруг мягкий ореол
+        e += halo(shaded(r['dome'] & ~star, c('domec'), Lr, lo=0.45, p=0.7, k=g('dome')), ((0.45, 4), (0.25, 14)))
+    if g('slits'):
+        e += halo(shaded(r['slit'], c('slitc'), Lr, lo=0.5, k=g('slits')), ((0.35, 3), (0.15, 9)))
+    if g('cols'):
+        # колонны — световые трубки: ярче к низу каждого стеклянного отрезка, видны кольца
         m = r['col'] & ~star
         lab, k = nd.label(m)
         w = np.zeros(a.shape)
         for i, sl in enumerate(nd.find_objects(lab)):
             mm = lab[sl] == i + 1
             yy = Y[sl]; y0, y1 = sl[0].start, sl[0].stop
-            w[sl][mm] = (0.45 + 0.55 * ((yy - y0) / max(y1 - y0, 1)) ** 1.5)[mm]
-        e += halo(shaded(m, teal, Lr, lo=0.35, k=V['cols']) * w[..., None], ((0.3, 3), (0.15, 10)))
-    if V['crown']:
-        # корона: прожекторы у основания, свет к верху спадает; грани меди различимы
-        m = r['crown']
-        f = np.clip((Y - 70) / 220, 0, 1) ** 1.4
-        e += halo(shaded(m, warm, Lr, lo=0.3, p=1.0, k=V['crown']) * f[..., None], ((0.25, 4),))
-    if V['bands']:
-        n = np.zeros(rgb.shape); n[r['bands'] & ~star] = np.array([255, 195, 120.]) * V['bands']
-        e += halo(n, ((0.45, 2), (0.15, 6)))
+            w[sl][mm] = (0.55 + 0.45 * ((yy - y0) / max(y1 - y0, 1)) ** 1.5)[mm]
+        e += halo(shaded(m, c('colc'), Lr, lo=0.45, k=g('cols')) * w[..., None], ((0.35, 3), (0.2, 11)))
     bulb(e, X, Y, 376, 50, 4.5)   # авиаогонь
     return win, e
