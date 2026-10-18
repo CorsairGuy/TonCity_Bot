@@ -1,12 +1,13 @@
 # Городской банк (все звёзды), ночь — варианты «Ступени и колонны» + «Свет из-под карниза» (17.10.2026):
 # тёплый свет стекает по стенам из-под карниза, из-под межэтажного пояса и козырька портика; по кромкам
-# ступеней и цоколя — тёплые световые линии, колонны портика подсвечены снизу, буквы BANK горят золотом,
-# звёзды на крыше мягко подсвечены и заслоняют подсветку карниза. Пятна от фонаря у входа нет (решение владельца).
+# ступеней и цоколя — тёплые световые линии, колонны портика подсвечены снизу. Пятна от фонаря у входа нет.
+# 18.10.2026: буквы BANK — канальные: горят только лицевые грани, борта и верх тёмные, без ореола (общим ореолом
+# буквы сливались); звёзды на крыше — как у Великого Арканума: ярко-жёлтые с рельефом граней и слабым ореолом.
 # Окна — по обычной разметке ov, фонтаны 2★/3★ — своими emit там же, отсюда только подсветка: {"t": "mod", "mod": "bank"}.
 # Геометрия у всех звёзд одна, поэтому карниз, буквы, пояс и ступени берутся с базового спрайта.
 import numpy as np
 from scipy import ndimage as nd
-from .common import parts, halo
+from .common import parts, halo, blur
 
 REF = 'COM_bank.png'
 WARM = np.array([255, 200, 140.])
@@ -17,11 +18,14 @@ def _sat(rgb):
     mx = rgb.max(-1); return (mx - rgb.min(-1)) / np.maximum(mx, 1)
 
 
-def _gold(rgb, a, Y, ymax):
-    sat = _sat(rgb)
-    m = (sat > 0.42) & (rgb[..., 0] > rgb[..., 1] + 25) & (rgb[..., 1] > rgb[..., 2] + 30) & (a > 200)
-    m[int(ymax * a.shape[0]):] = False
-    return m
+def _stars(rgb, a, w):
+    """Звёзды на крыше — всё, чем кадр отличается от базового спрайта выше пояса (вместе со светлыми гранями)."""
+    import gen
+    b = np.asarray(gen.sprite(REF, w)).astype(float)
+    m = (np.abs(rgb - b[..., :3]).max(-1) > 20) & (a > 200)
+    m[int(0.42 * a.shape[0]):] = False
+    lab, k = nd.label(nd.binary_opening(m, np.ones((2, 2))))
+    return nd.binary_fill_holes(np.isin(lab, np.nonzero(nd.sum(m, lab, range(1, k + 1)) >= 150)[0] + 1)) & (a > 200)
 
 
 def _anatomy(w):
@@ -61,20 +65,10 @@ def _down(line, h, mask):
     return f * mask
 
 
-def _relief(m, L, c, lo=0.35):
-    e = np.zeros(L.shape + (3,))
-    if m.any():
-        a, b = np.percentile(L[m], 5), np.percentile(L[m], 95)
-        e[m] = c * (lo + (1 - lo) * np.clip((L[m, None] - a) / max(b - a, 1), 0, 1))
-    return e
-
-
 def emit(im, name):
     rgb, a, L, Y, X = parts(im)
     r = _anatomy(a.shape[1])
-    st = _gold(rgb, a, Y, 0.4) & ~r['let']
-    lab, k = nd.label(nd.binary_closing(st, np.ones((3, 3))))
-    st = nd.binary_fill_holes(np.isin(lab, np.nonzero(nd.sum(np.ones_like(st), lab, range(1, k + 1)) >= 150)[0] + 1)) & (a > 200)
+    st = _stars(rgb, a, a.shape[1])
     hide = nd.binary_dilation(st, iterations=2)  # звёзды заслоняют подсветку карниза
     wall = (a > 200) & ~r['tan'] & ~r['filled']
     e = np.zeros(rgb.shape)
@@ -92,7 +86,16 @@ def emit(im, name):
     c = r['cols']; cv = np.zeros(rgb.shape)
     cv[c] = np.array([255, 205, 140.]) * (0.2 + 0.45 * np.clip((L[c] - 140) / 90, 0, 1))[:, None] * np.clip(1 - (yb - Y) / 110, 0.15, 1)[c][:, None]
     e += halo(cv, ((0.35, 3), (0.15, 9)))
-    # буквы и звёзды — золото с рельефом
-    e += halo(_relief(r['let'], L, np.array([255, 195, 100.])), ((0.5, 3), (0.25, 10)))
-    e += halo(_relief(st, L, np.array([255, 185, 80.]), 0.3), ((0.35, 3), (0.15, 9)))
+    # буквы: лицевые грани (тёмные в дневном спрайте) горят тёплым белым, борта и верх почти не светятся
+    m = r['let']; ln = np.zeros(rgb.shape)
+    front = m & (L < 165); side = m & (L >= 165) & (L < 190); top = m & (L >= 190)
+    ln[front] = np.array([255, 215, 140.]) * (0.85 + 0.15 * np.clip((L[front] - 120) / 45, 0, 1))[:, None]
+    ln[side] = np.array([255, 180, 90.]) * 0.07; ln[top] = np.array([255, 190, 110.]) * 0.1
+    e[m] = 0; e += ln + blur(ln, 1.2) * 0.35
+    # звёзды как у Арканума: цвет 255,210,60, рельеф граней (shade 1.5, lo 0.4), ореол 0.4
+    sv = np.zeros(rgb.shape)
+    if st.any():
+        lo, hi = np.percentile(L[st], 3), np.percentile(L[st], 97)
+        sv[st] = np.array([255, 210, 60.]) * (0.4 + 0.6 * np.clip((L[st] - lo) / max(hi - lo, 1), 0, 1) ** 1.5)[:, None]
+    e[st] = 0; e += sv + blur(sv, 6) * 0.4
     return e
