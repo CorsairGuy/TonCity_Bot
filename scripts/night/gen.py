@@ -287,8 +287,10 @@ def build_custom(n, o):
     grp = np.where(m, (rgbx[..., 1] >> 5).clip(0, NG - 1), 0).astype(np.uint8)
     tone = np.where(m, (rgbx[..., 2] // 80).clip(0, 2), 0).astype(np.uint8)
     em3 = np.asarray(Image.fromarray(ef.clip(0, 255).astype(np.uint8)).resize((w, h), Image.BOX)).astype(float)
-    em = np.zeros((h, w, 4)); em[..., :3] = em3; em[..., 3] = 255
     im = np.asarray(small).astype(float)
+    if o.get('lights'):  # подсветка ключами поверх нарисованной кодом (звёзды Арканума)
+        em3 = em3 + emissive(n, o, im[..., :3], im[..., 3])[..., :3]
+    em = np.zeros((h, w, 4)); em[..., :3] = em3.clip(0, 255); em[..., 3] = 255
     return dict(o=o, im=im, win=lab, nw=nw, un=lab, nu=nw, grp=grp, tone=tone, em=em.astype(np.uint8),
                 wr=np.where(m, rgbx[..., 0], 0))
 
