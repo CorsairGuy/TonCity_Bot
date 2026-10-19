@@ -35,21 +35,31 @@ export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect
   return (
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 1, p: 1, maxWidth: '100%', overflowX: 'auto', scrollbarWidth: 'none',
-      bg: 'canvas.overlay', border: '1px solid', borderColor: 'border.default', borderRadius: '12px', boxShadow: 'shadow.large',
+      bg: 'rgba(22,27,34,.78)', border: '1px solid', borderColor: 'rgba(255,255,255,.18)', borderRadius: '999px',
+      boxShadow: '0 8px 24px rgba(0,0,0,.28)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
     }}>
       {CITY_TOOLS.map((grp, gi) => (
         <Box key={gi} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-          {gi > 0 && <Box sx={{ width: 1, height: 20, bg: 'border.default', mx: 1 }} />}
           {grp.map(t => {
             const on = mode === t.mode;
-            const onBg = t.danger ? 'danger.emphasis' : 'accent.emphasis';
+            const onBg = 'accent.emphasis';
             return (
               <Tooltip key={t.mode} text={t.title} direction="n">
                 <Box sx={{ position: 'relative' }}>
                   <IconButton icon={t.icon} aria-label={t.title} variant="invisible" onClick={() => onSelect(t.mode)}
-                    sx={on
-                      ? { bg: onBg, '& svg': { color: 'fg.onEmphasis' }, '&:hover:not([disabled])': { bg: onBg } }
-                      : { '& svg': { color: t.danger ? 'danger.fg' : 'fg.default' } }} />
+                    sx={{
+                      width: 36, height: 36, minWidth: 36, p: 0, borderRadius: '10px',
+                      '& svg': { width: 18, height: 18, color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)' },
+                      ...(on
+                        ? { bg: onBg, '&:hover:not([disabled])': { bg: onBg } }
+                        : t.danger
+                          ? {
+                            '&:hover:not([disabled]), &:focus-visible': { bg: 'rgba(248,81,73,.2)', '& svg': { color: '#ff7b72' } },
+                          }
+                          : {
+                            '&:hover:not([disabled])': { bg: 'rgba(255,255,255,.14)' },
+                          }),
+                    }} />
                   {dots[t.mode] && !on && <Box sx={{ position: 'absolute', top: '4px', right: '4px', width: 6, height: 6, borderRadius: '50%', bg: 'accent.emphasis', pointerEvents: 'none' }} />}
                 </Box>
               </Tooltip>
