@@ -34,12 +34,12 @@ export const toolFor = (m: PanelMode): Tool => CITY_TOOLS.flat().find(t => t.mod
 export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect: (m: PanelMode) => void; dots: Partial<Record<PanelMode, boolean>> }) {
   return (
     <Box sx={{
-      display: 'flex', alignItems: 'center', gap: 1, p: 1, maxWidth: '100%', overflowX: 'auto', scrollbarWidth: 'none',
+      display: 'flex', alignItems: 'center', gap: 2, p: 2, maxWidth: '100%', overflowX: 'auto', scrollbarWidth: 'none',
       bg: 'rgba(22,27,34,.78)', border: '1px solid', borderColor: 'rgba(255,255,255,.18)', borderRadius: '999px',
       boxShadow: '0 8px 24px rgba(0,0,0,.28)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
     }}>
       {CITY_TOOLS.map((grp, gi) => (
-        <Box key={gi} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+        <Box key={gi} sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
           {grp.map(t => {
             const on = mode === t.mode;
             const onBg = 'accent.emphasis';
