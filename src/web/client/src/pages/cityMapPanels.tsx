@@ -62,7 +62,7 @@ export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect
       display: 'flex', alignItems: 'center', gap: 2, p: 2, maxWidth: '100%', overflowX: 'auto',
       scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' },
       bg: 'rgba(22,27,34,.5)', border: '1px solid', borderColor: 'rgba(255,255,255,.18)',
-      borderRadius: 16px, boxShadow: 'shadow.large',
+      borderRadius: '16px', boxShadow: 'shadow.large',
       backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
     }}>
       {CITY_TOOLS.flatMap((grp, gi) => [
