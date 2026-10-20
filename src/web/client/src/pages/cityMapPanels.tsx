@@ -31,42 +31,46 @@ export const CITY_TOOLS: Tool[][] = [
 ];
 export const toolFor = (m: PanelMode): Tool => CITY_TOOLS.flat().find(t => t.mode === m) ?? CITY_TOOLS[0][0];
 
+function PaletteTool({ t, on, dot, onSelect }: { t: Tool; on: boolean; dot: boolean; onSelect: (m: PanelMode) => void }) {
+  const onBg = 'accent.emphasis';
+  return (
+    <Box sx={{ display: 'flex', lineHeight: 0, position: 'relative', flexShrink: 0, '& > span': { display: 'flex', lineHeight: 0 } }}>
+      <Tooltip text={t.title} direction="n">
+        <IconButton icon={t.icon} aria-label={t.title} variant="invisible" size="medium" onClick={() => onSelect(t.mode)}
+          sx={{
+            width: 36, height: 36, minWidth: 36, p: 0, borderRadius: 2,
+            '& svg': { width: 18, height: 18, color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)' },
+            ...(on
+              ? { bg: onBg, '&:hover:not([disabled])': { bg: onBg } }
+              : t.danger
+                ? { '&:hover:not([disabled]), &:focus-visible': { bg: 'danger.subtle', '& svg': { color: 'danger.fg' } } }
+                : { '&:hover:not([disabled])': { bg: 'rgba(255,255,255,.14)' } }),
+          }} />
+      </Tooltip>
+      {dot && !on && <Box sx={{ position: 'absolute', top: '4px', right: '4px', width: 6, height: 6, borderRadius: '50%', bg: 'accent.emphasis', pointerEvents: 'none' }} />}
+    </Box>
+  );
+}
+
 export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect: (m: PanelMode) => void; dots: Partial<Record<PanelMode, boolean>> }) {
+  // стекло оставляем: док висит на карте, непрозрачный overlay её закрывал бы. Геометрия — Primer:
+  // поле 8px со всех сторон (p:2), радиус 12 (токен 3, как у overlay/плашки кисти), кнопки medium 36,
+  // скругление кнопки 6 (токен 2). Tooltip — inline-span, без flex/lineHeight:0 снизу появляется strut
+  // и нижнее поле перестаёт быть 8px.
   return (
     <Box sx={{
-      display: 'flex', alignItems: 'center', gap: 2, p: 2, maxWidth: '100%', overflowX: 'auto', scrollbarWidth: 'none',
-      bg: 'rgba(22,27,34,.5)', border: '1px solid', borderColor: 'rgba(255,255,255,.18)', borderRadius: '20px',
-      boxShadow: '0 8px 24px rgba(0,0,0,.28)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+      display: 'flex', alignItems: 'center', gap: 2, p: 2, maxWidth: '100%', overflowX: 'auto',
+      scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' },
+      bg: 'rgba(22,27,34,.5)', border: '1px solid', borderColor: 'rgba(255,255,255,.18)',
+      borderRadius: 3, boxShadow: 'shadow.large',
+      backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
     }}>
-      {CITY_TOOLS.map((grp, gi) => (
-        <Box key={gi} sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-          {grp.map(t => {
-            const on = mode === t.mode;
-            const onBg = 'accent.emphasis';
-            return (
-              <Tooltip key={t.mode} text={t.title} direction="n">
-                <Box sx={{ position: 'relative' }}>
-                  <IconButton icon={t.icon} aria-label={t.title} variant="invisible" onClick={() => onSelect(t.mode)}
-                    sx={{
-                      width: 36, height: 36, minWidth: 36, p: 0, borderRadius: '10px',
-                      '& svg': { width: 18, height: 18, color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)' },
-                      ...(on
-                        ? { bg: onBg, '&:hover:not([disabled])': { bg: onBg } }
-                        : t.danger
-                          ? {
-                            '&:hover:not([disabled]), &:focus-visible': { bg: 'rgba(248,81,73,.2)', '& svg': { color: '#ff7b72' } },
-                          }
-                          : {
-                            '&:hover:not([disabled])': { bg: 'rgba(255,255,255,.14)' },
-                          }),
-                    }} />
-                  {dots[t.mode] && !on && <Box sx={{ position: 'absolute', top: '4px', right: '4px', width: 6, height: 6, borderRadius: '50%', bg: 'accent.emphasis', pointerEvents: 'none' }} />}
-                </Box>
-              </Tooltip>
-            );
-          })}
-        </Box>
-      ))}
+      {CITY_TOOLS.flatMap((grp, gi) => [
+        gi > 0 ? <Box key={`sep-${gi}`} aria-hidden sx={{ width: 1, alignSelf: 'stretch', bg: 'rgba(255,255,255,.18)', flexShrink: 0 }} /> : null,
+        ...grp.map(t => (
+          <PaletteTool key={t.mode} t={t} on={mode === t.mode} dot={!!dots[t.mode]} onSelect={onSelect} />
+        )),
+      ])}
     </Box>
   );
 }
