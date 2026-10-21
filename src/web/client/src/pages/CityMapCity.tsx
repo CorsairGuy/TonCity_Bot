@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
+import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
 import { CheckIcon, ChevronLeftIcon, SyncIcon, XIcon } from '@primer/octicons-react';
 import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
+import { MapLoader, DATA_SHARE, allCounted } from '../components/MapLoader';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { useMapDayNight } from '../hooks/useMapDayNight';
@@ -232,6 +233,7 @@ export function CityMapCity() {
 
   const [rows, setRows] = useState<CityRow[] | CapitalRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dataDone, setDataDone] = useState(0); // сколько запросов загрузки страницы уже ответило
   const [buildingsCatalog, setBuildingsCatalog] = useState<BuildingDef[]>([]);
   const [targets, setTargets] = useState<CityStrategyTarget[]>([]);
   const [manualQueue, setManualQueue] = useState<CityStrategyQueueItem[]>([]);
@@ -316,7 +318,8 @@ export function CityMapCity() {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
+    setDataDone(0);
+    allCounted([
       api.city(),
       api.buildingsList('city'),
       account ? api.cityStrategy(account) : Promise.resolve({ ok: true, targets: [] as CityStrategyTarget[], queue: [] as CityStrategyQueueItem[], reconstructPlan: [] as CityStrategyQueueItem[] }),
@@ -326,7 +329,7 @@ export function CityMapCity() {
       api.accounts().catch(() => ({ ok: false as const, accounts: [] })),
       account ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
       account ? api.cityDiversity(account).catch(() => ({ ok: false as const, income_bonus: 0 })) : Promise.resolve({ ok: false as const, income_bonus: 0 }),
-    ]).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
+    ], () => setDataDone(n => n + 1)).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
       if (c.ok) setRows(c.rows);
       if (b.ok) setBuildingsCatalog(b.buildings);
       if (t.ok) { setTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); }
@@ -883,7 +886,7 @@ export function CityMapCity() {
   const moveRows = queue.flatMap(a => a.kind === 'move' ? [{ id: a.id, from: a.from, to: a.to, sprite: ownedAt(a.from.x, a.from.y)?.id }] : []);
   const moveQueued = (from: number, to: number) => setManualQueue(prev => { const n = [...prev]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; });
 
-  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
+  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><MapLoader pct={DATA_SHARE * dataDone / 9} text={`Данные города ${dataDone} / 9`} /></Box>;
 
   const panelMode = mode as PanelMode;
   const HINT: Partial<Record<PanelMode, string>> = {
