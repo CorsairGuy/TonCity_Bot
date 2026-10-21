@@ -23,7 +23,7 @@
 ::-webkit-scrollbar-corner { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   transition: background .4s;
 }
 .is-scrolling::-webkit-scrollbar-thumb {
@@ -57,6 +57,10 @@ button { font-family: inherit; }
   --purple: #8250df;
   --purple-dim: rgba(130,80,223,.1);
   --radius: 16px;
+  /* скругления панели: мелкие элементы, карточки и плитки, окна */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
   --sidebar-w: 240px;
   --header-h: 0px;
 }
@@ -94,7 +98,7 @@ body {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px;
   cursor: pointer; color: var(--fg-muted);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   transition: background .1s, color .1s;
   border: none; background: none;
   width: 100%; text-align: left; outline: none;
@@ -123,7 +127,7 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px;
   cursor: pointer; color: var(--fg-muted);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   transition: background .1s, color .1s;
   border: none; background: none;
   width: 100%; text-align: left; outline: none;
@@ -193,7 +197,7 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   position: relative; display: flex; width: 77px; height: 77px;
   align-content: center; justify-content: center; align-items: center;
   flex-direction: column; flex-wrap: nowrap;
-  border-radius: 12px; box-sizing: border-box;
+  border-radius: var(--radius-md); box-sizing: border-box;
   /* 15.10.2026: блик без размытия (было 1px blur) — на вид то же, но размытая внутренняя тень у
      тысячи карточек заметно тормозила прокрутку («Ежедневная награда», «Политики») */
   box-shadow: inset 1px 1px 0 0 rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.5);
@@ -211,12 +215,12 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 .item-card__img { display: block; height: 77px; object-fit: contain; }
 .item-card__count {
   position: absolute; color: #fff; background: #2196f3;
-  border-radius: 9px; padding: 1px 8px; right: -4px; bottom: -4px;
+  border-radius: var(--radius-md); padding: 1px 8px; right: -4px; bottom: -4px;
   font-size: 13px; line-height: 1.5; z-index: 1;
 }
 .item-card__locked {
   position: absolute; color: #fff; background: #e5534b;
-  border-radius: 9px; padding: 1px 8px; right: -4px; bottom: 20px;
+  border-radius: var(--radius-md); padding: 1px 8px; right: -4px; bottom: 20px;
   font-size: 13px; line-height: 1.5; z-index: 1;
 }
 
@@ -280,26 +284,10 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   background: var(--accent-dim); color: var(--accent);
 }
 
-/* ── map editor ────────────────────────────────────────────────────────────── */
-.map-panel {
-  width: 240px; min-width: 240px;
-  border-left: 1px solid var(--border);
-  background: rgba(255,255,255,.7);
-  display: flex; flex-direction: column; overflow: hidden;
-}
-
-/* меню режимов (Показатели/Улучшение/План/.../Прогноз) — перенесено из тулбара в шапку
-   правого сайдбара, чтобы сайдбар был самодостаточным блоком на всю высоту страницы */
-.map-panel-tabs {
-  display: flex; flex-wrap: wrap; gap: 4px;
-  padding: 8px; flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-}
-
 .map-bitem {
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 8px;
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 14px;
   color: var(--fg-muted);
@@ -318,7 +306,7 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 /* category tabs — 1:1 Primer SegmentedControl, full width */
 #map-cat-tabs {
   background: #eaeef2;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   height: 32px;
   display: flex;
   align-items: stretch;
@@ -369,12 +357,14 @@ html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
   top: 0; right: 0; bottom: 0; left: 0;
   background: #ffffff;
   border: 1px solid #d1d9e0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   box-shadow: none;
 }
 
-/* hide sidebar behind Primer Dialog overlay */
-body:has([data-portal-root] [role=dialog]) .sidebar { z-index: 0 !important; }
+/* Свой слой для всех порталов Primer (окна, меню, подсказки). Без него каждый портал лежит
+   на z-index 1 в корневом контексте, и любой значок страницы с z-index ≥ 2 (точка «применена»
+   у политик, счётчики предметов) пробивал открытое окно; сайдбар (50) тоже оказывался сверху. */
+#__primerPortalRoot__ { z-index: 100; }
 
 /* ── плотность модалок (Dialog из @primer/react/experimental) ────────────────
    Шапка у него уже 8px, а тело (Dialog.Body) и футер (Dialog.Footer) заданы в
@@ -400,16 +390,11 @@ body:has([data-portal-root] [role=dialog]) .sidebar { z-index: 0 !important; }
 .mobile-topbar { display: none; }
 .sidebar-mobile-head { display: none; }
 .menu-overlay { display: none; }
-/* правый сайдбар карты города (.map-panel) на десктопе — как раньше, всегда виден в потоке;
-   крестик закрытия (нужен только там, где сайдбар превращается в оверлей) и подложка скрыты */
-.map-panel-head { display: none; }
-.map-panel-overlay { display: none; }
 
 /* Узкий экран (портрет) ИЛИ низкий экран (телефон в альбомной ориентации — ширина > 768px, но
    высота < ~480px): и там, и там боковой сайдбар неуместен → полноэкранное меню по бургеру. */
 @media (max-width: 768px), (max-height: 480px) {
-  /* топбар: липкий сверху, стеклянный — слева бургер+лого, справа (если страница зарегистрировала,
-     см. PanelToggleContext) — кнопка правой панели этой страницы. */
+  /* топбар: липкий сверху, стеклянный — слева бургер и лого */
   .mobile-topbar {
     display: flex; align-items: center; justify-content: space-between;
     position: sticky; top: 0; z-index: 30;
@@ -453,6 +438,9 @@ body:has([data-portal-root] [role=dialog]) .sidebar { z-index: 0 !important; }
   /* контент занимает всю ширину, без отступа под сайдбар */
   .main { margin-left: 0; min-height: calc(100vh - 52px); }
 
+  /* таблицы Primer: поуже поля и перенос длинных имён, чтобы последняя колонка с кнопкой влезала */
+  .Table .TableHeader, .Table .TableCell { padding-inline: 8px !important; overflow-wrap: anywhere; }
+
   /* пункты меню чуть крупнее для удобного тапа */
   .nav-item, .nav-group-head { padding-top: 11px; padding-bottom: 11px; font-size: 15px; }
   .nav-sub .nav-item { padding: 10px 8px 10px 32px; font-size: 15px; }
@@ -460,38 +448,6 @@ body:has([data-portal-root] [role=dialog]) .sidebar { z-index: 0 !important; }
   /* пока открыто меню — фон не скроллится */
   body.menu-open { overflow: hidden; }
 
-  /* правый сайдбар карты города (страница "Карта города") — по аналогии с левым меню навигации:
-     по умолчанию свёрнут, открывается кнопкой в общем мобильном хидере (см. PanelToggleContext,
-     App.tsx MobilePanelButton), уезжает за экран вправо и выезжает поверх канвы как оверлей. */
-  .map-panel {
-    position: fixed; top: 0; right: 0; z-index: 50;
-    width: 88vw; max-width: 340px;
-    height: 100vh; height: 100dvh;
-    transform: translateX(100%);
-    transition: transform .25s ease;
-    will-change: transform;
-    /* как у левого меню: почти непрозрачный стеклянный фон, иначе карта просвечивает сквозь текст */
-    background: rgb(255 255 255 / 98%);
-    backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
-  }
-  .map-panel.open { transform: translateX(0); }
-
-  /* крестик закрытия РОВНО на месте кнопки открытия в топбаре (тот же правый паддинг 8px) — панель
-     (z-index 50) выезжает поверх топбара (z-index 30) и крестик оказывается там же, где секунду
-     назад была кнопка "открыть панель". */
-  .map-panel-head {
-    display: flex; align-items: center; justify-content: flex-end;
-    height: 52px; padding: 0 8px; flex-shrink: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  /* полупрозрачный фон под правым сайдбаром — тот же приём, что .menu-overlay слева */
-  .map-panel-overlay {
-    display: block; position: fixed; inset: 0; z-index: 45;
-    background: rgba(0,0,0,.35);
-    opacity: 0; pointer-events: none; transition: opacity .25s ease;
-  }
-  .map-panel-overlay.show { opacity: 1; pointer-events: auto; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -562,10 +518,6 @@ html[data-theme="dark"] .ic-shard_eternal,html[data-theme="dark"] .ic-mystery_et
 }
 
 /* карта и редактор */
-html[data-theme="dark"] .map-panel { background: rgba(22,27,34,.7); border-left-color: var(--border); }
-@media (max-width: 768px), (max-height: 480px) {
-  html[data-theme="dark"] .map-panel { background: rgb(22 27 34 / 82%); }
-}
 html[data-theme="dark"] #map-cat-tabs { background: #161b22; border-color: #30363d; }
 html[data-theme="dark"] .map-cat-tab.active::before { background: #21262d; border-color: #30363d; }
 html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
@@ -600,7 +552,7 @@ html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
 /* Ежедневная награда: дни с монетами/кристаллами — цветная полупрозрачная подложка, адаптивна к теме */
 .dr-coins    { --rc: #d4a017; background: rgba(212,160,23,.13); border: 1px solid rgba(212,160,23,.5); gap: 4px; }
 .dr-crystals { --rc: #2ea043; background: rgba(46,160,67,.12);  border: 1px solid rgba(46,160,67,.5);  gap: 4px; }
-.dr-amount   { font-size: 12px; font-weight: 600; color: var(--fgColor-default, var(--fg)); line-height: 1; white-space: nowrap; }
+.dr-amount   { font-size: 12px; font-weight: 600; color: var(--fg); line-height: 1; white-space: nowrap; }
 /* текущий день — мягкий ореол цвета редкости (кольцо без размытия, статичное), будущие дни приглушены */
 html .item-card__box.dr-today { border-color: var(--rc, var(--accent)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--rc, var(--accent)) 28%, transparent); }
 .dr-future { opacity: .45; }
@@ -642,13 +594,15 @@ html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(
 /* ── Модальные окна нового вида (components/RichDialog.tsx, 15.10.2026) ──────────────────────
    Только окна с .rdlg в теле: шапка с иконкой, тело с отступами 16/20, подвал с итогом и кнопками;
    на телефоне — лист снизу со скруглением и «ручкой», кнопки во всю ширину одна над другой. */
-[role="dialog"]:has(.rdlg) { border-radius: 14px; }
+/* форма окна — одна для всех диалогов, а не только для новых (.rdlg): раньше рядом жили окна
+   со скруглением 14 и 6 px и разным видом листа на телефоне */
+[role="dialog"][data-position-regular], [role="dialog"][data-position-narrow] { border-radius: var(--radius-lg); }
 [role="dialog"]:has(.rdlg) .rdlg-head { padding: 14px 16px 12px 20px; }
 [role="dialog"][data-position-regular] .DialogOverflowWrapper > *:has(> .rdlg),
 [role="dialog"][data-position-narrow] .DialogOverflowWrapper > *:has(> .rdlg) { padding: 16px 20px; }
 [role="dialog"]:has(.rdlg) .DialogOverflowWrapper + .rdlg-foot { padding: 12px 20px; background: var(--accent-dim); align-items: center; flex-wrap: nowrap; }
 .rdlg { display: flex; flex-direction: column; gap: 16px; }
-.rdlg-ic { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.rdlg-ic { width: 40px; height: 40px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .rdlg-ic--accent { background: var(--accent-mid); color: var(--accent); }
 .rdlg-ic--danger { background: var(--red-dim); color: var(--red); }
 .rdlg-ic--attention { background: var(--yellow-dim); color: var(--yellow); }
@@ -661,7 +615,7 @@ html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(
 .rdlg-sec { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: .5px;
   text-transform: uppercase; color: var(--fg-muted); margin-bottom: 8px; min-height: 24px; }
 .rdlg-sec > :last-child:not(:first-child) { margin-left: auto; text-transform: none; letter-spacing: 0; }
-.rdlg-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.rdlg-list { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
 .rdlg-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--border);
   font-size: 13px; cursor: pointer; user-select: none; }
 .rdlg-row:first-child { border-top: 0; }
@@ -670,13 +624,13 @@ html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(
 .rdlg-row .num { font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
 .rdlg-row .why { font-size: 12px; color: var(--fg-muted); width: 96px; text-align: right; flex-shrink: 0; }
 .rdlg-row.off .why { color: var(--red); }
-.rdlg-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 12px; }
+.rdlg-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; display: flex; align-items: center; gap: 12px; }
 .rdlg-card.off { opacity: .6; }
 .rdlg-card__name { font-weight: 600; font-size: 14px; display: block; }
-.rdlg-form { border: 1px dashed var(--border); border-radius: 10px; padding: 12px; }
+.rdlg-form { border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 12px; }
 .rdlg-tg { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
 .rdlg-tg:first-child { border-top: 0; padding-top: 0; }
-.rdlg-note { border-radius: 10px; padding: 10px 12px; font-size: 13px; display: flex; gap: 8px; align-items: flex-start; }
+.rdlg-note { border-radius: var(--radius-md); padding: 10px 12px; font-size: 13px; display: flex; gap: 8px; align-items: flex-start; }
 .rdlg-note--info { background: var(--accent-dim); border: 1px solid var(--border); color: var(--fg-muted); }
 .rdlg-note--warn { background: var(--yellow-dim); border: 1px solid rgb(212 167 44 / 40%); color: var(--fg); }
 .rdlg-note summary { cursor: pointer; color: var(--fg); font-weight: 600; }
@@ -685,8 +639,8 @@ html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(
 .rdlg-empty__t { font-weight: 600; color: var(--fg); }
 .rdlg-empty__d { font-size: 13px; max-width: 360px; }
 @media (max-width: 768px) {
-  [role="dialog"][data-position-narrow="bottom"]:has(.rdlg) { border-radius: 18px 18px 0 0; max-height: 92vh; }
-  [role="dialog"][data-position-narrow="bottom"]:has(.rdlg)::before { content: ""; display: block; width: 38px; height: 5px;
+  [role="dialog"][data-position-narrow="bottom"] { border-radius: 18px 18px 0 0; max-height: 92vh; }
+  [role="dialog"][data-position-narrow="bottom"]::before { content: ""; display: block; width: 38px; height: 5px;
     border-radius: 3px; background: var(--border); margin: 8px auto 0; flex-shrink: 0; }
   [role="dialog"]:has(.rdlg) .rdlg-head { padding: 8px 12px 10px 16px; }
   [role="dialog"][data-position-narrow] .DialogOverflowWrapper > *:has(> .rdlg) { padding: 14px 16px; }

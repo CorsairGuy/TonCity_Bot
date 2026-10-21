@@ -1,7 +1,24 @@
+// Ответ без JSON (502 от прокси, пока бот перезапускается; HTML-заглушка) и обрыв сети
+// превращаются в обычный {ok:false,error}: страницы уже умеют показывать error, а исключение
+// уходило в консоль и оставляло на экране пустое «нет данных».
 async function req<T>(url: string, opts?: RequestInit): Promise<T> {
-  const r = await fetch(url, opts);
+  let r: Response;
+  try { r = await fetch(url, opts); }
+  catch { return offline<T>('Нет связи с ботом'); }
   if (r.status === 401) window.dispatchEvent(new CustomEvent('tc-unauthorized'));
-  return r.json() as Promise<T>;
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('json')) return offline<T>(`Бот недоступен (${r.status})`);
+  try {
+    const d = await r.json() as T;
+    window.dispatchEvent(new CustomEvent('tc-api-online'));
+    return d;
+  } catch { return { ok: false, error: `Некорректный ответ сервера (${r.status})` } as T; }
+}
+
+// общий баннер «Бот недоступен» (components/OfflineBanner) слушает эти события
+function offline<T>(error: string): T {
+  window.dispatchEvent(new CustomEvent('tc-api-offline', { detail: error }));
+  return { ok: false, error } as T;
 }
 
 const post = (body?: unknown): RequestInit => ({
@@ -29,7 +46,7 @@ export const api = {
   setPassword: (password: string) => req<{ ok: boolean; error?: string }>('/api/password', post({ password })),
 
   // accounts
-  accounts: () => req<{ ok: boolean; accounts: Account[] }>('/api/accounts'),
+  accounts: (name?: string) => req<{ ok: boolean; accounts: Account[] }>('/api/accounts' + (name ? `?name=${encodeURIComponent(name)}` : '')),
   // точечное обновление одного аккаунта — не тянуть весь флот ради баланса одного (см. SatoshiTower)
   accountById: (id: number) => req<{ ok: boolean; account: Account; error?: string }>(`/api/accounts/${id}`),
   addAccount: (url: string) =>
@@ -207,7 +224,7 @@ export const api = {
   capitals: () => req<{ ok: boolean; rows: CapitalRow[] }>('/api/capital-snapshots'),
 
   // city — server: {rows: [{account, buildings, updated_at}]}
-  city: () => req<{ ok: boolean; rows: CityRow[] }>('/api/city-snapshots'),
+  city: (account?: string) => req<{ ok: boolean; rows: CityRow[] }>('/api/city-snapshots' + (account ? `?account=${encodeURIComponent(account)}` : '')),
 
   // Действия по городу (страница "Города" → "Действия") — заменяет автоматику по эталонному плану
   buildingsList: (type: 'city' | 'capital' = 'city') =>
@@ -563,8 +580,8 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/storage-live/${accountId}/sync`, post({})),
 
   // policies (Кабинет мэра / Библиотека политик) — читается из БД, как и /api/inventory
-  policies: () =>
-    req<{ ok: boolean; byAccount: Record<string, PoliciesAccountData>; accIdByName: Record<string, number>; error?: string }>('/api/policies'),
+  policies: (account?: string) =>
+    req<{ ok: boolean; byAccount: Record<string, PoliciesAccountData>; accIdByName: Record<string, number>; error?: string }>('/api/policies' + (account ? `?account=${encodeURIComponent(account)}` : '')),
   policyAction: (accountId: number, action: PolicyActionName, payload: Record<string, unknown> = {}) =>
     req<PolicyActionResponse>(`/api/policies/${accountId}/action`, post({ action, ...payload })),
 
@@ -730,7 +747,7 @@ export interface DailyAdsRow {
 
 export interface AppConfig {
   logLevel: string;
-  ui?: { navOpenGroups?: string[]; mapDayNight?: 'auto' | 'day' | 'night' };
+  ui?: { navOpenGroups?: string[]; mapDayNight?: 'auto' | 'day' | 'night'; theme?: 'light' | 'dark' | null };
   update?: { auto?: boolean };
   telegram?: {
     botToken?: string;

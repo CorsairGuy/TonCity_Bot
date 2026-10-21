@@ -59,7 +59,9 @@ module.exports=function(app,ctx){
   app.get('/api/city-snapshots',async(req,res)=>{
     try{
       const{CitySnapshot}=require('../../db/index');
-      const rows=await CitySnapshot.findAll({order:[['account','ASC']]});
+      // ?account= — снимок одного города (карте не нужен весь флот)
+      const where=req.query.account?{account:String(req.query.account)}:undefined;
+      const rows=await CitySnapshot.findAll({where,order:[['account','ASC']]});
       // unlockedSections=null означает «в снимке этих данных ещё нет» (старая строка или снимок
       // писал код, который поле не заполнял). Это НЕ то же самое, что пустой список: на пустом
       // списке карта заперла бы весь город. Клиент по null просто не рисует замки — см. CityMapCity.

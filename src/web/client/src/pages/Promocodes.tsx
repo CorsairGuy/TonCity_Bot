@@ -22,14 +22,22 @@ function fmtWhen(s: string) {
 function aggregate(accs: PromoAccount[]): Agg[] {
   const live = accs.filter(a => a.id != null);
   const m = new Map<string, Agg>();
+  // один итог на аккаунт и код: был успех — «получил» (отказ до него, например повтор после
+  // таймаута, не считается), иначе — отказ. Раньше такой аккаунт попадал в оба списка, сумма
+  // счётчиков превышала число аккаунтов, а «Активировать оставшимся» слал ему код снова.
+  const okSet = new Map<string, Set<string>>(), failSet = new Map<string, Set<string>>();
+  const setOf = (mm: Map<string, Set<string>>, code: string) => { let x = mm.get(code); if (!x) mm.set(code, x = new Set()); return x; };
   for (const a of accs) for (const e of a.entries) {
     let g = m.get(e.code);
     if (!g) { g = { code: e.code, last: e.used_at, ok: [], fail: [], missing: [], reward: null }; m.set(e.code, g); }
     if (e.used_at > g.last) g.last = e.used_at;
-    if (e.success) { g.ok.push(a.name); if (!g.reward && e.reward) g.reward = e.reward; }
-    else g.fail.push(a.name);
+    if (e.success) { setOf(okSet, e.code).add(a.name); if (!g.reward && e.reward) g.reward = e.reward; }
+    else setOf(failSet, e.code).add(a.name);
   }
   for (const g of m.values()) {
+    const ok = okSet.get(g.code) ?? new Set<string>();
+    g.ok = [...ok];
+    g.fail = [...(failSet.get(g.code) ?? [])].filter(n => !ok.has(n));
     const seen = new Set([...g.ok, ...g.fail]);
     g.missing = live.filter(a => !seen.has(a.name)).map(a => ({ id: a.id as number, name: a.name }));
   }

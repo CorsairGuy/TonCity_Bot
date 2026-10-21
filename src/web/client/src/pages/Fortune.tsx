@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Box, Button, CounterLabel, Flash, Text, Label } from '@primer/react';
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { Box, Button, CounterLabel, Flash, Text, TextInput, Label } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type FortuneRow, type Account, type FortuneCanDrawResult } from '../api';
@@ -9,6 +9,7 @@ import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CrystalValue, IC_CRYSTAL } from '../components/Icons';
 import { StatCard } from '../components/StatCard';
 import { PageHeader } from '../components/PageHeader';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 function unwrapReward(raw: FortuneRow['reward']): Record<string, unknown> {
   if (!raw) return {};
@@ -104,6 +105,7 @@ function SpinStatusCell({ info }: { info: FortuneCanDrawResult | undefined }) {
 }
 
 export function Fortune() {
+  const narrow = useNarrow();
   const [rows, setRows] = useState<FortuneRow[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [canDrawMap, setCanDrawMap] = useState<Map<number, FortuneCanDrawResult>>(new Map());
@@ -128,6 +130,9 @@ export function Fortune() {
     } finally { setLoadingCanDraw(false); }
   }, []);
 
+  // ответ за прежнюю дату (быстро листали календарь) не должен затирать выбранную
+  const dateRef = useRef(date);
+  dateRef.current = date;
   const load = useCallback(async (d = date) => {
     setLoading(true);
     try {
@@ -135,6 +140,7 @@ export function Fortune() {
         api.fortuneLog(d),
         api.accounts(),
       ]);
+      if (d !== dateRef.current) return;
       if (res.ok) setRows(res.rows);
       // только аккаунты, у которых на карте есть Павильон удачи (здания берутся из /progress/)
       if (accs.ok) setAccounts(accs.accounts.filter(a => a.hasToken && a.buildings?.includes('fortune')));
@@ -232,12 +238,7 @@ export function Fortune() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader title="Колесо фортуны" actions={<>
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          style={{ border: '1px solid var(--color-border-default)', borderRadius: 6, padding: '5px 10px', fontSize: 13, fontFamily: 'inherit' }}
-        />
+        <TextInput type="date" aria-label="Дата" value={date} onChange={e => e.target.value && setDate(e.target.value)} sx={{ width: 150 }} />
         {isToday && (
           <>
             <Button
@@ -286,7 +287,7 @@ export function Fortune() {
           data={tableAccounts}
           initialSortColumn="name"
           initialSortDirection="ASC"
-          columns={[
+          columns={narrowCols<typeof tableAccounts[number]>(narrow, ['name', 'status', 'action'], [
             {
               header: 'Аккаунт',
               field: 'name',
@@ -345,7 +346,7 @@ export function Fortune() {
                 },
               },
             ] : []),
-          ]}
+          ])}
         />
       </Table.Container>
     </Box>

@@ -46,7 +46,9 @@ export function PlayerCity() {
       '@media (max-width: 768px)': { height: 'calc(100dvh - 52px)' },
     }}>
       <Box sx={{ p: 2, bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-        <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate(back)}>Назад</Button>
+        {/* назад по истории — вернёт рейтинг с той же лигой, списком и прокруткой (они в адресе);
+            открыли по прямой ссылке — просто на страницу рейтинга */}
+        <Button leadingVisual={ChevronLeftIcon} onClick={() => (window.history.state?.idx ? navigate(-1) : navigate(back))}>Назад</Button>
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
           <PlayerAvatar src={data?.user?.small_url} name={name} size={24} />
           <Heading as="h3" sx={{ fontSize: 2, m: 0 }}>{name}</Heading>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
-import { CheckIcon, ChevronLeftIcon, SyncIcon, XIcon } from '@primer/octicons-react';
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon, XIcon } from '@primer/octicons-react';
+import { useNarrow } from '../hooks/useNarrow';
 import { api, type CapitalRow, type MapBuilding, type CapitalStrategyTarget, type CapitalStrategyQueueItem, type CapitalActionLogRow, type ForecastEvent, type GlobalUpgradeRule } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
 import { MapLoader, DATA_SHARE, allCounted } from '../components/MapLoader';
@@ -139,6 +140,8 @@ interface Props { account: string }
 export function CityMapCapital({ account: guildTitle }: Props) {
   const navigate = useNavigate();
   const { flash, showFlash } = useFlash();
+  const narrow = useNarrow();
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
 
   const [rows, setRows] = useState<CapitalRow[]>([]);
   const [dayNight, setDayNight] = useMapDayNight();
@@ -229,6 +232,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const hallLevel = useMemo(() => capHallLevel(owned, catalog), [owned, catalog]);
 
   function switchMode(m: CityActionMode) {
+    setPanelCollapsed(false); // выбор режима на телефоне раскрывает свёрнутую панель
     setMode(m); setMoveFrom(null);
     if (m !== 'build') { setBuildFamily(''); setSearch(''); setTypeFilter(''); }
   }
@@ -462,6 +466,11 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     : mode === 'log'
       ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Обновить лог" disabled={actionLogLoading} onClick={loadActionLog} />
       : undefined;
+  const summary = `Зданий: ${owned.length}${row?.updated_at ? ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}` : ''}`;
+  const panelToggle = narrow
+    ? <IconButton size="small" variant="invisible" icon={panelCollapsed ? ChevronUpIcon : ChevronDownIcon}
+        aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
+    : null;
   const pendingOf = (kind: PendingAction['kind']) => pendingRows.filter(r => r.kind === kind);
   const pendingNot = (kind: PendingAction['kind']) => pendingRows.filter(r => r.kind !== kind);
 
@@ -473,16 +482,18 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
         <Box sx={{ p: 2, bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-          <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate('/capitals')}>Назад</Button>
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Heading as="h3" sx={{ fontSize: 2, m: 0 }}>{rowName}</Heading>
-            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-              Зданий: {owned.length}
-              {row?.updated_at && ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}`}
-            </Text>
+          {/* телефон: шапка в одну строку — кнопки иконками, сводка уходит в подсказку заголовка */}
+          {narrow
+            ? <IconButton icon={ChevronLeftIcon} aria-label="Назад" onClick={() => navigate('/capitals')} />
+            : <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate('/capitals')}>Назад</Button>}
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }} title={summary}>
+            <Heading as="h3" sx={{ fontSize: 2, m: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rowName}</Heading>
+            {!narrow && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{summary}</Text>}
           </Box>
           <DayNightMenu value={dayNight} onChange={setDayNight} />
-          <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>
+          {narrow
+            ? <IconButton icon={SyncIcon} aria-label="Обновить" disabled={liveRefreshing} onClick={doLiveRefresh} />
+            : <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>}
         </Box>
 
         {flash && <Box sx={{ px: 3, pt: 2, flexShrink: 0 }}><Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash></Box>}
@@ -522,9 +533,9 @@ export function CityMapCapital({ account: guildTitle }: Props) {
       <Box sx={{
         width: 'var(--sidebar-w)', flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
         borderLeft: '1px solid', borderColor: 'border.default',
-        '@media (max-width: 768px)': { width: '100%', height: '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default' },
+        '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },
       }}>
-        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={headActions} footer={footer} gap={mode === 'build' ? 3 : 2}
+        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
           count={mode === 'queue' ? manualQueue.length : undefined}>
 
           {mode === 'view' && (

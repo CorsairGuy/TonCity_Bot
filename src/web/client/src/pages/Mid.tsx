@@ -16,6 +16,7 @@ import { useFlash } from '../hooks/useFlash';
 import { fmt } from '../utils';
 import { Scrollable } from '../components/Scrollable';
 import { Dialog } from '@primer/react/experimental';
+import { useAsk } from '../hooks/useAsk';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 const commissionReduction = (level: number) => (level * 0.5).toFixed(1).replace(/\.0$/, '');
@@ -421,6 +422,7 @@ interface AllianceSectionProps {
 }
 
 function AllianceSection({ guildId, alliances, requests, onRefresh, onFlash }: AllianceSectionProps) {
+  const ask = useAsk();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [reqModal, setReqModal] = useState<null | 'incoming' | 'outgoing'>(null);
@@ -492,7 +494,7 @@ function AllianceSection({ guildId, alliances, requests, onRefresh, onFlash }: A
               </Box>
               <Button onClick={() => setUpgradeAlliance(a)}>↑ Ур. {a.effective_level ?? 0}</Button>
               <Button variant="danger" loading={busy === a.id} disabled={busy != null}
-                onClick={() => { if (confirm(`Разорвать альянс с "${a.ally_guild_title}"?`)) run(a.id, () => api.midAllianceBreak(guildId, a.ally_guild_id), 'Альянс разорван'); }}>
+                onClick={async () => { if (await ask('Разорвать альянс?', `Альянс с «${a.ally_guild_title}» будет разорван.`, { ok: 'Разорвать', danger: true })) run(a.id, () => api.midAllianceBreak(guildId, a.ally_guild_id), 'Альянс разорван'); }}>
                 Разорвать
               </Button>
             </Box>

@@ -309,7 +309,9 @@ module.exports=function(app,ctx){
   }
   app.get('/api/accounts',async(req,res)=>{
     try{
-      const rows=await Account.findAll({order:[['id','ASC']]});
+      // ?name= — один аккаунт (карта города берёт только свой баланс, не весь флот)
+      const where=req.query.name?{name:String(req.query.name)}:undefined;
+      const rows=await Account.findAll({where,order:[['id','ASC']]});
       res.json({ok:true,accounts:rows.map(mapAccountRow)});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });

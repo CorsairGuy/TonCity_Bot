@@ -59,7 +59,7 @@ function LevelNode({ l, estStreak }: { l: LoyaltyLevel; estStreak: number }) {
   // не показываем "почти готово" вообще, а не гадаем по неверной формуле.
   const requiredDays = l.condition?.required_days;
   const probablyReady = !ready && !claimed && requiredDays != null && requiredDays <= estStreak;
-  const border = claimed ? 'var(--borderColor-success-emphasis, #2da44e)' : ready ? '#d4ac0d' : probablyReady ? '#9a6700' : 'var(--borderColor-default, #d0d7de)';
+  const border = claimed ? 'var(--green)' : ready ? '#d4ac0d' : probablyReady ? '#9a6700' : 'var(--border)';
 
   return (
     <Box sx={{

@@ -4,6 +4,7 @@ import { Box, Button, CounterLabel, Flash, SegmentedControl, Spinner, Text } fro
 import { PeopleIcon, SyncIcon, TrophyIcon } from '@primer/octicons-react';
 import { api, type LbPlayer, type LeaderboardGlobal } from '../api';
 import { PageHeader } from '../components/PageHeader';
+import { useQueryState, useScrollRestore } from '../hooks/useQueryState';
 import { CoinIcon } from '../components/Icons';
 import { cityHref, isLeague, LeagueIcon, MEDAL, mayorLeague, Place, PlayerAvatar, PopValue, ProfitValue, type League } from '../components/League';
 
@@ -16,9 +17,13 @@ const STEP = 50;
 export function GreatestMayors() {
   const [data, setData] = useState<LeaderboardGlobal | null>(null);
   const [loading, setLoading] = useState(false);
-  const [metric, setMetric] = useState<Metric>('population');
-  const [shown, setShown] = useState(STEP);
-  const [allOwn, setAllOwn] = useState(false);
+  // метрика, длина списка и «все свои» — в адресе, чтобы «Назад» из чужого города вернул их
+  const [q, patch] = useQueryState();
+  const metric: Metric = q.get('metric') === 'profit' ? 'profit' : 'population';
+  const shown = Math.max(STEP, Number(q.get('shown')) || STEP);
+  const allOwn = q.get('own') === 'all';
+  const setShown = (n: number) => patch({ shown: n > STEP ? String(n) : null });
+  const setAllOwn = (v: boolean) => patch({ own: v ? 'all' : null });
   const navigate = useNavigate();
 
   const load = useCallback(async (force = false) => {
@@ -28,6 +33,7 @@ export function GreatestMayors() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+  useScrollRestore(!!data?.ok);
 
   const list = useMemo(() => (metric === 'population' ? data?.population : data?.profit) ?? [], [data, metric]);
   const value = (p: { population: number | null; profit: number | null }) => metric === 'population' ? p.population : p.profit;
@@ -56,7 +62,7 @@ export function GreatestMayors() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader title="Величайшие мэры" sub={sub} actions={<>
-        <SegmentedControl aria-label="Метрика рейтинга" size="small" onChange={i => { setMetric(i ? 'profit' : 'population'); setShown(STEP); }}>
+        <SegmentedControl aria-label="Метрика рейтинга" size="small" onChange={i => patch({ metric: i ? 'profit' : null, shown: null })}>
           <SegmentedControl.Button selected={metric === 'population'} leadingIcon={PeopleIcon}>Население</SegmentedControl.Button>
           <SegmentedControl.Button selected={metric === 'profit'} leadingIcon={() => <CoinIcon size={14} />}>Доход</SegmentedControl.Button>
         </SegmentedControl>
@@ -86,7 +92,7 @@ export function GreatestMayors() {
               ))}
               {own.length > ownShown.length || allOwn ? (
                 <Box sx={{ px: 3, py: 1, borderTop: '1px solid', borderColor: 'border.muted' }}>
-                  <Button variant="invisible" size="small" onClick={() => setAllOwn(v => !v)}>
+                  <Button variant="invisible" size="small" onClick={() => setAllOwn(!allOwn)}>
                     {allOwn ? 'Свернуть' : `Показать все (${own.length})`}
                   </Button>
                 </Box>
@@ -105,7 +111,7 @@ export function GreatestMayors() {
             ))}
             {list.length > shown + 3 && (
               <Box sx={{ px: 3, py: 2, borderTop: '1px solid', borderColor: 'border.muted', display: 'flex', justifyContent: 'center' }}>
-                <Button size="small" onClick={() => setShown(s => s + STEP)}>Показать ещё {Math.min(STEP, list.length - shown - 3)}</Button>
+                <Button size="small" onClick={() => setShown(shown + STEP)}>Показать ещё {Math.min(STEP, list.length - shown - 3)}</Button>
               </Box>
             )}
           </Card>
@@ -154,7 +160,7 @@ function CardHead({ children }: { children: React.ReactNode }) {
 function Row({ me, children, onClick }: { me?: boolean; children: React.ReactNode; onClick?: () => void }) {
   return (
     <Box onClick={onClick} title={onClick ? 'Открыть город' : undefined} sx={{ display: 'flex', alignItems: 'center', gap: [2, 3], px: 3, py: '7px', borderTop: '1px solid', borderColor: 'border.muted',
-      bg: me ? 'accent.subtle' : undefined, boxShadow: me ? 'inset 3px 0 0 var(--fgColor-accent, #0969da)' : undefined,
+      bg: me ? 'accent.subtle' : undefined, boxShadow: me ? 'inset 3px 0 0 var(--cyan)' : undefined,
       cursor: onClick ? 'pointer' : undefined, '&:hover': onClick ? { bg: me ? 'accent.muted' : 'canvas.subtle' } : undefined }}>
       {children}
     </Box>

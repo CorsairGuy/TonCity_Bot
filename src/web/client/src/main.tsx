@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { AppThemeProvider } from './components/AppThemeProvider'
 import App from './App'
+// иконки политик (mdi-* из icon_key игры) — шрифт в сборке, а не с CDN: CDN блокировал первую
+// отрисовку и без сети иконок не было
+import '@mdi/font/css/materialdesignicons.min.css'
 import './global.css'
 import 'overlayscrollbars/overlayscrollbars.css'
 import { waitForFreshSW } from './registerSW'

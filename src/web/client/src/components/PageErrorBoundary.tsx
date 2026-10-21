@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { Box, Button, Heading, Text } from '@primer/react';
 
 // Ограждение вокруг страниц. Две задачи:
 //
@@ -35,15 +36,15 @@ export class PageErrorBoundary extends Component<{ children: ReactNode }, State>
     const { error } = this.state;
     if (!error) return this.props.children;
     return (
-      <div style={{ padding: 24 }}>
-        <h2 style={{ marginBottom: 8 }}>Страница не открылась</h2>
-        <p style={{ color: 'var(--fgColor-muted, #8b949e)', marginBottom: 16, whiteSpace: 'pre-wrap' }}>
+      <Box sx={{ p: 4 }}>
+        <Heading as="h2" sx={{ fontSize: 3, mb: 2 }}>Страница не открылась</Heading>
+        <Text as="p" sx={{ color: 'fg.muted', mb: 3, whiteSpace: 'pre-wrap' }}>
           {error.message || String(error)}
-        </p>
-        <button onClick={() => { this.setState({ error: null }); location.reload(); }}>
+        </Text>
+        <Button onClick={() => { this.setState({ error: null }); location.reload(); }}>
           Перезагрузить
-        </button>
-      </div>
+        </Button>
+      </Box>
     );
   }
 }

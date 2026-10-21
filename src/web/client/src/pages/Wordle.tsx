@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Box, Button, CounterLabel, Flash, Label, Spinner, Text } from '@primer/react';
+import { useRef, useState, useEffect } from 'react';
+import { Box, Button, CounterLabel, Flash, Label, Spinner, Text, TextInput } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, PencilIcon } from '@primer/octicons-react';
@@ -8,6 +8,7 @@ import { useFlash } from '../hooks/useFlash';
 import { Scrollable } from '../components/Scrollable';
 import { PageHeader } from '../components/PageHeader';
 import { WordCells } from '../components/WordCells';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 // ── модалка ручного ввода слова на все аккаунты ──────────────────────────────
 // окно по ширине пяти ячеек: medium = 320px = 5×48 + 4×8 + по 24 слева/справа (8 тела + 16 центровки),
@@ -80,16 +81,21 @@ function ManualWordDialog({ pending, onClose, onDone, showFlash }: { pending?: n
 }
 
 export function Wordle() {
+  const narrow = useNarrow();
   const [rows, setRows] = useState<WordleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [manualOpen, setManualOpen] = useState(false);
   const { flash, showFlash } = useFlash();
 
+  // ответ за прежнюю дату (быстро листали календарь) не должен затирать выбранную
+  const dateRef = useRef(date);
+  dateRef.current = date;
   const load = async (d = date) => {
     setLoading(true);
     try {
       const res = await api.wordleLog(d);
+      if (d !== dateRef.current) return;
       if (res.ok) setRows([...res.rows].sort((a, b) => a.account.localeCompare(b.account, 'ru', { numeric: true })));
     } finally { setLoading(false); }
   };
@@ -115,12 +121,7 @@ export function Wordle() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader title="Wordle" actions={<>
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          style={{ border: '1px solid var(--color-border-default)', borderRadius: 6, padding: '5px 10px', fontSize: 13, fontFamily: 'inherit' }}
-        />
+        <TextInput type="date" aria-label="Дата" value={date} onChange={e => e.target.value && setDate(e.target.value)} sx={{ width: 150 }} />
         <Button leadingVisual={SyncIcon} loading={loading} disabled={loading} onClick={() => load()}>
           Обновить
         </Button>
@@ -137,7 +138,7 @@ export function Wordle() {
           data={data}
           initialSortColumn="account"
           initialSortDirection="ASC"
-          columns={[
+          columns={narrowCols<typeof data[number]>(narrow, ['account', '_won', '_attempts'], [
             {
               header: 'Аккаунт',
               field: 'account',
@@ -169,7 +170,7 @@ export function Wordle() {
                 </span>
               ),
             },
-          ]}
+          ])}
         />
       </Table.Container>
     </Box>
