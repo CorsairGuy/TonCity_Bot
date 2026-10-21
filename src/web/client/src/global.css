@@ -619,7 +619,22 @@ html[data-theme="dark"] .r-legendary{--rc:#f2c94c}html[data-theme="dark"] .r-myt
   filter: drop-shadow(0 2px 2px color-mix(in srgb, var(--rc) 40%, transparent));
 }
 html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 60%, #fff), var(--rc)); -webkit-background-clip: text; background-clip: text; }
-.pol-lv { color: var(--rc); }
+/* Карточка политики (pages/Policies.tsx PolicyBadge, 21.10.2026): уровень — пилюля на верхней рамке
+   по центру, внизу полоска стажа текущего уровня. idle — политика не применена (стаж не копится),
+   ready — дней хватает на повышение. */
+.pol-lv {
+  position: absolute; top: -8px; left: 50%; transform: translateX(-50%); z-index: 1;
+  padding: 0 7px; line-height: 15px; border-radius: 8px; font-size: 11px; font-weight: 800;
+  background: var(--surface-solid); border: 1px solid var(--rc); color: var(--rc);
+}
+.pol-tenure {
+  position: absolute; left: 9px; right: 9px; bottom: 7px; height: 3px; border-radius: 2px; overflow: hidden;
+  background: color-mix(in srgb, var(--rc) 20%, transparent);
+}
+.pol-tenure i { display: block; height: 100%; border-radius: 2px; background: var(--rc); }
+.pol-tenure.idle i { opacity: .45; }
+.pol-tenure.ready { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.pol-tenure.ready i { background: var(--green); opacity: 1; }
 /* 15.10.2026: у иконок политик рамка не мерцает нигде, в том числе в окне политики: до объёмных
    иконок этой анимации у них не было (см. мерцание легендарных выше). */
 [role="dialog"] .pol-box { animation: none; }
