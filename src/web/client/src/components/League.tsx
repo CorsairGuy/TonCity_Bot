@@ -63,3 +63,9 @@ export const PopValue = ({ v, strong }: { v: number | null; strong?: boolean }) 
   <Box as="span" sx={valSx(strong)}>{v == null ? '—' : fmt(v)}<PeopleIcon size={14} /></Box>;
 export const ProfitValue = ({ v, strong }: { v: number | null; strong?: boolean }) =>
   <Box as="span" sx={valSx(strong)}>{v == null ? '—' : fmt(v)}<CoinIcon size={14} /><Text sx={{ fontWeight: 'normal', color: 'fg.subtle', fontSize: 0 }}>/ч</Text></Box>;
+
+// куда ведёт «Город» у игрока из рейтинга: свой аккаунт — на его полную карту, чужой — на просмотр карты
+export const cityHref = (p: { user_id: number; name: string; account?: string | null }, from: 'top' | 'leagues') =>
+  p.account
+    ? `/city-map?account=${encodeURIComponent(p.account)}`
+    : `/player-city?id=${p.user_id}&name=${encodeURIComponent(p.name)}&from=${from}`;

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Box, Button, Flash, Label, SegmentedControl, Spinner, Text, Token } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
-import { ChevronDownIcon, ChevronRightIcon, PeopleIcon, SyncIcon } from '@primer/octicons-react';
+import { ChevronDownIcon, ChevronRightIcon, LocationIcon, PeopleIcon, SyncIcon } from '@primer/octicons-react';
 import { api, type LbGuild, type LbPlayer, type LeaderboardLeagues } from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { CoinIcon } from '../components/Icons';
 import { fmt } from '../utils';
 import { useNarrow } from '../hooks/useNarrow';
 import {
-  GUILD_UP, isLeague, LEAGUE_RU, LEAGUES, LeagueIcon, leagueFrom, MAYOR_UP, mayorLeague, Place, PlayerAvatar, PopValue, ProfitValue, type League,
+  cityHref, GUILD_UP, isLeague, LEAGUE_RU, LEAGUES, LeagueIcon, leagueFrom, MAYOR_UP, mayorLeague, Place, PlayerAvatar, PopValue, ProfitValue, type League,
 } from '../components/League';
 
 type Kind = 'players' | 'guilds';
@@ -146,6 +147,7 @@ export function Leagues() {
 }
 
 function PlayersTable({ list }: { list: LbPlayer[] }) {
+  const navigate = useNavigate();
   const narrow = useNarrow(); // на телефоне население прячем: таблица не влезает в ширину
   return (
     <Table.Container>
@@ -160,6 +162,11 @@ function PlayersTable({ list }: { list: LbPlayer[] }) {
         ) },
         ...(narrow ? [] : [{ header: 'Население', id: 'population' as const, align: 'end' as const, renderCell: (p: LbPlayer) => <PopValue v={p.population} /> }]),
         { header: 'Доход', id: 'profit', align: 'end', renderCell: p => <ProfitValue v={p.profit} strong /> },
+        { header: '', id: 'city', align: 'end', width: 'auto', renderCell: p => (
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button size="small" leadingVisual={LocationIcon} onClick={() => navigate(cityHref(p, 'leagues'))}>Город</Button>
+          </Box>
+        ) },
       ]} />
     </Table.Container>
   );
