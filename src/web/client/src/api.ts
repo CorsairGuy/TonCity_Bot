@@ -168,6 +168,8 @@ export const api = {
   // рейтинги игры: «Величайшие мэры» (топ-500) и лиги мэров/гильдий; force — мимо 10-минутного кэша сервера
   leaderboardGlobal: (force = false) => req<LeaderboardGlobal>('/api/leaderboard/global' + (force ? '?force=1' : '')),
   leaderboardLeagues: (force = false) => req<LeaderboardLeagues>('/api/leaderboard/leagues' + (force ? '?force=1' : '')),
+  // чужой город для просмотра карты (игра: /cities/{user_id}), сервер кэширует 5 минут
+  playerCity: (userId: number | string, force = false) => req<PlayerCity>(`/api/leaderboard/city/${userId}` + (force ? '?force=1' : '')),
   questTiers: () => req<{ ok: boolean; guilds: QuestTierGuild[] }>('/api/quest-tiers'),
   questTiersRefresh: (guildId: string) =>
     req<{ ok: boolean; data?: QuestTierData; error?: string }>(`/api/quest-tiers/${encodeURIComponent(guildId)}/refresh`, post({})),
@@ -2214,3 +2216,9 @@ export interface LbOwn { account: string; population: number | null; profit: num
 interface LbBase { ok: boolean; error?: string; stale?: boolean; updated_at?: number; own?: LbOwn[] }
 export interface LeaderboardGlobal extends LbBase { population?: LbPlayer[]; profit?: LbPlayer[] }
 export interface LeaderboardLeagues extends LbBase { players?: LbPlayer[]; guilds?: LbGuild[] }
+export interface PlayerCity {
+  ok: boolean; error?: string; updated_at?: number;
+  user?: { id: number; name: string; small_url: string | null };
+  buildings?: MapBuilding[]; unlocked_sections?: string[] | null;
+  profit_per_hour?: number | null; happiness?: number | null; income_boost?: number | null;
+}

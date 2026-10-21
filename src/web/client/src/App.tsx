@@ -107,6 +107,7 @@ const AnniversaryVault = lazy(() => import('./pages/AnniversaryVault').then(m =>
 const AnniversaryMidway = lazy(() => import('./pages/AnniversaryMidway').then(m => ({ default: m.AnniversaryMidway })));
 const ShopTickets = lazy(() => import('./pages/ShopTickets').then(m => ({ default: m.ShopTickets })));
 const GreatestMayors = lazy(() => import('./pages/GreatestMayors').then(m => ({ default: m.GreatestMayors })));
+const PlayerCity = lazy(() => import('./pages/PlayerCity').then(m => ({ default: m.PlayerCity })));
 const Leagues = lazy(() => import('./pages/Leagues').then(m => ({ default: m.Leagues })));
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })));
@@ -466,6 +467,7 @@ export default function App() {
           <Route path="/capitals"        element={<Capitals />} />
           <Route path="/greatest-mayors" element={<GreatestMayors />} />
           <Route path="/leagues"         element={<Leagues />} />
+          <Route path="/player-city"     element={<PlayerCity />} />
           <Route path="/city"            element={<City />} />
           <Route path="/city-map"        element={<CityMap />} />
           <Route path="/global-upgrade-plan" element={<GlobalUpgradePlan />} />

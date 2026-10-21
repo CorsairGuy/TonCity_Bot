@@ -142,7 +142,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 МИД (foreign-ministry): `GET /foreign-ministry/overview?guild_id=`, `POST /foreign-ministry/{sub}?guild_id=` (alliances request/accept/reject/cancel/break/upgrade, enemies, invitations; `scouting` удалён игрой 06.07, заменён Кампаниями гильдий `/guild-campaigns/*`).
 Рынок: `GET/POST /market/direct` (создание лота: `{market_id,price,currency,anonymous_sale,listing_days}`, `listing_days` из `[1,3,7]` обязателен; фильтр `categories` — единственное число: `policy/shard/booster/pack/consumable/component/masterplan`), `GET /market/direct/{id}`, `POST /market/direct/buy`, `POST /market/direct/cancel`, `GET /market/user/listing-rules` (бывший `listing-limits`, отдаёт `{rules:[...]}`), `GET /market/user/stats`, `GET /market/toncoin/balance`, `POST /market/unwarn`.
 Склад/бусты: `GET /storage/allitemdata`, `POST /storage/items/sell`, `POST /boosters/activate`, `POST /boosters/combine`, `GET /boosters/active`, `GET /boosters/combination-rules`, `POST /booster-packs/open`, `POST /booster-packs/set-target`.
-Рейтинги: `GET /leaderboard/global` (топ-500 по населению/доходу), `GET /leaderboard/` (топ-100 каждой лиги мэров), `GET /guilds/leaderboard` (лиги гильдий).
+Рейтинги: `GET /leaderboard/global` (топ-500 по населению/доходу), `GET /leaderboard/` (топ-100 каждой лиги мэров), `GET /guilds/leaderboard` (лиги гильдий), `GET /cities/{user_id}` (чужой город).
 Мини-игры: `wordle/*`, `minesweeper/*`, `sudoku/*`, `quiz/*`, `game2048/*`.
 Прочее: `daily-login/`, `daily-ads/`, `mjourney/`, `loyalty-road/`, `fortune-pavilion/*`, `federal-reserve/staking*`, `achievements/unlocked`, `airdrop/`, `promocodes/activate`, `shop/offers/*`.
 
@@ -165,7 +165,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
   - `guilds.js` — **mid-live** (МИД live: alliance/enemy/scouting/invitations), управление гильдией (applications/members/settings);
   - `economy.js` — loyalty-road, `storage-live/:accountId/*` (склад: sell/activate/combine/open-pack/set-target/sync), `shop-live`, staking, daily-ads (+SSE `watch-stream`);
   - `refresh.js` — `refresh/:module` (ручной прогон модуля).
-  - `policies.js` — политики (библиотека, кабинет мэра); `civicDraw.js` — городской розыгрыш (Мэрия); `satoshi.js` — Башня Сатоши (трейдинг GRAM/USDT, курс с реальных бирж); `questTiers.js` — уровни гильдейских квестов; `guildBuildings.js` — Технофабрика/Вечный аудиториум; `cityStrategy.js`/`capitalStrategy.js` — цели улучшений и разовые build/move/demolish; `anniversary.js`/`midway.js` — событие годовщины (август 2026); `leaderboard.js` — рейтинги игры («Величайшие мэры» и лиги, кэш 10 мин).
+  - `policies.js` — политики (библиотека, кабинет мэра); `civicDraw.js` — городской розыгрыш (Мэрия); `satoshi.js` — Башня Сатоши (трейдинг GRAM/USDT, курс с реальных бирж); `questTiers.js` — уровни гильдейских квестов; `guildBuildings.js` — Технофабрика/Вечный аудиториум; `cityStrategy.js`/`capitalStrategy.js` — цели улучшений и разовые build/move/demolish; `anniversary.js`/`midway.js` — событие годовщины (август 2026); `leaderboard.js` — рейтинги игры («Величайшие мэры» и лиги, кэш 10 мин) и чужой город для просмотра карты (`/cities/{user_id}`).
 - `restart` остаётся в `server.js`. Полный порядок регистрации групп — `src/web/server.js`.
 - Правило при переносе роута в группу: относительные `require` глубже на уровень — `'../…'`→`'../../…'`, `'./cityStats'`→`'../cityStats'`.
 

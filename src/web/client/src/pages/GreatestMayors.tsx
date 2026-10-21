@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Box, Button, CounterLabel, Flash, SegmentedControl, Spinner, Text } from '@primer/react';
 import { PeopleIcon, SyncIcon, TrophyIcon } from '@primer/octicons-react';
 import { api, type LbPlayer, type LeaderboardGlobal } from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { CoinIcon } from '../components/Icons';
-import { isLeague, LeagueIcon, MEDAL, mayorLeague, Place, PlayerAvatar, PopValue, ProfitValue, type League } from '../components/League';
+import { cityHref, isLeague, LeagueIcon, MEDAL, mayorLeague, Place, PlayerAvatar, PopValue, ProfitValue, type League } from '../components/League';
 
 type Metric = 'population' | 'profit';
 const TOP = 500;
@@ -18,6 +19,7 @@ export function GreatestMayors() {
   const [metric, setMetric] = useState<Metric>('population');
   const [shown, setShown] = useState(STEP);
   const [allOwn, setAllOwn] = useState(false);
+  const navigate = useNavigate();
 
   const load = useCallback(async (force = false) => {
     setLoading(true);
@@ -69,13 +71,13 @@ export function GreatestMayors() {
 
       {list.length > 0 && (
         <Box sx={{ maxWidth: 820, mx: 'auto' }}>
-          <Podium top={list.slice(0, 3)} Val={Val} />
+          <Podium top={list.slice(0, 3)} Val={Val} onOpen={p => navigate(cityHref(p, 'top'))} />
 
           {own.length > 0 && (
             <Card sx={{ mb: 3 }}>
               <CardHead><TrophyIcon />Наши аккаунты<CounterLabel>{ownInTop} в топе</CounterLabel></CardHead>
               {ownShown.map(o => (
-                <Row key={o.account} me>
+                <Row key={o.account} me onClick={() => navigate(`/city-map?account=${encodeURIComponent(o.account)}`)}>
                   <Box sx={{ width: 48, flexShrink: 0 }}><Place n={o.rank} /></Box>
                   {o.league ? <LeagueIcon league={o.league} size={24} /> : <Box sx={{ width: 20 }} />}
                   <Who name={o.account} src={o.small_url} />
@@ -94,7 +96,7 @@ export function GreatestMayors() {
 
           <Card>
             {list.slice(3, shown + 3).map(p => (
-              <Row key={p.user_id} me={!!p.account}>
+              <Row key={p.user_id} me={!!p.account} onClick={() => navigate(cityHref(p, 'top'))}>
                 <Box sx={{ width: 48, flexShrink: 0 }}><Place n={p.rank} /></Box>
                 {isLeague(p.league) ? <LeagueIcon league={p.league} size={24} /> : <Box sx={{ width: 20 }} />}
                 <Who name={p.name} src={p.small_url} own={p.account} />
@@ -114,7 +116,7 @@ export function GreatestMayors() {
   );
 }
 
-function Podium({ top, Val }: { top: LbPlayer[]; Val: (p: { p: LbPlayer }) => JSX.Element }) {
+function Podium({ top, Val, onOpen }: { top: LbPlayer[]; Val: (p: { p: LbPlayer }) => JSX.Element; onOpen: (p: LbPlayer) => void }) {
   // порядок на подиуме: 2 — 1 — 3
   const order = [1, 0, 2].filter(i => top[i]);
   const H = [128, 96, 76], AV = [72, 56, 56];
@@ -123,7 +125,7 @@ function Podium({ top, Val }: { top: LbPlayer[]; Val: (p: { p: LbPlayer }) => JS
       {order.map(i => {
         const p = top[i];
         return (
-          <Box key={p.user_id} sx={{ width: 190, minWidth: 0, flexShrink: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+          <Box key={p.user_id} onClick={() => onOpen(p)} title="Открыть город" sx={{ width: 190, minWidth: 0, flexShrink: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, cursor: 'pointer' }}>
             <Box sx={{ position: 'relative', width: 'fit-content' }}>
               <Box sx={{ borderRadius: '50%', p: '3px', bg: MEDAL[i], display: 'flex' }}><PlayerAvatar src={p.small_url} name={p.name} size={AV[i]} /></Box>
               {isLeague(p.league) && <Box sx={{ position: 'absolute', right: '-8px', bottom: '-4px' }}><LeagueIcon league={p.league} size={28} /></Box>}
@@ -148,11 +150,12 @@ function Card({ children, sx }: { children: React.ReactNode; sx?: object }) {
 function CardHead({ children }: { children: React.ReactNode }) {
   return <Box sx={{ px: 3, py: 2, bg: 'canvas.subtle', display: 'flex', alignItems: 'center', gap: 2, fontWeight: 'bold', fontSize: 1 }}>{children}</Box>;
 }
-// строка списка; свой аккаунт подсвечен полосой слева
-function Row({ me, children }: { me?: boolean; children: React.ReactNode }) {
+// строка списка; свой аккаунт подсвечен полосой слева, клик открывает карту города
+function Row({ me, children, onClick }: { me?: boolean; children: React.ReactNode; onClick?: () => void }) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: [2, 3], px: 3, py: '7px', borderTop: '1px solid', borderColor: 'border.muted',
-      bg: me ? 'accent.subtle' : undefined, boxShadow: me ? 'inset 3px 0 0 var(--fgColor-accent, #0969da)' : undefined }}>
+    <Box onClick={onClick} title={onClick ? 'Открыть город' : undefined} sx={{ display: 'flex', alignItems: 'center', gap: [2, 3], px: 3, py: '7px', borderTop: '1px solid', borderColor: 'border.muted',
+      bg: me ? 'accent.subtle' : undefined, boxShadow: me ? 'inset 3px 0 0 var(--fgColor-accent, #0969da)' : undefined,
+      cursor: onClick ? 'pointer' : undefined, '&:hover': onClick ? { bg: me ? 'accent.muted' : 'canvas.subtle' } : undefined }}>
       {children}
     </Box>
   );

@@ -6,12 +6,16 @@ const opRegistry=require('../lib/opRegistry');
 //   GET /leaderboard/global   — «Величайшие мэры»: топ-500 {population:[...],profit:[...],me:{rank_population,rank_profit,...}}
 //   GET /leaderboard/          — лиги мэров: массив топ-100 каждой лиги {user_id,first_name,last_name,small_url,profit,league,rank}
 //   GET /guilds/leaderboard    — лиги гильдий: {leaderboard:[{id,title,photo_small,population,profit,league,rank}]}
+//   GET /cities/{user_id}      — чужой город («Посетить город» в профиле игрока, chunks/_id_-*.js страницы /cities/:id):
+//                                {user,buildings,unlocked_sections,profit_per_hour,happiness,diversity,income_boost,...}
 // Пути и поля — из бандла игры (chunks/global_leaderboard-*.js, leaderboard-*.js, карта роутов apiRoutes.leaderboard).
 // Свои аккаунты в списках метим по tg_uid из JWT (игровой user_id = id в Telegram) и запасным путём по имени:
 // имя аккаунта бот берёт из /users/me/ как "first_name last_name".
 const TTL=10*60_000;
 const FETCH_TIMEOUT=90_000;
 const cache=new Map(); // kind -> {at,data}
+const CITY_TTL=5*60_000,CITY_MAX=50;
+const cityCache=new Map(); // user_id -> {at,data}, не больше CITY_MAX последних
 
 function withTimeout(p,ms,label){
   let t;
@@ -107,6 +111,30 @@ module.exports=function(app,ctx){
       }
     });
   }
+  // чужой город для просмотра карты (только чтение)
+  app.get('/api/leaderboard/city/:userId',async(req,res)=>{
+    const id=String(req.params.userId);
+    if(!/^\d+$/.test(id))return res.status(400).json({ok:false,error:'Неверный id игрока'});
+    try{
+      const c=cityCache.get(id);
+      if(c&&!req.query.force&&Date.now()-c.at<CITY_TTL)return res.json({ok:true,updated_at:c.at,...c.data});
+      const data=await opRegistry.run(`leaderboard:city:${id}`,async()=>{
+        const[d]=await withTimeout(fetchAny([`/cities/${id}`]),FETCH_TIMEOUT,'город игрока');
+        const u=d?.user||{};
+        return{
+          user:{id:u.id??Number(id),name:fullName(u)||u.username||`#${id}`,small_url:u.small_url||u.avatar_small||u.photo_url||null},
+          buildings:Array.isArray(d?.buildings)?d.buildings:[],
+          unlocked_sections:Array.isArray(d?.unlocked_sections)?d.unlocked_sections:null,
+          profit_per_hour:num(d?.profit_per_hour),happiness:num(d?.happiness),income_boost:num(d?.income_boost),
+        };
+      });
+      const at=Date.now();
+      cityCache.delete(id);cityCache.set(id,{at,data});
+      if(cityCache.size>CITY_MAX)cityCache.delete(cityCache.keys().next().value);
+      res.json({ok:true,updated_at:at,...data});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   route('global',loadGlobal);
   route('leagues',loadLeagues);
 };
