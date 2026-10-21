@@ -331,10 +331,12 @@ function resolveEffectiveTargets(current,personalTargets,globalPlan){
 // выбор кандидатов на апгрейд: сначала ручная очередь (в порядке очереди — конкретные здания,
 // назначенные "улучшить следующими"), затем цели плана (личный + общий, уже сведённые
 // resolveEffectiveTargets). Для целей плана — ищем ЗДАНИЕ НА ЭТОЙ КОНКРЕТНОЙ КЛЕТКЕ, ниже целевого
-// уровня и не занятое стройкой, сортируем по времени улучшения от меньшего к большему (формула —
-// сверена с бандлом getBaseUpgradeDuration, см. cityStats.js upgradeDuration) — короткие апгрейды
-// стартуют первыми, чтобы строители быстрее возвращались в оборот; при равном времени — по
-// возрастанию текущего уровня здания (сначала ур.3, потом ур.4). Бюджет общий для очереди и плана
+// уровня и не занятое стройкой, сортируем по возрастанию текущего уровня (сначала ур.10, потом
+// ур.21 — «по порядку», решение 21.10.2026: прежняя сортировка по времени улучшения отдавала всех
+// строителей дешёвым по времени башням, а здания с долгой стройкой на низком уровне ждали), при
+// равном уровне — по времени улучшения от меньшего к большему (формула сверена с бандлом
+// getBaseUpgradeDuration, см. cityStats.js upgradeDuration), затем по клетке (y,x), чтобы порядок
+// не зависел от порядка строк в ответе игры. Бюджет общий для очереди и плана
 // (coins*0.8): если на очередного кандидата не хватает — просто переходим к следующему по списку,
 // не прерывая набор. Возвращает {picked,consumedQueueKeys} — consumedQueueKeys нужно вычеркнуть из
 // персистентной очереди (она одноразовая, в отличие от плана, который остаётся до достижения цели).
@@ -411,7 +413,7 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
     if(!info)continue;
     candidates.push({key,b,info,lvl});
   }
-  candidates.sort((x,y)=>upgradeDuration(x.info,x.lvl)-upgradeDuration(y.info,y.lvl)||x.lvl-y.lvl);
+  candidates.sort((x,y)=>x.lvl-y.lvl||upgradeDuration(x.info,x.lvl)-upgradeDuration(y.info,y.lvl)||Number(x.b.y)-Number(y.b.y)||Number(x.b.x)-Number(y.b.x));
   for(const{key,b,info,lvl}of candidates){
     if(result.length>=freeB)break;
     if(pickedKeys.has(key))continue; // несколько personal/global-целей на одну клетку в одном проходе не бывает, но на всякий случай
