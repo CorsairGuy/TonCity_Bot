@@ -334,7 +334,9 @@ function resolveEffectiveTargets(current,personalTargets,globalPlan){
 // уровня и не занятое стройкой, сортируем по времени улучшения от меньшего к большему (формула —
 // сверена с бандлом getBaseUpgradeDuration, см. cityStats.js upgradeDuration) — короткие апгрейды
 // стартуют первыми, чтобы строители быстрее возвращались в оборот; при равном времени — по
-// возрастанию текущего уровня здания (сначала ур.3, потом ур.4). Бюджет общий для очереди и плана
+// возрастанию текущего уровня здания (сначала ур.3, потом ур.4); при полной ничьей — по клетке
+// (y, потом x), ряд за рядом, а не в порядке, в каком игра перечислила здания в /progress/ (из-за
+// него одинаковые башни брались вразнобой, 21.10.2026). Бюджет общий для очереди и плана
 // (coins*0.8): если на очередного кандидата не хватает — просто переходим к следующему по списку,
 // не прерывая набор. Возвращает {picked,consumedQueueKeys} — consumedQueueKeys нужно вычеркнуть из
 // персистентной очереди (она одноразовая, в отличие от плана, который остаётся до достижения цели).
@@ -411,7 +413,7 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
     if(!info)continue;
     candidates.push({key,b,info,lvl});
   }
-  candidates.sort((x,y)=>upgradeDuration(x.info,x.lvl)-upgradeDuration(y.info,y.lvl)||x.lvl-y.lvl);
+  candidates.sort((x,y)=>upgradeDuration(x.info,x.lvl)-upgradeDuration(y.info,y.lvl)||x.lvl-y.lvl||Number(x.b.y)-Number(y.b.y)||Number(x.b.x)-Number(y.b.x));
   for(const{key,b,info,lvl}of candidates){
     if(result.length>=freeB)break;
     if(pickedKeys.has(key))continue; // несколько personal/global-целей на одну клетку в одном проходе не бывает, но на всякий случай
