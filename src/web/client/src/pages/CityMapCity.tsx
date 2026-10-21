@@ -592,20 +592,35 @@ export function CityMapCity() {
   // готова (уровень набран, стройки нет) — отметить к выполнению кнопкой внизу; иначе — в план,
   // бот сам отправит её, когда здание дорастёт (modules/progress.js runPendingReconstructions).
   // План сохраняется сразу, без отдельной кнопки.
-  const saveReconstructPlanNow = async (next: CityStrategyQueueItem[]) => {
-    const prev = reconstructPlan;
+  // Кисть (выделение прямоугольником) зовёт onPick для каждой клетки подряд в одном обработчике:
+  // раньше каждый вызов брал устаревший reconstructPlan из замыкания и слал свой POST — параллельные
+  // транзакции replaceAll сталкивались на UNIQUE(account,x,y) и падали с ошибкой, а в плане оставалась
+  // только последняя клетка. Теперь клики копятся в reconPendingRef и уходят одним запросом, а
+  // сохранения идут строго по очереди.
+  const reconPendingRef = useRef<{ base: CityStrategyQueueItem[]; next: CityStrategyQueueItem[] } | null>(null);
+  const reconSaveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const saveReconstructPlanNow = (next: CityStrategyQueueItem[]) => {
+    const pend = reconPendingRef.current;
+    if (pend) { pend.next = next; setReconstructPlan(next); return; }
+    reconPendingRef.current = { base: reconstructPlan, next };
     setReconstructPlan(next);
-    try {
-      const r = await api.saveReconstructPlan(account, next);
-      if (!r.ok) { showFlash(r.error ?? 'Ошибка', false); setReconstructPlan(prev); }
-    } catch (e) { showFlash(String(e), false); setReconstructPlan(prev); }
+    reconSaveChainRef.current = reconSaveChainRef.current.then(async () => {
+      const batch = reconPendingRef.current;
+      reconPendingRef.current = null;
+      if (!batch) return;
+      try {
+        const r = await api.saveReconstructPlan(account, batch.next);
+        if (!r.ok) { showFlash(r.error ?? 'Ошибка', false); setReconstructPlan(batch.base); }
+      } catch (e) { showFlash(String(e), false); setReconstructPlan(batch.base); }
+    });
   };
   const toggleReconstruct = (x: number, y: number) => {
-    if (reconstructPlan.some(p => p.x === x && p.y === y)) { saveReconstructPlanNow(reconstructPlan.filter(p => !(p.x === x && p.y === y))); return; }
+    const plan = reconPendingRef.current?.next ?? reconstructPlan;
+    if (plan.some(p => p.x === x && p.y === y)) { saveReconstructPlanNow(plan.filter(p => !(p.x === x && p.y === y))); return; }
     const q = queue.find(a => a.kind === 'reconstruct' && a.x === x && a.y === y);
     if (q) { setQueue(prev => prev.filter(a => a.id !== q.id)); return; }
     if (reconstructableSet.has(`${x}_${y}`)) setQueue(prev => [...prev, { id: nextIdRef.current++, kind: 'reconstruct', x, y }]);
-    else saveReconstructPlanNow([...reconstructPlan, { x, y }]);
+    else saveReconstructPlanNow([...plan, { x, y }]);
   };
   toggleReconRef.current = toggleReconstruct;
 
