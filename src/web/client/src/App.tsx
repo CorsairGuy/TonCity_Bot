@@ -106,6 +106,8 @@ const AnniversaryRoad = lazy(() => import('./pages/AnniversaryRoad').then(m => (
 const AnniversaryVault = lazy(() => import('./pages/AnniversaryVault').then(m => ({ default: m.AnniversaryVault })));
 const AnniversaryMidway = lazy(() => import('./pages/AnniversaryMidway').then(m => ({ default: m.AnniversaryMidway })));
 const ShopTickets = lazy(() => import('./pages/ShopTickets').then(m => ({ default: m.ShopTickets })));
+const GreatestMayors = lazy(() => import('./pages/GreatestMayors').then(m => ({ default: m.GreatestMayors })));
+const Leagues = lazy(() => import('./pages/Leagues').then(m => ({ default: m.Leagues })));
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })));
 
@@ -165,6 +167,7 @@ const PAGE_GROUP: Record<string, string> = {
   'anniversary-offer': 'anniversary', 'anniversary-carnival': 'anniversary',
   'anniversary-road': 'anniversary', 'anniversary-vault': 'anniversary', 'shop-tickets': 'anniversary',
   'anniversary-midway': 'anniversary',
+  'greatest-mayors': 'rating', leagues: 'rating',
 };
 
 // ── sidebar nav component ─────────────────────────────────────────────────────
@@ -314,6 +317,13 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         {item('capitals',    'Столицы',            DiamondIcon)}
         {item('city',        'Города',             LocationIcon)}
+        {group('rating', 'Рейтинг', TrophyIcon,
+          <>
+            {item('greatest-mayors', 'Величайшие мэры', TrophyIcon)}
+            {item('leagues',         'Лиги',            StackIcon)}
+          </>
+        )}
+
         {item('auditorium',  'Аудиториум',         PeopleIcon)}
         {item('techfactory', 'Фабрика',            CpuIcon)}
 
@@ -454,6 +464,8 @@ export default function App() {
           <Route path="/quests"          element={<Quests />} />
           <Route path="/questTiers"      element={<QuestTiers />} />
           <Route path="/capitals"        element={<Capitals />} />
+          <Route path="/greatest-mayors" element={<GreatestMayors />} />
+          <Route path="/leagues"         element={<Leagues />} />
           <Route path="/city"            element={<City />} />
           <Route path="/city-map"        element={<CityMap />} />
           <Route path="/global-upgrade-plan" element={<GlobalUpgradePlan />} />

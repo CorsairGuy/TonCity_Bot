@@ -165,6 +165,9 @@ export const api = {
   guildQuestCombineBooster: (accountId: number, questId: number) =>
     req<{ ok: boolean; toName?: string; quest?: GuildQuest | null; collected?: boolean; error?: string }>(`/api/guild-quests/${accountId}/combine-booster`, post({ quest_id: questId })),
   // Уровни гильдейских квестов — новая система обновления 06.07.2026
+  // рейтинги игры: «Величайшие мэры» (топ-500) и лиги мэров/гильдий; force — мимо 10-минутного кэша сервера
+  leaderboardGlobal: (force = false) => req<LeaderboardGlobal>('/api/leaderboard/global' + (force ? '?force=1' : '')),
+  leaderboardLeagues: (force = false) => req<LeaderboardLeagues>('/api/leaderboard/leagues' + (force ? '?force=1' : '')),
   questTiers: () => req<{ ok: boolean; guilds: QuestTierGuild[] }>('/api/quest-tiers'),
   questTiersRefresh: (guildId: string) =>
     req<{ ok: boolean; data?: QuestTierData; error?: string }>(`/api/quest-tiers/${encodeURIComponent(guildId)}/refresh`, post({})),
@@ -2196,3 +2199,18 @@ export interface VersionInfo {
 export interface PullProgress { layers: number; downloaded: number; extracted: number; cur: number; total: number; estTotal: number }
 // этап идущего обновления из GET /api/build
 export interface UpdateStage { state: string; message: string | null; progress: PullProgress | null }
+
+// ── рейтинги игры ──
+export interface LbPlayer {
+  user_id: number; name: string; small_url: string | null; league: string | null;
+  population: number | null; profit: number | null; rank: number;
+  account: string | null; // имя своего аккаунта, если это он
+}
+export interface LbGuild {
+  id: number; title: string; photo: string | null; league: string | null;
+  population: number | null; profit: number | null; rank: number; own: boolean;
+}
+export interface LbOwn { account: string; population: number | null; profit: number | null }
+interface LbBase { ok: boolean; error?: string; stale?: boolean; updated_at?: number; own?: LbOwn[] }
+export interface LeaderboardGlobal extends LbBase { population?: LbPlayer[]; profit?: LbPlayer[] }
+export interface LeaderboardLeagues extends LbBase { players?: LbPlayer[]; guilds?: LbGuild[] }
