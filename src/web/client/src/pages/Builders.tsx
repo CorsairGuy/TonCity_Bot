@@ -8,6 +8,7 @@ import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CoinIcon, CrystalIcon } from '../components/Icons';
 import { PageHeader } from '../components/PageHeader';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 type Row = BuilderRow & Partial<BuilderLiveRow>;
 
@@ -39,6 +40,7 @@ function SlotBadge({ bought, max }: { bought: number; max: number }) {
 }
 
 export function Builders() {
+  const narrow = useNarrow();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useResumableRefresh('buildersRefreshAll', () => load());
@@ -132,7 +134,7 @@ export function Builders() {
           data={data}
           initialSortColumn="name"
           initialSortDirection="ASC"
-          columns={[
+          columns={narrowCols<typeof data[number]>(narrow, ['name', '_count', 'action'], [
             {
               header: 'Аккаунт',
               field: 'name',
@@ -224,7 +226,7 @@ export function Builders() {
                 );
               },
             },
-          ]}
+          ])}
         />
       </Table.Container>
     </Box>

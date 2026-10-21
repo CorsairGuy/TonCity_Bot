@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
-import { CheckIcon, ChevronLeftIcon, SyncIcon, XIcon } from '@primer/octicons-react';
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon, XIcon } from '@primer/octicons-react';
 import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
 import { MapLoader, DATA_SHARE, allCounted } from '../components/MapLoader';
@@ -13,6 +13,9 @@ import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
 import { MapPalette, MapBrushLevel, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
+import { useAsk } from '../hooks/useAsk';
+import { useNarrow } from '../hooks/useNarrow';
+import { LoadError } from '../components/LoadError';
 
 // ключ карты эффектов политики: та же схема, что cw(stat,scopeKind,target) в бандле игры —
 // scope_kind==="global" (или без target) — суффикса нет, иначе "scopeKind:target"
@@ -223,6 +226,9 @@ function logLabel(r: CityActionLogRow, labelFor: (id: string) => string, booster
 }
 
 export function CityMapCity() {
+  const ask = useAsk();
+  const narrow = useNarrow();
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { flash, showFlash } = useFlash();
@@ -249,9 +255,14 @@ export function CityMapCity() {
   // смене аккаунта, обновляем после каждой реконструкции/реновации (они тратят/дают эти предметы)
   const [components, setComponents] = useState(0);
   const [masterplans, setMasterplans] = useState(0);
+  // accountRef — ответ за прошлый аккаунт (быстрый переход назад/вперёд) не затирает текущий
+  const accountRef = useRef(account);
+  accountRef.current = account;
   const loadResources = useCallback(() => {
     if (!account) return;
-    api.cityResources(account).then(d => { if (d.ok) { setComponents(d.components); setMasterplans(d.masterplans); } });
+    api.cityResources(account).then(d => {
+      if (d.ok && accountRef.current === account) { setComponents(d.components); setMasterplans(d.masterplans); }
+    });
   }, [account]);
   useEffect(() => { loadResources(); }, [loadResources]);
   // общий план по семействам — нужен только для показателей "после всех запланированных" (вкладка
@@ -316,21 +327,28 @@ export function CityMapCity() {
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('');
 
+  const [loadErr, setLoadErr] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   useEffect(() => {
+    let stale = false;
     setLoading(true);
     setDataDone(0);
+    setLoadErr('');
+    // только этот аккаунт: раньше карта тянула снимки, политики и балансы всего флота
     allCounted([
-      api.city(),
+      account ? api.city(account) : Promise.resolve({ ok: true, rows: [] as CityRow[] }),
       api.buildingsList('city'),
       account ? api.cityStrategy(account) : Promise.resolve({ ok: true, targets: [] as CityStrategyTarget[], queue: [] as CityStrategyQueueItem[], reconstructPlan: [] as CityStrategyQueueItem[] }),
       fetch('/api/coords?type=').then(r => r.json()).catch(() => ({ coords: [] })),
-      api.policies().catch(() => ({ ok: false as const, byAccount: {} })),
+      (account ? api.policies(account) : Promise.resolve({ ok: false as const, byAccount: {} })).catch(() => ({ ok: false as const, byAccount: {} })),
       account ? api.cityGuildBenefits(account).catch(() => ({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 })) : Promise.resolve({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 }),
-      api.accounts().catch(() => ({ ok: false as const, accounts: [] })),
+      (account ? api.accounts(account) : Promise.resolve({ ok: false as const, accounts: [] })).catch(() => ({ ok: false as const, accounts: [] })),
       account ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
       account ? api.cityDiversity(account).catch(() => ({ ok: false as const, income_bonus: 0 })) : Promise.resolve({ ok: false as const, income_bonus: 0 }),
-    ], () => setDataDone(n => n + 1)).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
+    ], () => { if (!stale) setDataDone(n => n + 1); }).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
+      if (stale) return;
       if (c.ok) setRows(c.rows);
+      else setLoadErr((c as { error?: string }).error || 'снимок города не загрузился');
       if (b.ok) setBuildingsCatalog(b.buildings);
       if (t.ok) { setTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); }
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
@@ -351,8 +369,10 @@ export function CityMapCity() {
       setPolicyCabinet(pol.ok ? pol.byAccount[account]?.cabinet : undefined);
       setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
       setDiversityIncomeBoost(diversity.ok ? diversity.income_bonus : 0);
-    }).finally(() => setLoading(false));
-  }, [account]);
+    }).catch(e => { if (!stale) setLoadErr(String(e)); })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
+  }, [account, reloadTick]);
 
   // смена аккаунта — сбросить режим, очередь и все незавершённые выборы
   useEffect(() => {
@@ -373,8 +393,9 @@ export function CityMapCity() {
   };
 
   const refreshMap = useCallback(() => {
-    api.city().then(d => { if (d.ok) setRows(d.rows); });
-  }, []);
+    if (!account) return;
+    api.city(account).then(d => { if (d.ok && accountRef.current === account) setRows(d.rows); });
+  }, [account]);
 
   // "Обновить" — в отличие от refreshMap (читает кэш CitySnapshot из БД), реально дёргает /progress/
   // прямо сейчас, чтобы получить самые свежие постройки с живой игры
@@ -464,6 +485,7 @@ export function CityMapCity() {
   const boosterLabelFor = (id: string) => { const b = boosters.find(x => x.name === id); return b ? b.label : `#${id}`; };
 
   function switchMode(m: CityActionMode) {
+    setPanelCollapsed(false); // выбор режима на телефоне раскрывает свёрнутую панель
     setMode(m); setMoveFrom(null);
     if (m !== 'build') { setBuildFamily(''); setSearch(''); setCatFilter(''); }
   }
@@ -581,14 +603,14 @@ export function CityMapCity() {
     if (sec?.unlockCost.coins) costParts.push(`${fmt(sec.unlockCost.coins)} монет`);
     if (sec?.unlockCost.crystals) costParts.push(`${fmt(sec.unlockCost.crystals)} кристаллов`);
     const costText = costParts.length ? costParts.join(' + ') : 'бесплатно';
-    if (!window.confirm(`Разблокировать эту секцию карты за ${costText}?`)) return;
+    if (!await ask('Открыть секцию карты?', `Разблокировать эту секцию за ${costText}?`, { ok: 'Открыть' })) return;
     setUnlockingSection(true);
     try {
       const r = await api.cityActionUnlockSection(account, sectionId);
       if (r.ok) { showFlash('Секция разблокирована', true); refreshMap(); }
       else showFlash(r.error ?? 'Не удалось разблокировать секцию', false);
     } catch (e) { showFlash(String(e), false); } finally { setUnlockingSection(false); }
-  }, [account, sections, unlockingSection, refreshMap, showFlash]);
+  }, [account, sections, unlockingSection, refreshMap, showFlash, ask]);
 
   const removeQueued = (id: number) => setQueue(prev => prev.filter(a => a.id !== id));
   // Реконструкция одним кликом: клетка в плане — убрать из плана; уже отмечена сейчас — снять отметку;
@@ -929,6 +951,12 @@ export function CityMapCity() {
         ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Обновить лог" disabled={actionLogLoading} onClick={loadActionLog} />
         : undefined;
   const pendingNoDemolish = pendingRows.filter(r => r.kind !== 'demolish');
+  const summary = `Зданий: ${owned.length}${row?.updated_at ? ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}` : ''}`;
+  // телефон: сайдбар снизу сворачивается до шапки, чтобы карте доставался почти весь экран
+  const panelToggle = narrow
+    ? <IconButton size="small" variant="invisible" icon={panelCollapsed ? ChevronUpIcon : ChevronDownIcon}
+        aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
+    : null;
 
   return (
     <Box sx={{
@@ -943,19 +971,21 @@ export function CityMapCity() {
           borderBottom: '1px solid', borderColor: 'border.default',
           display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0,
         }}>
-          <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate('/city')}>
-            Назад
-          </Button>
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Heading as="h3" sx={{ fontSize: 2, m: 0 }}>{rowName}</Heading>
-            <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
-              {noSnapshot
-                ? 'Снимка города ещё нет — нажмите «Обновить»'
-                : <>Зданий: {owned.length}{row?.updated_at && ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}`}</>}
-            </Text>
+          {/* телефон: шапка в одну строку — кнопки иконками, сводка уходит в подсказку заголовка */}
+          {narrow
+            ? <IconButton icon={ChevronLeftIcon} aria-label="Назад" onClick={() => navigate('/city')} />
+            : <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate('/city')}>Назад</Button>}
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }}
+            title={noSnapshot ? undefined : summary}>
+            <Heading as="h3" sx={{ fontSize: 2, m: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rowName}</Heading>
+            {(noSnapshot || !narrow) && <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
+              {noSnapshot ? (narrow ? 'Нет снимка' : 'Снимка города ещё нет — нажмите «Обновить»') : summary}
+            </Text>}
           </Box>
           <DayNightMenu value={dayNight} onChange={setDayNight} />
-          <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>
+          {narrow
+            ? <IconButton icon={SyncIcon} aria-label="Обновить" disabled={liveRefreshing} onClick={doLiveRefresh} />
+            : <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>}
         </Box>
 
         {flash && (
@@ -966,7 +996,9 @@ export function CityMapCity() {
 
         {/* canvas + палитра инструментов поверх него, по центру снизу */}
         <Box sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
-          {owned.length === 0 && mode === 'view'
+          {loadErr
+            ? <Box sx={{ flex: 1, p: 3 }}><LoadError error={loadErr} onRetry={() => setReloadTick(n => n + 1)} /></Box>
+            : owned.length === 0 && mode === 'view'
             ? <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Text sx={{ color: 'fg.muted' }}>Нет данных о зданиях</Text>
               </Box>
@@ -1005,9 +1037,9 @@ export function CityMapCity() {
         // ширина как у левого меню навигации — как было у прежнего сайдбара карты
         width: 'var(--sidebar-w)', flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
         borderLeft: '1px solid', borderColor: 'border.default',
-        '@media (max-width: 768px)': { width: '100%', height: '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default' },
+        '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },
       }}>
-        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={headActions} footer={footer} gap={mode === 'build' ? 3 : 2}
+        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
           count={mode === 'queue' ? manualQueue.length : mode === 'boosters' ? boosterQueue.length : undefined}>
 
           {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}

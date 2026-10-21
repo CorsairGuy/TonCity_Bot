@@ -9,10 +9,12 @@ import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue } from '../components/Icons';
 import { PageHeader } from '../components/PageHeader';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 interface LiveProgress { current: number; limit: number; }
 
 export function DailyAds() {
+  const narrow = useNarrow();
   const [rows, setRows] = useState<DailyAdsRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [watchingAll, setWatchingAll] = useState(false);
@@ -147,7 +149,7 @@ export function DailyAds() {
         <Button leadingVisual={SyncIcon} loading={refreshing || verifying} disabled={refreshing || verifying} onClick={refresh}>
           Обновить
         </Button>
-        {verifying && <span style={{ alignSelf: 'center', fontSize: 12, color: 'var(--fgColor-muted)' }}>уточняю статус у игры…</span>}
+        {verifying && <span style={{ alignSelf: 'center', fontSize: 12, color: 'var(--fg-muted)' }}>уточняю статус у игры…</span>}
         <Button variant="primary" leadingVisual={EyeIcon} loading={watchingAll} disabled={watchingAll} onClick={watchAll}>
           Смотреть всем
         </Button>
@@ -159,7 +161,7 @@ export function DailyAds() {
           data={data}
           initialSortColumn="name"
           initialSortDirection="ASC"
-          columns={[
+          columns={narrowCols<typeof data[number]>(narrow, ['name', '_progress', 'action'], [
             {
               header: 'Аккаунт',
               field: 'name',
@@ -226,7 +228,7 @@ export function DailyAds() {
                 </Box>
               ),
             },
-          ]}
+          ])}
         />
       </Table.Container>
     </Box>

@@ -8,10 +8,12 @@ import { useFlash } from '../hooks/useFlash';
 import { useUtcMidnightReset } from '../hooks/useUtcMidnightReset';
 import { CoinValue } from '../components/Icons';
 import { PageHeader } from '../components/PageHeader';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 interface Result { won?: boolean; skipped?: boolean; reward?: number | null; error?: string }
 
 export function Minesweeper() {
+  const narrow = useNarrow();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [solvingAll, setSolvingAll] = useState(false);
@@ -90,7 +92,7 @@ export function Minesweeper() {
       <Table.Container>
         <DataTable
           data={data}
-          columns={[
+          columns={narrowCols<typeof data[number]>(narrow, ['name', 'id', 'action'], [
             {
               header: 'Аккаунт', field: 'name', rowHeader: true, sortBy: 'alphanumeric',
               renderCell: row => <strong>{row.name}</strong>,
@@ -124,7 +126,7 @@ export function Minesweeper() {
                 );
               },
             },
-          ]}
+          ])}
         />
       </Table.Container>
     </Box>

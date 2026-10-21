@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { Box, Button, Flash, Text, Tooltip, Spinner } from '@primer/react';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type DailyRewardAccount, type DailyRewardDay } from '../api';
-import { fmt, sortByName, ITEMS_BY_ID, itemImgSrc } from '../utils';
+import { fmt, fmtDate, sortByName, ITEMS_BY_ID, itemImgSrc } from '../utils';
+import { LoadError, errText } from '../components/LoadError';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinIcon, CrystalIcon } from '../components/Icons';
@@ -55,7 +56,7 @@ function AccountRewards({ data }: { data: DailyRewardAccount }) {
       <Box sx={{ px: 3, py: 2, bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
         <Text sx={{ fontWeight: 'bold' }}>{data.name}</Text>
         <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-          Стрик: {data.streak ?? '—'} {data.last_login && `· последний вход ${data.last_login}`}
+          Стрик: {data.streak ?? '—'} {data.last_login && `· последний вход ${fmtDate(data.last_login)}`}
         </Text>
       </Box>
       <Box sx={{ p: 3 }}>
@@ -74,6 +75,7 @@ function AccountRewards({ data }: { data: DailyRewardAccount }) {
 export function Daily() {
   const [accounts, setAccounts] = useState<DailyRewardAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState('');
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:daily', () => load());
   const { flash, showFlash } = useFlash();
 
@@ -81,7 +83,8 @@ export function Daily() {
     setLoading(true);
     try {
       const d = await api.dailyRewards();
-      if (d.ok) setAccounts(sortByName(d.accounts, 'name'));
+      if (d.ok) { setAccounts(sortByName(d.accounts, 'name')); setLoadErr(''); }
+      else setLoadErr(errText(d));
     } finally { setLoading(false); }
   };
 
@@ -102,9 +105,10 @@ export function Daily() {
       </>} />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
+      <LoadError error={loadErr} onRetry={load} />
       {loading
         ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><Spinner /></Box>
-        : accounts.length === 0
+        : loadErr ? null : accounts.length === 0
           ? <Text sx={{ color: 'fg.muted' }}>Нет аккаунтов</Text>
           : accounts.map(a => <AccountRewards key={a.name} data={a} />)}
     </Box>

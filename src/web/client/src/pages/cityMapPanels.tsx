@@ -52,12 +52,18 @@ const dockBtn = (on = false) => ({
   '& svg': { width: 18, height: 18, color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)' },
 });
 
+// на сенсорном экране фокус после тапа остаётся на кнопке, и её подсказка висит, пока не тапнешь в другое место
+export function blurOnTouch(el: HTMLElement) {
+  if (window.matchMedia('(hover: none)').matches) el.blur();
+}
+
 function PaletteTool({ t, on, dot, onSelect }: { t: Tool; on: boolean; dot: boolean; onSelect: (m: PanelMode) => void }) {
   const onBg = 'accent.emphasis';
   return (
     <Box sx={{ display: 'flex', lineHeight: 0, position: 'relative', flexShrink: 0, '& > span': { display: 'flex', lineHeight: 0 } }}>
       <Tooltip text={t.title} direction="n">
-        <IconButton icon={t.icon} aria-label={t.title} variant="invisible" size="medium" onClick={() => onSelect(t.mode)}
+        <IconButton icon={t.icon} aria-label={t.title} variant="invisible" size="medium"
+          onClick={e => { onSelect(t.mode); blurOnTouch(e.currentTarget); }}
           sx={{
             ...dockBtn(on),
             ...(on
@@ -80,6 +86,9 @@ export function MapPalette({ mode, onSelect, dots, tools = CITY_TOOLS }: { mode:
     <Box sx={{
       ...DOCK_GLASS, gap: 1, maxWidth: '100%', overflowX: 'auto',
       scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' },
+      // телефон: 12 кнопок в ширину не влезают — переносим во второй ряд, а не листаем со скрытой
+      // полосой (часть режимов и даже активная кнопка оказывались за краем)
+      '@media (max-width: 768px)': { flexWrap: 'wrap', justifyContent: 'center', overflowX: 'visible', rowGap: 1 },
     }}>
       {tools.flatMap((grp, gi) => [
         gi > 0 ? <Box key={`gap-${gi}`} aria-hidden sx={{ width: 12, flexShrink: 0 }} /> : null,
@@ -146,15 +155,8 @@ export function Empty({ children }: { children: ReactNode }) { return <Text sx={
 function Thumb({ id, size = 40, bg = 'canvas.subtle', dim }: { id: string; size?: number; bg?: string; dim?: boolean }) {
   return <Box sx={{ width: size, height: size, borderRadius: '8px', bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} dim={dim} /></Box>;
 }
-// как в игре — 2 знака после запятой
-export function fmtStat(n: number): string {
-  const abs = Math.abs(n), sign = n < 0 ? '-' : '';
-  if (abs >= 1e12) return sign + (abs / 1e12).toFixed(2) + 'T';
-  if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
-  if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
-  if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + 'K';
-  return String(Math.round(n));
-}
+// тот же формат, что во всей панели (fmt, 1 знак): раньше карта писала 55.27M, а таблицы — 55.3M
+export const fmtStat = (n: number): string => fmt(n);
 export function fmtTimeLeft(ms: number): string {
   if (ms <= 0) return '0м';
   const totalMin = Math.ceil(ms / 60000);
@@ -166,8 +168,8 @@ const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
 // ── общие кирпичики страниц в стиле «Плана» ─────────────────────────────────
 // Ритм 8 px: карточки со скруглением 12, белые плитки внутри цветной сводки — 8.
 // Заливки по состоянию — те же приглушённые цвета, что у шапок карточек «Плана».
-const FILL_DANGER = 'var(--bgColor-danger-muted, rgba(255,129,130,.4))';
-const FILL_ATTENTION = 'var(--bgColor-attention-muted, rgba(212,167,44,.4))';
+const FILL_DANGER = 'rgba(255,129,130,.4)';
+const FILL_ATTENTION = 'rgba(212,167,44,.4)';
 const ell = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const;
 // градиент из сегментов [цвет, процент], как прогресс в шапке карточки здания
 function fillOf(parts: [string, number][]): string {
@@ -364,8 +366,8 @@ function planSum(cells: PlanCell[]): PlanSum {
 }
 const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
 // заливка шапки здания: те же цвета, что у полос, приглушённые (переменные Primer с запасным значением)
-const FILL_DONE = 'var(--bgColor-success-muted, rgba(74,194,107,.4))';
-const FILL_WIP = 'var(--bgColor-accent-muted, rgba(84,174,255,.4))';
+const FILL_DONE = 'rgba(74,194,107,.4)';
+const FILL_WIP = 'rgba(84,174,255,.4)';
 function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
@@ -550,7 +552,7 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
             onDragOver={e => { e.preventDefault(); if (over !== i) setOver(i); }} onDrop={e => onDrop(e, i)}
             sx={{
               borderRadius: '12px', opacity: drag === i ? 0.5 : 1, cursor: 'grab',
-              boxShadow: over === i && drag !== i ? '0 0 0 2px var(--borderColor-accent-emphasis, #0969da)' : undefined,
+              boxShadow: over === i && drag !== i ? '0 0 0 2px var(--cyan)' : undefined,
               // крестик виден под курсором; на сенсорных экранах — всегда
               '& .q-rm': { opacity: 0 }, '&:hover .q-rm, & .q-rm:focus-visible': { opacity: 1 }, '@media (hover: none)': { '& .q-rm': { opacity: 1 } },
             }}>

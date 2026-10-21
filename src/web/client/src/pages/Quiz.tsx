@@ -8,11 +8,13 @@ import { useFlash } from '../hooks/useFlash';
 import { useUtcMidnightReset } from '../hooks/useUtcMidnightReset';
 import { CoinValue } from '../components/Icons';
 import { PageHeader } from '../components/PageHeader';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 interface Result { won?: boolean; reward?: number | null; score?: number | null }
 interface Live { current: number; total: number }
 
 export function Quiz() {
+  const narrow = useNarrow();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<Map<number, Result>>(new Map());
@@ -171,7 +173,7 @@ export function Quiz() {
       <Table.Container>
         <DataTable
           data={data}
-          columns={[
+          columns={narrowCols<typeof data[number]>(narrow, ['name', 'id', 'action'], [
             {
               header: 'Аккаунт', field: 'name', rowHeader: true, sortBy: 'alphanumeric',
               renderCell: row => <strong>{row.name}</strong>,
@@ -220,7 +222,7 @@ export function Quiz() {
                 );
               },
             },
-          ]}
+          ])}
         />
       </Table.Container>
     </Box>

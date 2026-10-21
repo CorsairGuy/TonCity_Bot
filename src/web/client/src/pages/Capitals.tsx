@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Button, Flash, Heading, Spinner, Text } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type CapitalRow } from '../api';
@@ -9,10 +9,15 @@ import { StatCard } from '../components/StatCard';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { CoinValue, CrystalValue } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
+import { LoadError, errText } from '../components/LoadError';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 export function Capitals() {
   const [rows, setRows] = useState<CapitalRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState('');
+  const narrow = useNarrow();
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:capitals', () => load());
   const { flash, showFlash } = useFlash();
   const navigate = useNavigate();
@@ -21,7 +26,8 @@ export function Capitals() {
     setLoading(true);
     try {
       const d = await api.capitals();
-      if (d.ok) setRows(d.rows);
+      if (d.ok) { setRows(d.rows); setLoadErr(''); }
+      else setLoadErr(errText(d));
     } finally { setLoading(false); }
   };
 
@@ -72,22 +78,20 @@ export function Capitals() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Heading as="h2" sx={{ fontSize: 3, m: 0 }}>Столицы</Heading>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
-            Обновить
-          </Button>
-          <Button onClick={() => navigate('/global-capital-upgrade-plan')}>Общий план улучшений</Button>
-        </Box>
-      </Box>
+      <PageHeader title="Столицы" actions={<>
+        <Button onClick={() => navigate('/global-capital-upgrade-plan')}>Общий план улучшений</Button>
+        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
+          Обновить
+        </Button>
+      </>} />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+      <LoadError error={loadErr} onRetry={load} />
 
-      {rows.length === 0
+      {loadErr ? null : rows.length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Нет данных</Text>
         : (
           <>
-            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+            <div className="stat-grid stat-grid--reserve">
               <StatCard label="Монеты" color="cyan">
                 <Text sx={{ fontSize: 2, fontWeight: 'bold', display: 'block' }}><CoinValue value={fmt(totalCoins)} /></Text>
               </StatCard>
@@ -109,7 +113,7 @@ export function Capitals() {
                 data={data}
                 initialSortColumn="guild_title"
                 initialSortDirection="ASC"
-                columns={[
+                columns={narrowCols<typeof data[number]>(narrow, ['guild_title', '_profit_coins', '_profit_crystals', '_hasMap'], [
                   {
                     header: 'Гильдия',
                     field: 'guild_title',
@@ -136,7 +140,7 @@ export function Capitals() {
                     renderCell: row => <span className="mono"><CoinValue value={fmt(row._profit_coins)} /></span>,
                   },
                   {
-                    header: 'После',
+                    header: 'Прибыль после',
                     field: '_profit_coins_diff',
                     sortBy: 'basic',
                     renderCell: row => {
@@ -154,7 +158,7 @@ export function Capitals() {
                       : <span className="mono" style={{ color: 'var(--fg-muted)' }}>—</span>,
                   },
                   {
-                    header: 'После',
+                    header: 'Приб.кр после',
                     field: '_profit_crystals_diff',
                     sortBy: 'basic',
                     renderCell: row => {
@@ -178,7 +182,7 @@ export function Capitals() {
                       </Box>
                     ),
                   },
-                ]}
+                ])}
               />
             </Table.Container>
           </>

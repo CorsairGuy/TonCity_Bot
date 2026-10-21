@@ -3,6 +3,7 @@ import { Box, Button, Flash, Text, Spinner } from '@primer/react';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type InventoryItem } from '../api';
 import { useFlash } from '../hooks/useFlash';
+import { LoadError, errText } from '../components/LoadError';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { ITEMS_BY_ID, itemImgSrc, fmt, itemTypeGroupRank, rarityRankFromTag } from '../utils';
 
@@ -108,6 +109,7 @@ export function Inventory() {
   const [accValues, setAccValues] = useState<Record<string, { coins: number; crystals: number }>>({});
   const [accIdByName, setAccIdByName] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState('');
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:inventory', () => load());
   const [modal, setModal] = useState<ModalState | null>(null);
   const [bulk, setBulk] = useState<{ itemId: number; holders: BulkHolder[] } | null>(null);
@@ -122,7 +124,8 @@ export function Inventory() {
         setByAccount(d.byAccount ?? {});
         setAccValues(d.accValues ?? {});
         setAccIdByName(d.accIdByName ?? {});
-      }
+        setLoadErr('');
+      } else setLoadErr(errText(d));
     } finally { if (!silent) setLoading(false); }
   };
 
@@ -165,7 +168,8 @@ export function Inventory() {
         />
       )}
 
-      {accounts.length === 0
+      <LoadError error={loadErr} onRetry={() => load()} />
+      {loadErr ? null : accounts.length === 0
           ? <Text sx={{ color: 'fg.muted' }}>Нет данных</Text>
           : (
             <>

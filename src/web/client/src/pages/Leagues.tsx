@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Button, Flash, Label, SegmentedControl, Spinner, Text, Token } from '@primer/react';
+import { Box, Button, Flash, IconButton, Label, SegmentedControl, Spinner, Text, Token } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { ChevronDownIcon, ChevronRightIcon, LocationIcon, PeopleIcon, SyncIcon } from '@primer/octicons-react';
 import { api, type LbGuild, type LbPlayer, type LeaderboardLeagues } from '../api';
@@ -8,6 +8,7 @@ import { PageHeader } from '../components/PageHeader';
 import { CoinIcon } from '../components/Icons';
 import { fmt } from '../utils';
 import { useNarrow } from '../hooks/useNarrow';
+import { useQueryState, useScrollRestore } from '../hooks/useQueryState';
 import {
   cityHref, GUILD_UP, isLeague, LEAGUE_RU, LEAGUES, LeagueIcon, leagueFrom, MAYOR_UP, mayorLeague, Place, PlayerAvatar, PopValue, ProfitValue, type League,
 } from '../components/League';
@@ -22,9 +23,13 @@ const FIRST = 20;  // строк в раскрытой лиге до «Пока�
 export function Leagues() {
   const [data, setData] = useState<LeaderboardLeagues | null>(null);
   const [loading, setLoading] = useState(false);
-  const [kind, setKind] = useState<Kind>('players');
-  const [open, setOpen] = useState<League | null>(null);
-  const [full, setFull] = useState(false);
+  // вкладка, раскрытая лига и «Показать все» — в адресе, чтобы «Назад» из чужого города вернул их
+  const [q, patch] = useQueryState();
+  const kind: Kind = q.get('kind') === 'guilds' ? 'guilds' : 'players';
+  const full = q.get('all') === '1';
+  const setKind = (k: Kind) => patch({ kind: k === 'guilds' ? 'guilds' : null, league: null, all: null });
+  const setOpen = (l: League | null) => patch({ league: l ?? 'none', all: null });
+  const setFull = (v: boolean) => patch({ all: v ? '1' : null });
 
   const load = useCallback(async (force = false) => {
     setLoading(true);
@@ -61,12 +66,11 @@ export function Leagues() {
     return m;
   }, [data, kind]);
 
-  // по умолчанию раскрыта самая высокая лига, где есть свои
-  useEffect(() => {
-    if (!data?.ok) return;
-    setOpen(LADDER.find(l => own.get(l)?.length) ?? LADDER.find(l => byLeague.get(l)?.length) ?? null);
-    setFull(false);
-  }, [data, kind]); // eslint-disable-line react-hooks/exhaustive-deps
+  // по умолчанию (в адресе лиги нет) раскрыта самая высокая лига, где есть свои
+  const lp = q.get('league');
+  const open: League | null = lp === 'none' ? null : lp && isLeague(lp) ? lp
+    : data?.ok ? (LADDER.find(l => own.get(l)?.length) ?? LADDER.find(l => byLeague.get(l)?.length) ?? null) : null;
+  useScrollRestore(!!data?.ok);
 
   const up = kind === 'players' ? MAYOR_UP : GUILD_UP;
   const sub = data?.updated_at ? `топ-100 каждой лиги · обновлено ${new Date(data.updated_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}` : 'топ-100 каждой лиги';
@@ -96,7 +100,7 @@ export function Leagues() {
             const leader = list[0];
             return (
               <Box key={l} sx={{ borderTop: i ? '1px solid' : 0, borderColor: 'border.default' }}>
-                <Box as="button" type="button" onClick={() => { setOpen(isOpen ? null : l); setFull(false); }}
+                <Box as="button" type="button" onClick={() => setOpen(isOpen ? null : l)}
                   sx={{ all: 'unset', boxSizing: 'border-box', width: '100%', display: 'flex', alignItems: 'center', gap: [2, 3], px: 3, py: 2, cursor: 'pointer',
                     bg: isOpen ? 'canvas.subtle' : undefined, '&:hover': { bg: 'canvas.subtle' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'accent.fg' } }}>
                   <Box sx={{ color: 'fg.muted', display: 'flex' }}>{isOpen ? <ChevronDownIcon /> : <ChevronRightIcon />}</Box>
@@ -127,7 +131,7 @@ export function Leagues() {
                         : <GuildsTable list={(full ? list : list.slice(0, FIRST)) as LbGuild[]} />}
                       {list.length > FIRST && (
                         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                          <Button size="small" onClick={() => setFull(v => !v)}>{full ? 'Свернуть' : `Показать все (${list.length})`}</Button>
+                          <Button size="small" onClick={() => setFull(!full)}>{full ? 'Свернуть' : `Показать все (${list.length})`}</Button>
                         </Box>
                       )}
                     </> : (
@@ -152,8 +156,8 @@ function PlayersTable({ list }: { list: LbPlayer[] }) {
   return (
     <Table.Container>
       <DataTable aria-label="Мэры лиги" data={list.map(p => ({ ...p, id: p.user_id }))} columns={[
-        { header: 'Место', id: 'rank', width: '72px', renderCell: p => <Place n={p.rank} /> },
-        { header: 'Мэр', id: 'name', renderCell: p => (
+        { header: narrow ? '#' : 'Место', id: 'rank', width: narrow ? '44px' : '72px', renderCell: p => <Place n={p.rank} /> },
+        { header: 'Мэр', id: 'name', width: narrow ? 'growCollapse' : 'grow', renderCell: p => (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
             <PlayerAvatar src={p.small_url} name={p.name} />
             <Text sx={{ fontWeight: p.account ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</Text>
@@ -164,7 +168,9 @@ function PlayersTable({ list }: { list: LbPlayer[] }) {
         { header: 'Доход', id: 'profit', align: 'end', renderCell: p => <ProfitValue v={p.profit} strong /> },
         { header: '', id: 'city', align: 'end', width: 'auto', renderCell: p => (
           <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button size="small" leadingVisual={LocationIcon} onClick={() => navigate(cityHref(p, 'leagues'))}>Город</Button>
+            {narrow
+              ? <IconButton size="small" icon={LocationIcon} aria-label={`Город ${p.name}`} onClick={() => navigate(cityHref(p, 'leagues'))} />
+              : <Button size="small" leadingVisual={LocationIcon} onClick={() => navigate(cityHref(p, 'leagues'))}>Город</Button>}
           </Box>
         ) },
       ]} />
@@ -177,8 +183,8 @@ function GuildsTable({ list }: { list: LbGuild[] }) {
   return (
     <Table.Container>
       <DataTable aria-label="Гильдии лиги" data={list} columns={[
-        { header: 'Место', id: 'rank', width: '72px', renderCell: g => <Place n={g.rank} /> },
-        { header: 'Гильдия', id: 'title', renderCell: g => (
+        { header: narrow ? '#' : 'Место', id: 'rank', width: narrow ? '44px' : '72px', renderCell: g => <Place n={g.rank} /> },
+        { header: 'Гильдия', id: 'title', width: narrow ? 'growCollapse' : 'grow', renderCell: g => (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
             <PlayerAvatar src={g.photo} name={g.title} square />
             <Text sx={{ fontWeight: g.own ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.title}</Text>
