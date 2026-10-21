@@ -31,6 +31,19 @@ export const CITY_TOOLS: Tool[][] = [
 ];
 export const toolFor = (m: PanelMode): Tool => CITY_TOOLS.flat().find(t => t.mode === m) ?? CITY_TOOLS[0][0];
 
+// стекло дока и плашки кисти — общее: обе висят на карте, непрозрачный overlay её закрывал бы
+const DOCK_GLASS = {
+  display: 'flex', alignItems: 'center', p: 2, flexShrink: 0,
+  bg: 'rgba(22,27,34,.7)', border: '1px solid', borderColor: 'rgba(255,255,255,.1)',
+  borderRadius: '19px', boxShadow: 'shadow.large',
+  backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+} as const;
+// кнопка дока 36×36, радиус 10: капсула 19 = 10 + поле 8 + рамка 1 (углы концентричны)
+const dockBtn = (on = false) => ({
+  width: 36, height: 36, minWidth: 36, p: 0, borderRadius: '10px',
+  '& svg': { width: 18, height: 18, color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)' },
+});
+
 function PaletteTool({ t, on, dot, onSelect }: { t: Tool; on: boolean; dot: boolean; onSelect: (m: PanelMode) => void }) {
   const onBg = 'accent.emphasis';
   return (
@@ -38,8 +51,7 @@ function PaletteTool({ t, on, dot, onSelect }: { t: Tool; on: boolean; dot: bool
       <Tooltip text={t.title} direction="n">
         <IconButton icon={t.icon} aria-label={t.title} variant="invisible" size="medium" onClick={() => onSelect(t.mode)}
           sx={{
-            width: 36, height: 36, minWidth: 36, p: 0, borderRadius: 2,
-            '& svg': { width: 18, height: 18, color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)' },
+            ...dockBtn(on),
             ...(on
               ? { bg: onBg, '&:hover:not([disabled])': { bg: onBg } }
               : t.danger
@@ -53,20 +65,16 @@ function PaletteTool({ t, on, dot, onSelect }: { t: Tool; on: boolean; dot: bool
 }
 
 export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect: (m: PanelMode) => void; dots: Partial<Record<PanelMode, boolean>> }) {
-  // стекло оставляем: док висит на карте, непрозрачный overlay её закрывал бы. Геометрия — Primer:
-  // поле 8px со всех сторон (p:2), радиус 12 (токен 3, как у overlay/плашки кисти), кнопки medium 36,
-  // скругление кнопки 6 (токен 2). Tooltip — inline-span, без flex/lineHeight:0 снизу появляется strut
+  // в стиле дока macOS: без линий-разделителей, кнопки внутри группы через 4px, группы — через 20px
+  // (4 + пустой зазор 12 + 4). Tooltip — inline-span, без flex/lineHeight:0 снизу появляется strut
   // и нижнее поле перестаёт быть 8px.
   return (
     <Box sx={{
-      display: 'flex', alignItems: 'center', gap: 2, p: 2, maxWidth: '100%', overflowX: 'auto',
+      ...DOCK_GLASS, gap: 1, maxWidth: '100%', overflowX: 'auto',
       scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' },
-      bg: 'rgba(22,27,34,.5)', border: '1px solid', borderColor: 'rgba(255,255,255,.18)',
-      borderRadius: '16px', boxShadow: 'shadow.large',
-      backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
     }}>
       {CITY_TOOLS.flatMap((grp, gi) => [
-        gi > 0 ? <Box key={`sep-${gi}`} aria-hidden sx={{ width: 1, alignSelf: 'stretch', bg: 'rgba(255,255,255,.18)', flexShrink: 0 }} /> : null,
+        gi > 0 ? <Box key={`gap-${gi}`} aria-hidden sx={{ width: 12, flexShrink: 0 }} /> : null,
         ...grp.map(t => (
           <PaletteTool key={t.mode} t={t} on={mode === t.mode} dot={!!dots[t.mode]} onSelect={onSelect} />
         )),
@@ -75,17 +83,15 @@ export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect
   );
 }
 
-// уровень кисти «Плана» — отдельная плашка справа от дока, в его же стиле
+// уровень кисти «Плана» — отдельная плашка справа от дока, из того же стекла и той же высоты
 export function MapBrushLevel({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const btn = { ...dockBtn(), '&:hover:not([disabled])': { bg: 'rgba(255,255,255,.14)' }, '&[disabled] svg': { color: 'rgba(255,255,255,.35)' } };
   return (
     <Tooltip text="Уровень кисти: клик и мазок ставят цель до этого уровня" direction="n">
-      <Box role="group" aria-label="Уровень кисти" sx={{
-        display: 'flex', alignItems: 'center', gap: 1, p: 1, flexShrink: 0,
-        bg: 'canvas.overlay', border: '1px solid', borderColor: 'border.default', borderRadius: '12px', boxShadow: 'shadow.large',
-      }}>
-        <IconButton icon={DashIcon} aria-label="Ниже" variant="invisible" disabled={value <= 1} onClick={() => onChange(Math.max(1, value - 1))} />
-        <Text sx={{ minWidth: 24, textAlign: 'center', fontWeight: 'semibold', ...num }}>{value}</Text>
-        <IconButton icon={PlusIcon} aria-label="Выше" variant="invisible" onClick={() => onChange(value + 1)} />
+      <Box role="group" aria-label="Уровень кисти" sx={{ ...DOCK_GLASS, gap: 1 }}>
+        <IconButton icon={DashIcon} aria-label="Ниже" variant="invisible" size="medium" disabled={value <= 1} onClick={() => onChange(Math.max(1, value - 1))} sx={btn} />
+        <Text sx={{ minWidth: 24, textAlign: 'center', fontWeight: 'semibold', color: 'rgba(255,255,255,.9)', ...num }}>{value}</Text>
+        <IconButton icon={PlusIcon} aria-label="Выше" variant="invisible" size="medium" onClick={() => onChange(value + 1)} sx={btn} />
       </Box>
     </Tooltip>
   );
