@@ -7,18 +7,18 @@ import { Tooltip } from '@primer/react/experimental';
 import {
   GraphIcon, GoalIcon, StackIcon, ClockIcon, PlusIcon, ArrowBothIcon, TrashIcon, IterationsIcon, StarIcon, ZapIcon, LogIcon,
   QuestionIcon, SearchIcon, XIcon, DashIcon, ChevronDownIcon, ChevronRightIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
-  GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon, UndoIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon,
+  GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon, UndoIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
 import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActionLogRow, ForecastEvent } from '../api';
 import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
 import { Scrollable } from '../components/Scrollable';
-import { CoinValue } from '../components/Icons';
+import { CoinValue, CrystalValue } from '../components/Icons';
 import { fmt } from '../utils';
 import { catalogItemImg } from '../hooks/useItemCatalog';
 
-export type PanelMode = Exclude<CityActionMode, 'skip'>;
+export type PanelMode = CityActionMode;
 
 // ── палитра ──────────────────────────────────────────────────────────────────
 interface Tool { mode: PanelMode; icon: React.ElementType; title: string; danger?: boolean }
@@ -29,7 +29,15 @@ export const CITY_TOOLS: Tool[][] = [
   [{ mode: 'reconstruct', icon: IterationsIcon, title: 'Реконструкция' }, { mode: 'renovate', icon: StarIcon, title: 'Реновация' }, { mode: 'boosters', icon: ZapIcon, title: 'Ускорители' }],
   [{ mode: 'log', icon: LogIcon, title: 'Лог' }],
 ];
-export const toolFor = (m: PanelMode): Tool => CITY_TOOLS.flat().find(t => t.mode === m) ?? CITY_TOOLS[0][0];
+// у столицы нет реконструкции/реновации/ускорителей, зато есть ускорение стройки за алмазы
+export const CAPITAL_TOOLS: Tool[][] = [
+  [{ mode: 'view', icon: GraphIcon, title: 'Показатели' }],
+  [{ mode: 'upgrade', icon: GoalIcon, title: 'План' }, { mode: 'queue', icon: StackIcon, title: 'Очередь' }, { mode: 'forecast', icon: ClockIcon, title: 'Прогноз' }],
+  [{ mode: 'build', icon: PlusIcon, title: 'Строительство' }, { mode: 'move', icon: ArrowBothIcon, title: 'Перемещение' }, { mode: 'demolish', icon: TrashIcon, title: 'Снос', danger: true }],
+  [{ mode: 'skip', icon: RocketIcon, title: 'Ускорить' }],
+  [{ mode: 'log', icon: LogIcon, title: 'Лог' }],
+];
+export const toolFor = (m: PanelMode): Tool => [...CITY_TOOLS, ...CAPITAL_TOOLS].flat().find(t => t.mode === m) ?? CITY_TOOLS[0][0];
 
 // стекло дока и плашки кисти — общее: обе висят на карте, непрозрачный overlay её закрывал бы
 const DOCK_GLASS = {
@@ -64,7 +72,7 @@ function PaletteTool({ t, on, dot, onSelect }: { t: Tool; on: boolean; dot: bool
   );
 }
 
-export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect: (m: PanelMode) => void; dots: Partial<Record<PanelMode, boolean>> }) {
+export function MapPalette({ mode, onSelect, dots, tools = CITY_TOOLS }: { mode: PanelMode; onSelect: (m: PanelMode) => void; dots: Partial<Record<PanelMode, boolean>>; tools?: Tool[][] }) {
   // в стиле дока macOS: без линий-разделителей, кнопки внутри группы через 4px, группы — через 20px
   // (4 + пустой зазор 12 + 4). Tooltip — inline-span, без flex/lineHeight:0 снизу появляется strut
   // и нижнее поле перестаёт быть 8px.
@@ -73,7 +81,7 @@ export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect
       ...DOCK_GLASS, gap: 1, maxWidth: '100%', overflowX: 'auto',
       scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' },
     }}>
-      {CITY_TOOLS.flatMap((grp, gi) => [
+      {tools.flatMap((grp, gi) => [
         gi > 0 ? <Box key={`gap-${gi}`} aria-hidden sx={{ width: 12, flexShrink: 0 }} /> : null,
         ...grp.map(t => (
           <PaletteTool key={t.mode} t={t} on={mode === t.mode} dot={!!dots[t.mode]} onSelect={onSelect} />
@@ -323,6 +331,26 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
 }
 
 
+// ── Показатели столицы: монеты и кристаллы, доход, сила экономики и штаб-квартира ──
+export function CapitalStatsPanel({ coins, crystals, profitCoins, profitCrystals, econStrength, hallLevel, hallId }: {
+  coins: number; crystals: number; profitCoins: number; profitCrystals: number; econStrength: number; hallLevel: number; hallId?: string;
+}) {
+  return (
+    <>
+      <Summary tone="accent">
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Tile value={<CoinValue value={fmt(coins)} />} label="монет" />
+          <Tile value={<CrystalValue value={fmt(crystals)} />} label="кристаллов" />
+        </Box>
+        <SumLine left="доход монет в час" right={<CoinValue value={fmt(profitCoins)} />} />
+        <SumLine left="доход кристаллов в час" right={<CrystalValue value={fmt(profitCrystals)} />} />
+      </Summary>
+      <Row lead={<IconThumb icon={GraphIcon} color="success.fg" />} title={econStrength.toFixed(2)} sub="сила экономики" />
+      <Row lead={hallId ? <Thumb id={hallId} size={36} bg="canvas.default" /> : <IconThumb icon={StackIcon} />} title={`ур. ${hallLevel}`} sub="штаб-квартира" />
+    </>
+  );
+}
+
 // ── План: сводка, карточки зданий и полоса прогресса на каждую клетку ──────
 // Шкала клетки — от 1-го уровня до цели: (уровень−1)/(цель−1), уровень выше цели = 100%.
 // Пока идёт стройка, игра уже подняла level (realLevel = level−1), строящийся уровень — синий сегмент.
@@ -540,7 +568,7 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
 
 // ── отложенные действия (строительство/перемещение/снос/реконструкция/реновация) ─────────────
 export interface PendingRow { id: number; kind: string; label: string; sprite?: string }
-const PENDING_ICON: Record<string, React.ElementType> = { build: PlusIcon, move: ArrowBothIcon, demolish: TrashIcon, reconstruct: IterationsIcon, renovate: StarIcon };
+const PENDING_ICON: Record<string, React.ElementType> = { build: PlusIcon, move: ArrowBothIcon, demolish: TrashIcon, reconstruct: IterationsIcon, renovate: StarIcon, skip: RocketIcon };
 export function PendingList({ rows, disabled, onRemove }: { rows: PendingRow[]; disabled: boolean; onRemove: (id: number) => void }) {
   if (!rows.length) return null;
   return (
@@ -786,8 +814,11 @@ const LOG_TYPE: Record<string, [string, React.ElementType, string]> = {
   reconstruct: ['Реконструкция', IterationsIcon, 'done.emphasis'], renovate: ['Реновация', StarIcon, 'done.emphasis'],
   booster_activate: ['Ускоритель', ZapIcon, 'attention.emphasis'], booster_combine: ['Комбинирование', ZapIcon, 'attention.emphasis'],
   unlock_section: ['Секция', UnlockIcon, 'neutral.emphasis'],
+  'skip-upgrade': ['Ускорение', RocketIcon, 'attention.emphasis'],
 };
-export function LogPanel({ rows, loading, label, labelFor }: { rows: CityActionLogRow[]; loading: boolean; label: (r: CityActionLogRow) => string; labelFor: (id: string) => string }) {
+// общее у лога города и столицы (у столицы guild_id вместо account)
+type LogRow = Pick<CityActionLogRow, 'id' | 'type' | 'building_id' | 'level_from' | 'level_to' | 'duration_ms' | 'created_at'>;
+export function LogPanel<R extends LogRow>({ rows, loading, label, labelFor }: { rows: R[]; loading: boolean; label: (r: R) => string; labelFor: (id: string) => string }) {
   if (loading && rows.length === 0) return <Spinner size="small" />;
   if (rows.length === 0) return <Empty>Лог пуст</Empty>;
   return (
