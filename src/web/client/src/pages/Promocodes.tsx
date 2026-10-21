@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Box, Button, Checkbox, Flash, Heading, Label, LabelGroup, Octicon, ProgressBar, Spinner, Text, TextInput, Token } from '@primer/react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { ActionList, Box, Button, Flash, FormControl, Heading, Label, LabelGroup, Octicon, ProgressBar, Spinner, Text, TextInput, Token } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
-import { CheckCircleFillIcon, XCircleFillIcon, DashIcon, ZapIcon, TagIcon, SyncIcon, ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react';
+import { CheckCircleFillIcon, XCircleFillIcon, DashIcon, ZapIcon, TagIcon, SearchIcon, SyncIcon, ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react';
 import { api, type PromoAccount } from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { CoinIcon, CrystalIcon } from '../components/Icons';
@@ -148,6 +148,8 @@ export function Promocodes() {
   const [busy, setBusy] = useState<string | null>(null); // код, который сейчас вводится (или '' — новый из поля)
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([]);
+  const [query, setQuery] = useState('');
+  const codeInputRef = useRef<HTMLInputElement>(null);
   const { flash, showFlash } = useFlash();
 
   const load = async () => {
@@ -180,6 +182,10 @@ export function Promocodes() {
     [selectableAccounts, selectedAccountIds],
   );
   const allSelected = selectableAccounts.length > 0 && selectedAccounts.length === selectableAccounts.length;
+  // Поиск по имени: сверху те, кому код ещё можно ввести, ниже — уже получившие.
+  const q = query.trim().toLowerCase();
+  const shownFree = selectableAccounts.filter(a => !q || a.name.toLowerCase().includes(q));
+  const shownUsed = eligibleAccounts.filter(a => alreadyUsedIds.has(a.id) && (!q || a.name.toLowerCase().includes(q)));
 
   // ids не заданы — все аккаунты; иначе только перечисленные («Активировать оставшимся»).
   const activate = async (code: string, ids?: number[]) => {
@@ -202,12 +208,9 @@ export function Promocodes() {
 
   const openActivation = () => {
     setPromoCode('');
+    setQuery('');
     setSelectedAccountIds(eligibleAccounts.map(a => a.id));
     setDialogOpen(true);
-  };
-
-  const toggleAll = () => {
-    setSelectedAccountIds(allSelected ? [] : selectableAccounts.map(a => a.id));
   };
 
   const toggleAccount = (id: number) => {
@@ -238,7 +241,7 @@ export function Promocodes() {
         title="Промокоды"
         sub={`${total} аккаунтов · ${codes.length} кодов`}
         actions={<Button variant="primary" leadingVisual={ZapIcon} disabled={loading || busy !== null || eligibleAccounts.length === 0} onClick={openActivation}>
-          Активировать промокод
+          Активировать
         </Button>}
       />
       {dialogOpen && (
@@ -247,88 +250,76 @@ export function Promocodes() {
           onClose={() => setDialogOpen(false)}
           width="large"
           position={{ narrow: 'bottom', regular: 'center' }}
-          footerButtons={[
-            { content: 'Отмена', onClick: () => setDialogOpen(false), disabled: busy !== null },
-            {
-              content: `Активировать · ${selectedAccounts.length}`,
-              buttonType: 'primary',
-              loading: busy !== null,
-              disabled: busy !== null || !enteredCode || selectedAccounts.length === 0,
-              onClick: submitActivation,
-            },
-          ]}
+          initialFocusRef={codeInputRef}
+          renderFooter={() => (
+            <Dialog.Footer sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Выбрано {selectedAccounts.length} из {eligibleAccounts.length}</Text>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                {!narrow && <Button disabled={busy !== null} onClick={() => setDialogOpen(false)}>Отмена</Button>}
+                <Button variant="primary" loading={busy !== null}
+                  disabled={busy !== null || !enteredCode || selectedAccounts.length === 0} onClick={submitActivation}>
+                  Активировать
+                </Button>
+              </Box>
+            </Dialog.Footer>
+          )}
         >
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-              <Box>
-                <Text sx={{ display: 'block', fontWeight: 'bold' }}>Получатели</Text>
-                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                  {selectedAccounts.length} выбрано · {selectableAccounts.length} доступно
-                </Text>
-              </Box>
-              <Button variant="invisible" size="small" disabled={selectableAccounts.length === 0} onClick={toggleAll}>
-                {allSelected ? 'Снять все' : 'Выбрать всех'}
-              </Button>
-            </Box>
-
-            <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, maxHeight: 'min(42vh, 360px)', overflowY: 'auto' }}>
-              {eligibleAccounts.length === 0 ? (
-                <Text sx={{ display: 'block', p: 3, color: 'fg.muted' }}>Нет доступных аккаунтов.</Text>
-              ) : (
-                eligibleAccounts.map((a, i) => {
-                  const used = alreadyUsedIds.has(a.id);
-                  const checked = !used && selectedAccountIds.includes(a.id);
-                  return (
-                    <label
-                      key={a.id}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-                        borderTop: i === 0 ? '0' : '1px solid var(--border)',
-                        background: checked ? 'var(--accent-dim)' : 'transparent',
-                        cursor: used ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      <Checkbox checked={checked} disabled={used} onChange={() => toggleAccount(a.id)} aria-label={`Выбрать ${a.name}`} />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Text sx={{ display: 'block', fontWeight: 'semibold' }}>{a.name}</Text>
-                        <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                          {used ? 'Уже активирован этим кодом' : `Промокодов в истории: ${a.entries.length}`}
-                        </Text>
-                      </Box>
-                      {used ? <Label>Уже получал</Label> : checked ? <Octicon icon={CheckCircleFillIcon} sx={{ color: 'success.fg' }} /> : <Label variant="secondary">Доступен</Label>}
-                    </label>
-                  );
-                })
-              )}
-            </Box>
-
-            <Box>
-              <Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted', mb: 1 }}>Промокод</Text>
+            <FormControl>
+              <FormControl.Label>Промокод</FormControl.Label>
               <TextInput
                 block
+                ref={codeInputRef}
                 value={promoCode}
                 onChange={e => setPromoCode(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && busy === null && submitActivation()}
                 leadingVisual={TagIcon}
-                placeholder="Введите промокод"
-                aria-label="Промокод"
+                placeholder="Например, HALLOWEEN26"
                 sx={{ fontFamily: 'mono' }}
               />
+            </FormControl>
+
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextInput leadingVisual={SearchIcon} placeholder="Найти аккаунт" aria-label="Найти аккаунт"
+                value={query} onChange={e => setQuery(e.target.value)} sx={{ flex: 1, minWidth: 0 }} />
+              <Button disabled={selectableAccounts.length === 0 || allSelected}
+                onClick={() => setSelectedAccountIds(selectableAccounts.map(a => a.id))}>Все</Button>
+              <Button disabled={selectedAccounts.length === 0} onClick={() => setSelectedAccountIds([])}>Никого</Button>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2, bg: 'accent.subtle', border: '1px solid', borderColor: 'border.default', borderRadius: 2 }}>
-              <Octicon icon={CheckCircleFillIcon} sx={{ color: 'accent.fg', flexShrink: 0 }} />
-              <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                {enteredCode && selectableAccounts.length === 0
-                  ? 'Все аккаунты уже активировали этот промокод'
-                  : selectedAccounts.length === selectableAccounts.length && selectableAccounts.length > 0
-                    ? `Код будет проверен для всех ${selectableAccounts.length} доступных аккаунтов`
-                    : selectedAccounts.length === 1
-                      ? 'Код будет активирован только для 1 выбранного аккаунта'
-                      : selectedAccounts.length > 1
-                        ? `Код будет активирован только для ${selectedAccounts.length} выбранных аккаунтов`
-                        : 'Выберите хотя бы один аккаунт для активации'}
-              </Text>
+            <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, maxHeight: narrow ? 300 : 340, overflowY: 'auto' }}>
+              {shownFree.length === 0 && shownUsed.length === 0 ? (
+                <Text sx={{ display: 'block', p: 3, color: 'fg.muted' }}>
+                  {eligibleAccounts.length === 0 ? 'Нет доступных аккаунтов.' : 'Никого не нашлось.'}
+                </Text>
+              ) : (
+                <ActionList selectionVariant="multiple" showDividers={false} aria-label="Получатели">
+                  {shownFree.length > 0 && (
+                    <ActionList.Group>
+                      <ActionList.GroupHeading as="h4">
+                        {enteredCode ? 'Ещё не получали' : 'Аккаунты'} · {shownFree.length}
+                      </ActionList.GroupHeading>
+                      {shownFree.map(a => (
+                        <ActionList.Item key={a.id} selected={selectedAccountIds.includes(a.id)} onSelect={() => toggleAccount(a.id)}>
+                          {a.name}
+                          <ActionList.Description variant="block">Промокодов в истории: {a.entries.length}</ActionList.Description>
+                        </ActionList.Item>
+                      ))}
+                    </ActionList.Group>
+                  )}
+                  {shownUsed.length > 0 && (
+                    <ActionList.Group>
+                      <ActionList.GroupHeading as="h4">Уже получили · {shownUsed.length}</ActionList.GroupHeading>
+                      {shownUsed.map(a => (
+                        <ActionList.Item key={a.id} disabled>
+                          {a.name}
+                          <ActionList.TrailingVisual><Octicon icon={CheckCircleFillIcon} sx={{ color: 'success.fg' }} /></ActionList.TrailingVisual>
+                        </ActionList.Item>
+                      ))}
+                    </ActionList.Group>
+                  )}
+                </ActionList>
+              )}
             </Box>
           </Box>
         </Dialog>
