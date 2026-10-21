@@ -87,6 +87,40 @@ async function freeze(canvases: HTMLCanvasElement[]): Promise<Mip[]> {
   }
 }
 
+// Атласы качаются все сразу, параллельно, как только карта заказала из них первый кадр: нарезка идёт
+// по одному атласу, и раньше каждый следующий файл начинал качаться только после нарезки прежнего.
+// Держим сжатый файл (Blob), а не картинку: распакованный атлас — до 20 МБ памяти, сжатый — сотни КБ.
+// После нарезки атласа файл отпускается.
+const atlases = new Map<string, Promise<Blob | null>>();
+const atlasesDone = new Set<string>(); // файл атласа уже пришёл (или не пришёл совсем) — для шкалы загрузки
+
+function fetchAtlas(url: string): Promise<Blob | null> {
+  let p = atlases.get(url);
+  if (!p) {
+    p = fetch(url).then(r => (r.ok ? r.blob() : null)).catch(() => null).finally(() => { atlasesDone.add(url); });
+    atlases.set(url, p);
+  }
+  return p;
+}
+
+export function atlasFetched(url: string): boolean {
+  return atlasesDone.has(url);
+}
+
+// кадр готов или его подготовка уже закончилась неудачей (битый атлас) — ждать его больше нечего
+export function spriteSettled(id: string, targetW: number): boolean {
+  const key = keyOf(id, targetW);
+  return prepared.has(key) || !queued.has(key);
+}
+
+async function loadAtlas(url: string): Promise<HTMLImageElement | null> {
+  const blob = await fetchAtlas(url);
+  atlases.delete(url);
+  if (!blob) return loadImage(url); // не скачался — последняя попытка обычной загрузкой картинки
+  const obj = URL.createObjectURL(blob);
+  try { return await loadImage(obj); } finally { URL.revokeObjectURL(obj); }
+}
+
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise(res => {
     const img = new Image();
@@ -109,7 +143,7 @@ async function pump() {
       const url = jobs[0].info.pngUrl;
       const batch = jobs.filter(j => j.info.pngUrl === url);
       for (const j of batch) jobs.splice(jobs.indexOf(j), 1);
-      const img = await loadImage(url);
+      const img = await loadAtlas(url);
       for (const j of batch) {
         if (img) {
           try { prepared.set(j.key, { mips: await freeze(cut(img, j.info.frame, j.targetW)) }); } catch { /* битый кадр — останется заглушка */ }
@@ -129,5 +163,6 @@ export function requestSprite(id: string, info: SpriteInfo, targetW: number) {
   if (prepared.has(key) || queued.has(key)) return;
   queued.add(key);
   jobs.push({ key, info, targetW });
+  void fetchAtlas(info.pngUrl);
   void pump();
 }

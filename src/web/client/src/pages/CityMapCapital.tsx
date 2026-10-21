@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
+import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
 import { CheckIcon, ChevronLeftIcon, SyncIcon, XIcon } from '@primer/octicons-react';
 import { api, type CapitalRow, type MapBuilding, type CapitalStrategyTarget, type CapitalStrategyQueueItem, type CapitalActionLogRow, type ForecastEvent, type GlobalUpgradeRule } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
+import { MapLoader, DATA_SHARE, allCounted } from '../components/MapLoader';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { useMapDayNight } from '../hooks/useMapDayNight';
@@ -142,6 +143,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const [rows, setRows] = useState<CapitalRow[]>([]);
   const [dayNight, setDayNight] = useMapDayNight();
   const [loading, setLoading] = useState(true);
+  const [dataDone, setDataDone] = useState(0); // сколько запросов загрузки страницы уже ответило
   const [catalog, setCatalog] = useState<CapitalBuildingDef[]>([]);
   const [targets, setTargets] = useState<CapitalStrategyTarget[]>([]);
   const [manualQueue, setManualQueue] = useState<CapitalStrategyQueueItem[]>([]);
@@ -174,13 +176,14 @@ export function CityMapCapital({ account: guildTitle }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
+    setDataDone(0);
+    allCounted([
       api.capitals(),
       api.buildingsList('capital') as unknown as Promise<{ ok: boolean; buildings: CapitalBuildingDef[] }>,
       guildTitle ? api.capitalStrategy(guildTitle) : Promise.resolve({ ok: true, targets: [] as CapitalStrategyTarget[], queue: [] as CapitalStrategyQueueItem[] }),
       fetch('/api/coords?type=capital').then(r => r.json()).catch(() => ({ coords: [] })),
       api.globalCapitalUpgradePlan().catch(() => ({ ok: false as const, plan: [] })),
-    ]).then(([c, b, t, co, gp]) => {
+    ], () => setDataDone(n => n + 1)).then(([c, b, t, co, gp]) => {
       if (c.ok) setRows(c.rows);
       if (b.ok) setCatalog(b.buildings);
       if (t.ok) { setTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); }
@@ -406,7 +409,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     else if (mode === 'forecast') loadForecast();
   }, [mode, loadActionLog, loadForecast]);
 
-  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
+  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><MapLoader pct={DATA_SHARE * dataDone / 5} text={`Данные столицы ${dataDone} / 5`} /></Box>;
 
   const panelMode = mode as PanelMode;
   const ownedAt = (x: number, y: number) => owned.find(o => o.x === x && o.y === y);

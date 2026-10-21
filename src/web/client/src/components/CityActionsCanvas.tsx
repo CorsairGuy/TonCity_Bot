@@ -1,14 +1,16 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
+import { Box } from '@primer/react';
 import type { MapBuilding, CityStrategyTarget, CityStrategyQueueItem, BuildingDef, GlobalUpgradeRule, MapSection } from '../api';
 import cityCoordsData from '../data/city-coords.json';
 import capitalCoordsData from '../data/capital-coords.json';
 import cityRoadMapData from '../data/road-map.json';
 import capitalRoadMapData from '../data/capital-road-map.json';
-import { getPreparedSprite, pickMip, requestSprite, onSpritesReady } from './mapSprites';
+import { getPreparedSprite, pickMip, requestSprite, onSpritesReady, spriteSettled, atlasFetched } from './mapSprites';
+import { MapLoader, DATA_SHARE } from './MapLoader';
 import { startFpsCounter, type FpsCounter } from './fpsCounter';
 import {
   type DayNightMode, type Phase, ensureNight, hourFor, stepOf, phaseAt, setPhase, shownPhase, nightBusy, onNightChange,
-  wantGraded, gradedSprite, litMask, hasWindows, lampsOf, drawBuildingLights, ROAD_LIGHTS,
+  wantGraded, gradedSprite, litMask, hasWindows, lampsOf, drawBuildingLights, ROAD_LIGHTS, nightMetaSettled,
 } from './mapNight';
 
 // Рендер — из CityMapCanvas.tsx (реальная карта аккаунта, спрайты, badges). Hover-подсветка клетки,
@@ -239,6 +241,34 @@ interface Props {
 const NIGHT_HOLD_MAX_MS = 4000;
 // как часто сверяться с часами: свет в окнах и ступень суток
 const NIGHT_TICK_MS = 20000;
+// дольше карта загрузку не ждёт: показывается как есть, недостающее дорисуется само
+const LOAD_MAX_MS = 60000;
+
+interface LoadState { pct: number; text: string }
+
+// Лоадер поверх карты, пока она не загружена целиком. Ход загрузки опрашивает сам (tick), чтобы
+// частые обновления шкалы не перерисовывали всю карту; tick вернул null — карта готова, лоадер гаснет.
+function MapLoadOverlay({ tick, runKey }: { tick: () => LoadState | null; runKey: string }) {
+  const [p, setP] = useState<LoadState | null>(() => tick());
+  useEffect(() => {
+    const step = () => {
+      const n = tick();
+      setP(prev => (prev && n && prev.pct === n.pct && prev.text === n.text ? prev : n));
+      return n;
+    };
+    if (!step()) return undefined;
+    const id = setInterval(() => { if (!step()) clearInterval(id); }, 100);
+    return () => clearInterval(id);
+  }, [tick, runKey]);
+  return (
+    <Box sx={{
+      position: 'absolute', inset: 0, zIndex: 2, bg: 'canvas.default', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      opacity: p ? 1 : 0, pointerEvents: p ? 'auto' : 'none', transition: 'opacity 200ms ease',
+    }}>
+      <MapLoader pct={p?.pct ?? 1} text={p?.text ?? ''} />
+    </Box>
+  );
+}
 
 export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day' }: Props) {
   // "x_y" клетки закрытой секции → id секции — только город, только пока секция не в unlockedSections
@@ -345,6 +375,16 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     roadCells: [] as { x: number; y: number }[],
     nightHold: false,
     nightHoldTimer: null as ReturnType<typeof setTimeout> | null,
+    // загрузка карты: пока loading, куски не рисуются (поверх — лоадер); loadReady — всё нужное готово,
+    // следующий кадр рисует все видимые куски разом и снимает loading. wantKeys — все спрайты карты
+    // (id, ширина нарезки, атлас) из последней сборки draw-list
+    loadKey: '',
+    loading: true,
+    loadReady: false,
+    loadStart: 0,
+    loadPct: 0,
+    spriteMapState: (spriteMapCache ? 'ready' : 'loading') as 'loading' | 'ready' | 'failed',
+    wantKeys: [] as { id: string; tw: number; url: string }[],
   });
   state.current.mode = mode;
   state.current.validSet = validSet;
@@ -363,6 +403,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   // здания вообще хранятся только в реф-поле, а не как проп.
   state.current.blist = buildings;
   state.current.type = type;
+  // другая карта — снова ждём её полной загрузки под лоадером
+  const loadKey = `${type}:${mapKey}`;
+  if (state.current.loadKey !== loadKey) {
+    Object.assign(state.current, { loadKey, loading: true, loadReady: false, loadStart: performance.now(), loadPct: 0 });
+  }
 
   const requestRedraw = useCallback(() => {
     const s = state.current;
@@ -611,11 +656,16 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     s.nextEndMs = nextEnd;
     s.listDirty = false;
     // сразу ставим в очередь подготовку всех спрайтов карты, не дожидаясь, пока до них доскроллят
+    const seen = new Set<string>();
+    s.wantKeys = [];
     for (const [id, drawW] of want) {
       const info = s.spriteMap[id];
       if (!info) continue;
-      requestSprite(id, info, spriteTargetW(drawW));
-      if (s.nightOn) wantGraded(id, spriteTargetW(drawW));
+      const tw = spriteTargetW(drawW);
+      requestSprite(id, info, tw);
+      if (s.nightOn) wantGraded(id, tw);
+      const k = `${id}@${tw}`;
+      if (!seen.has(k)) { seen.add(k); s.wantKeys.push({ id, tw, url: info.pngUrl }); }
     }
   }
 
@@ -830,6 +880,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     }
     // ночной набор спрайтов ещё готовится — на экране остаются прежние куски
     if (s.nightHold) return false;
+    // карта ещё грузится — куски не рисуем вовсе (поверх лоадер), время главного потока — нарезке спрайтов
+    if (s.loading && !s.loadReady) return false;
     // куски, где зажглись или погасли окна, перерисовываются, только пока карту не тянут и не зумят:
     // на это время они копятся
     const allowDirty = !s.dragging && s.pinchDist == null && !s.zoomTimer;
@@ -837,7 +889,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // видимая область в мировых координатах, обрезанная по содержимому карты
     const vx0 = Math.max(-s.ox / s.scale, s.world.x0), vy0 = Math.max(-s.oy / s.scale, s.world.y0);
     const vx1 = Math.min((W - s.ox) / s.scale, s.world.x1), vy1 = Math.min((H - s.oy) / s.scale, s.world.y1);
-    if (vx1 <= vx0 || vy1 <= vy0) return false;
+    if (vx1 <= vx0 || vy1 <= vy0) { s.loading = false; return false; }
     const cw = CHUNK / r;
     const range = (ring: number) => ({
       cx0: Math.floor(vx0 / cw) - ring, cx1: Math.floor(vx1 / cw) + ring,
@@ -859,13 +911,15 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     need.sort((a, b) => a.d - b.d);
     let done = 0;
     for (const n of need) {
-      if (done > 0 && (performance.now() - t0 > FRAME_BUDGET_MS || done >= MAX_VISIBLE_CHUNKS_PER_FRAME)) break;
+      // под лоадером видимые куски рисуются все сразу: карта появляется целиком, без дорисовки на глазах
+      if (!s.loading && done > 0 && (performance.now() - t0 > FRAME_BUDGET_MS || done >= MAX_VISIBLE_CHUNKS_PER_FRAME)) break;
       const key = `${r}:${n.cx}:${n.cy}`;
       const old = s.chunks.get(key);
       s.chunks.delete(key); s.chunks.set(key, renderChunk(r, n.cx, n.cy, old));
       done++;
     }
     let pending = done < need.length;
+    s.loading = false;
     // все видимые куски текущего масштаба есть — контейнеры прежних масштабов больше не нужны
     if (!anyMissing || !pending) {
       for (const lr of [...s.layers.keys()]) if (lr !== r) dropLayer(lr);
@@ -1339,8 +1393,9 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           }
           spriteMapCache = map;
           s.spriteMap = map;
+          s.spriteMapState = 'ready';
           s.listDirty = true; invalidateLayer();
-        });
+        }).catch(() => { s.spriteMapState = 'failed'; }); // без карты спрайтов — плитки-заглушки
       }
     }
   }, [type, requestRedraw]);
@@ -1640,6 +1695,48 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     };
   }, [onPick, requestRedraw, onUnlockCell]);
 
+  // ход загрузки карты для лоадера (опрашивается раз в 100 мс, пока карта грузится). Шкала: данные
+  // страницы — уже позади (DATA_SHARE), дальше атласы, нарезка спрайтов и, если сейчас ночь, перекраска
+  // спрайтов под ночь. Всё готово — loadReady и кадр: он нарисует видимые куски разом и снимет loading
+  const loadTick = useCallback((): LoadState | null => {
+    const s = state.current;
+    if (!s.loading) return null;
+    if (s.loadReady) return { pct: 1, text: 'Отрисовка…' };
+    const timeout = performance.now() - s.loadStart > LOAD_MAX_MS;
+    const at = (x: number) => DATA_SHARE + (1 - DATA_SHARE) * x;
+    // спрайты карты ещё не известны: нет sprite-map.json или draw-list ещё ни разу не собран
+    if ((s.spriteMapState === 'loading' || (s.listDirty && !s.wantKeys.length)) && !timeout) return { pct: at(0), text: 'Карта спрайтов…' };
+    const keys = s.wantKeys, n = keys.length;
+    let ready = 0;
+    const atlasOk = new Map<string, boolean>(); // атлас → все его кадры уже готовы
+    for (const k of keys) {
+      const ok = spriteSettled(k.id, k.tw);
+      if (ok) ready++;
+      atlasOk.set(k.url, (atlasOk.get(k.url) ?? true) && ok);
+    }
+    let atl = 0;
+    for (const [url, ok] of atlasOk) if (ok || atlasFetched(url)) atl++;
+    const na = atlasOk.size, frac = (a: number, b: number) => (b ? a / b : 1);
+    const nightNeeded = s.nightOn && !phaseAt(stepOf(hourFor(s.dayNight))).isDay;
+    let graded = 0, nightDone = true;
+    if (nightNeeded) {
+      for (const k of keys) if (gradedSprite(k.id, k.tw)) graded++;
+      nightDone = !!s.ph && (graded === n || (ready === n && nightMetaSettled() && !nightBusy()));
+    }
+    if ((ready === n && nightDone) || timeout) {
+      s.loadReady = true;
+      requestRedraw();
+      return { pct: 1, text: 'Отрисовка…' };
+    }
+    const pct = nightNeeded
+      ? 0.45 * frac(atl, na) + 0.35 * frac(ready, n) + 0.05 * (nightMetaSettled() ? 1 : 0) + 0.15 * frac(graded, n)
+      : 0.55 * frac(atl, na) + 0.45 * frac(ready, n);
+    const text = ready < n ? `Атласы ${atl} / ${na} · спрайты ${ready} / ${n}` : `Ночная подсветка ${graded} / ${n}`;
+    // шкала не откатывается назад, если пересборка draw-list добавила спрайтов
+    s.loadPct = Math.max(s.loadPct, at(pct));
+    return { pct: s.loadPct, text };
+  }, [requestRedraw]);
+
   const cursor = mode !== 'view' ? 'crosshair' : 'grab';
 
   return (
@@ -1652,6 +1749,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         <canvas ref={focusCanvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
       </div>
       <canvas ref={fpsRef} />
+      <MapLoadOverlay tick={loadTick} runKey={loadKey} />
     </div>
   );
 }
