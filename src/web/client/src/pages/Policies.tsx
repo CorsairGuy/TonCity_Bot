@@ -48,13 +48,27 @@ function PolicyBadge({ policy, enacted, onClick }: { policy: PolicyInstance; ena
   // 13.10.2026: имя под карточкой убрано (разной длины строки ломали ровную сетку — то одна
   // строка, то две) — вместо него мгновенный Tooltip по наведению (noDelay, без стандартной
   // задержки браузерного title).
+  // 21.10.2026: подпись «Ур. N» под карточкой тоже убрана — уровень пилюлей на верхней рамке,
+  // внизу карточки полоска стажа текущего уровня (дни, как в игре). Приглушённая у неприменённых
+  // (стаж не копится), зелёная, когда дней хватает на повышение, полная на максимальном уровне.
+  const prog = policy.progress;
+  const need = prog?.tenure_needed ?? null;
+  const now = prog?.tenure_now ?? 0;
+  const ready = need != null && now >= need;
+  const pct = need == null ? 100 : need > 0 ? Math.min(100, Math.round(now / need * 100)) : 100;
+  const tip = `${policyName(policy)} · Ур. ${policy.level}${need != null ? ` · стаж ${now}/${need} дн.` : policy.max_level != null && policy.level >= policy.max_level ? ' (макс.)' : ''}`;
   return (
-    <Tooltip text={policyName(policy)} direction="n" noDelay>
-      <div className="item-card clickable" aria-label={policyName(policy)} onClick={onClick}>
+    <Tooltip text={tip} direction="n" noDelay>
+      <div className="item-card clickable" aria-label={tip} onClick={onClick}>
         <PolicyIcon rarity={policy.rarity} iconKey={policy.definition?.icon_key}>
-          {enacted && <div style={{ position: 'absolute', top: -3, right: -3, width: 13, height: 13, borderRadius: '50%', background: 'var(--green)', border: '2px solid var(--bg)' }} />}
+          {enacted && <div style={{ position: 'absolute', top: -3, right: -3, width: 13, height: 13, borderRadius: '50%', background: 'var(--green)', border: '2px solid var(--bg)', zIndex: 2 }} />}
+          <span className="pol-lv">{policy.level}</span>
+          {prog && (
+            <span className={`pol-tenure${ready ? ' ready' : ''}${enacted ? '' : ' idle'}`}>
+              <i style={{ width: `${pct}%` }} />
+            </span>
+          )}
         </PolicyIcon>
-        <span className={`pol-lv r-${policy.rarity}`} style={{ fontSize: 10, fontWeight: 600 }}>Ур. {policy.level}</span>
       </div>
     </Tooltip>
   );
