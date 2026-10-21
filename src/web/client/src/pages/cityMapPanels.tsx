@@ -34,9 +34,9 @@ export const toolFor = (m: PanelMode): Tool => CITY_TOOLS.flat().find(t => t.mod
 // стекло дока и плашки кисти — общее: обе висят на карте, непрозрачный overlay её закрывал бы
 const DOCK_GLASS = {
   display: 'flex', alignItems: 'center', p: 2, flexShrink: 0,
-  bg: 'rgba(22,27,34,.7)', border: '1px solid', borderColor: 'rgba(255,255,255,.1)',
+  bg: 'rgba(22,27,34,.5)', border: '1px solid', borderColor: 'rgba(255,255,255,.1)',
   borderRadius: '19px', boxShadow: 'shadow.large',
-  backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+  backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
 } as const;
 // кнопка дока 36×36, радиус 10: капсула 19 = 10 + поле 8 + рамка 1 (углы концентричны)
 const dockBtn = (on = false) => ({
