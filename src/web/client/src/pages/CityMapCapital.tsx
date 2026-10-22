@@ -175,7 +175,8 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const [buildFamily, setBuildFamily] = useState('');
   const [moveFrom, setMoveFrom] = useState<{ x: number; y: number } | null>(null);
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  // вкладки категорий без «ВСЕ»: по умолчанию COM
+  const [typeFilter, setTypeFilter] = useState('COM');
 
   useEffect(() => {
     setLoading(true);
@@ -376,27 +377,23 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   }, [displayBuildings]);
 
   const purchasable = useMemo(() => catalog.filter(b => b.is_purchasable), [catalog]);
-  const isUnavailable = (b: CapitalBuildingDef) => {
-    const k = familyCounts.get(b.id) ?? 0;
-    if (b.limit != null && k >= b.limit) return true;
-    if (b.hall_lvl_required != null && hallLevel < b.hall_lvl_required) return true;
-    return capBuyPrice(b, k, econStrength) > (row?.coins ?? 0);
-  };
   const paletteFiltered = purchasable.filter(b => {
-    if (typeFilter && buildingCat(b.id) !== typeFilter) return false;
+    if (buildingCat(b.id) !== typeFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!buildingName(b).toLowerCase().includes(q) && !b.id.toLowerCase().includes(q)) return false;
     }
     return true;
   }).sort((a, b) => {
-    const ua = isUnavailable(a), ub = isUnavailable(b);
-    if (ua !== ub) return ua ? 1 : -1;
+    // недоступные и те, на которые не хватает монет, — на своём месте, а не в конце
     return buildingName(a).localeCompare(buildingName(b), 'ru');
   });
   // те же короткие коды категорий, что и на странице "Общий план улучшений" (COM/BEN/SPE/DEC —
   // префикс id, см. buildingCat выше), не человеческое название типа
   const paletteTypes = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean);
+  // выбранной категории в каталоге нет (COM у столицы без торговых зданий) — первая из имеющихся
+  const paletteTypesKey = paletteTypes.join(',');
+  useEffect(() => { if (paletteTypes.length && !paletteTypes.includes(typeFilter)) setTypeFilter(paletteTypes[0]); }, [paletteTypesKey, typeFilter]);
 
   const loadActionLog = useCallback(() => {
     if (!guildTitle) return;
@@ -561,9 +558,9 @@ export function CityMapCapital({ account: guildTitle }: Props) {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
                 <div id="map-cat-tabs">
-                  {['', ...paletteTypes].map(t => (
-                    <span key={t || '__all'} className={'map-cat-tab' + (typeFilter === t ? ' active' : '')} onClick={() => setTypeFilter(t)}>
-                      {t || 'ВСЕ'}
+                  {paletteTypes.map(t => (
+                    <span key={t} className={'map-cat-tab' + (typeFilter === t ? ' active' : '')} onClick={() => setTypeFilter(t)}>
+                      {t}
                     </span>
                   ))}
                 </div>
