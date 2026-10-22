@@ -6,7 +6,7 @@ import { Box, Button, CounterLabel, IconButton, Octicon, ProgressBar, Spinner, T
 import { Tooltip } from '@primer/react/experimental';
 import {
   GraphIcon, GoalIcon, StackIcon, ClockIcon, PlusIcon, ArrowBothIcon, TrashIcon, IterationsIcon, StarIcon, ZapIcon, LogIcon,
-  QuestionIcon, SearchIcon, XIcon, DashIcon, ChevronDownIcon, ChevronRightIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
+  QuestionIcon, SearchIcon, XIcon, DashIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
   PlusCircleIcon, UnlockIcon, CheckIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
@@ -447,7 +447,6 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
   removed: Set<string>; onMarkRemoved: (keys: string[], on: boolean) => void;
 }) {
   const [q, setQ] = useState('');
-  const [open, setOpen] = useState<string | null>(null);
   useEffect(() => () => onHover(null), [onHover]); // ушли со вкладки — карта снова целиком
   const groups = useMemo(() => {
     const now = Date.now();
@@ -475,7 +474,10 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
   const all = useMemo(() => planSum(groups.flatMap(g => g.cells.filter(c => !removed.has(c.key)))), [groups, removed]);
   const keptCount = targets.length - groups.reduce((n, g) => n + g.marked, 0);
   const ql = q.trim().toLowerCase();
-  const shown = ql ? groups.filter(g => g.name.toLowerCase().includes(ql) || g.cells.some(c => c.key.startsWith(ql))) : groups;
+  // карточка на клетку, как в «Реконструкции»: по зданиям (по алфавиту), внутри — по клетке
+  const cells = groups.flatMap(g => g.cells.map(c => ({ ...c, id: g.id, name: g.name })));
+  const shown = ql ? cells.filter(c => c.name.toLowerCase().includes(ql) || c.key.startsWith(ql)) : cells;
+  const marked = groups.reduce((n, g) => n + g.marked, 0);
   const hover = (keys: string[]) => ({ onMouseEnter: () => onHover(keys.map(k => k.replace(',', '_'))), onMouseLeave: () => onHover(null) });
   const allPct = pctOf(all.done, all.span);
   return (
@@ -501,58 +503,20 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
             </Box>
           </Box>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {shown.map(g => {
-              const o = open === g.id;
-              const toggle = () => setOpen(o ? null : g.id);
-              // прогресс здания — заливка шапки; под раскрытым списком фона нет, плашки клеток — во всю ширину шапки
-              const a = pctOf(g.sum.done, g.sum.span), b = pctOf(g.sum.done + g.sum.wip, g.sum.span);
+            {shown.map(c => {
+              const off = removed.has(c.key);
+              const ca = pctOf(c.done, c.span), cb = pctOf(c.done + c.wip, c.span);
+              // клик помечает клетку к удалению (карточка бледнеет, заливка красная), повторный — возвращает
               return (
-                <Box key={g.id} sx={{ display: 'flex', flexDirection: 'column' }}>
-                  <Box role="button" tabIndex={0} aria-expanded={o} onClick={toggle} {...hover(g.cells.map(c => c.key))} data-mq-host=""
-                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
-                    sx={{
-                      display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: 3, borderRadius: '12px', cursor: 'pointer',
-                      bg: 'canvas.subtle', backgroundImage: fillOf([[FILL_DONE, a], [FILL_WIP, b - a]]),
-                    }}>
-                    {/* картинка 36px и две строки 20+16px: шапка 52px, картинка в 8px от краёв со всех сторон */}
-                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
-                    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                      <MarqueeTitle>{g.name}</MarqueeTitle>
-                      <Text sx={{ ...sub2, ...num, whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmtUp(g.sum.cost)} /> : <Text sx={{ color: DONE_FG }}>готово</Text>}</Text>
-                    </Box>
-                    <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
-                  </Box>
-                  {o && (
-                    // от шапки до первой плашки и от последней до следующего здания — по 8px, как между зданиями
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-                      {g.cells.map(c => {
-                        const off = removed.has(c.key);
-                        const levels = c.done >= c.span ? `ур. ${c.level}` : `${c.level} → ${c.target}`;
-                        const k = c.key.replace(',', '_');
-                        const ca = pctOf(c.done, c.span), cb = pctOf(c.done + c.wip, c.span);
-                        // плашка-прогресс с подписью «уровень → цель» и ценой; клик помечает клетку
-                        // к удалению (плашка бледнеет, заливка красная, перечёркнута), повторный — возвращает
-                        return (
-                          <Box key={c.key} as="button" type="button" aria-label={`${c.key} · ${levels}`} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)}
-                            onMouseEnter={() => onHover([k])} onMouseLeave={() => onHover(null)}
-                            sx={{
-                              position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, height: 24, px: 2,
-                              border: 0, borderRadius: '10px', bg: 'canvas.subtle', backgroundImage: fillOf(off ? [[FILL_OFF, cb]] : [[FILL_DONE, ca], [FILL_WIP, cb - ca]]),
-                              opacity: off ? 0.35 : 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px', color: 'fg.default', ...num,
-                            }}>
-                            <Text sx={{ whiteSpace: 'nowrap' }}>{levels}</Text>
-                            {c.cost > 0 ? <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmtUp(c.cost)} /></Text>
-                              : c.done >= c.span && <Octicon icon={CheckIcon} sx={{ color: 'fg.default', flexShrink: 0 }} />}
-                            {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
-                          </Box>
-                        );
-                      })}
-                      {g.marked > 0 && <Text sx={{ fontSize: 0, color: 'danger.fg', textAlign: 'center' }}>{g.marked} {cellsWord(g.marked)} {g.marked === 1 ? 'уйдёт' : 'уйдут'} из плана при сохранении</Text>}
-                    </Box>
-                  )}
+                <Box key={c.key} {...hover([c.key])} sx={{ opacity: off ? 0.35 : 1 }}>
+                  <Row lead={c.id ? <Thumb id={c.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />} title={c.name}
+                    sub={`${c.done >= c.span ? `ур. ${c.level}` : `${c.level} → ${c.target}`} · ${c.key}`}
+                    fill={fillOf(off ? [[FILL_OFF, cb]] : [[FILL_DONE, ca], [FILL_WIP, cb - ca]])} onClick={() => onMarkRemoved([c.key], !off)}
+                    trail={c.cost > 0 ? <Val><CoinValue value={fmtUp(c.cost)} /></Val> : c.done >= c.span ? <Val><Octicon icon={CheckIcon} /></Val> : undefined} />
                 </Box>
               );
             })}
+            {marked > 0 && <Text sx={{ fontSize: 0, color: 'danger.fg', textAlign: 'center' }}>{marked} {cellsWord(marked)} {marked === 1 ? 'уйдёт' : 'уйдут'} из плана при сохранении</Text>}
             {shown.length === 0 && <Empty>Ничего не нашлось</Empty>}
           </Box>
         </>
