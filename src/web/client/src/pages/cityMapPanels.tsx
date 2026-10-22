@@ -152,8 +152,8 @@ export function Caption({ children, right }: { children: ReactNode; right?: Reac
   );
 }
 export function Empty({ children }: { children: ReactNode }) { return <Text sx={muted}>{children}</Text>; }
-function Thumb({ id, size = 40, bg = 'canvas.subtle', dim, radius = 8 }: { id: string; size?: number; bg?: string; dim?: boolean; radius?: number }) {
-  return <Box sx={{ width: size, height: size, borderRadius: `${radius}px`, bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} dim={dim} /></Box>;
+function Thumb({ id, size = 40, bg = 'canvas.subtle', dim }: { id: string; size?: number; bg?: string; dim?: boolean }) {
+  return <Box sx={{ width: size, height: size, borderRadius: '8px', bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} dim={dim} /></Box>;
 }
 // тот же формат, что во всей панели (fmt, 1 знак): раньше карта писала 55.27M, а таблицы — 55.3M
 export const fmtStat = (n: number): string => fmt(n);
@@ -369,6 +369,7 @@ const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
 const FILL_DONE = 'rgba(74,194,107,.4)';
 const FILL_WIP = 'rgba(84,174,255,.4)';
 const FILL_OFF = 'rgba(248,81,73,.4)'; // клетка помечена к удалению
+const DONE_FG = '#7ee787'; // «готово» в шапке поверх зелёной заливки — светлее success.fg
 function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
@@ -387,7 +388,6 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-  const [hot, setHot] = useState<string | null>(null); // клетка под курсором: вместо полосы — уровни и цена
   useEffect(() => () => onHover(null), [onHover]); // ушли со вкладки — карта снова целиком
   const groups = useMemo(() => {
     const now = Date.now();
@@ -454,11 +454,11 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                       display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: 3, borderRadius: '12px', cursor: 'pointer',
                       bg: 'canvas.subtle', backgroundImage: fillOf([[FILL_DONE, a], [FILL_WIP, b - a]]),
                     }}>
-                    {/* картинка 36px и две строки 20+16px: шапка 52px, картинка в 8px от краёв со всех сторон; скругление 4px = 12 − 8 */}
-                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" radius={4} /> : <Box sx={{ width: 36, height: 36 }} />}
+                    {/* картинка 36px и две строки 20+16px: шапка 52px, картинка в 8px от краёв со всех сторон */}
+                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
                     <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                       <Text sx={{ fontWeight: 'semibold', lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
-                      <Text sx={{ ...muted, ...num, lineHeight: '16px', whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: 'success.fg' }}>готово</Text>}</Text>
+                      <Text sx={{ fontSize: 0, color: 'fg.default', ...num, lineHeight: '16px', whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: DONE_FG }}>готово</Text>}</Text>
                     </Box>
                     <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
                   </Box>
@@ -467,23 +467,22 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
                       {g.cells.map(c => {
                         const off = removed.has(c.key);
-                        const levels = c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`;
+                        const levels = c.done >= c.span ? `ур. ${c.level}` : `${c.level} → ${c.target}`;
                         const k = c.key.replace(',', '_');
                         const ca = pctOf(c.done, c.span), cb = pctOf(c.done + c.wip, c.span);
-                        // плашка-прогресс без подписи; под курсором — «уровень → цель» и цена; клик помечает клетку
+                        // плашка-прогресс с подписью «уровень → цель» и ценой; клик помечает клетку
                         // к удалению (плашка бледнеет, заливка красная, перечёркнута), повторный — возвращает
                         return (
                           <Box key={c.key} as="button" type="button" aria-label={`${c.key} · ${levels}`} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)}
-                            onMouseEnter={() => { setHot(c.key); onHover([k]); }} onMouseLeave={() => { setHot(h => h === c.key ? null : h); onHover(null); }}
+                            onMouseEnter={() => onHover([k])} onMouseLeave={() => onHover(null)}
                             sx={{
                               position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, height: 24, px: 2,
                               border: 0, borderRadius: '10px', bg: 'canvas.subtle', backgroundImage: fillOf(off ? [[FILL_OFF, cb]] : [[FILL_DONE, ca], [FILL_WIP, cb - ca]]),
                               opacity: off ? 0.35 : 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px', color: 'fg.default', ...num,
                             }}>
-                            {hot === c.key && <>
-                              <Text sx={{ opacity: 0.8, whiteSpace: 'nowrap' }}>{levels}</Text>
-                              {c.cost > 0 && <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>}
-                            </>}
+                            <Text sx={{ whiteSpace: 'nowrap' }}>{levels}</Text>
+                            {c.cost > 0 ? <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>
+                              : c.done >= c.span && <Octicon icon={CheckIcon} sx={{ color: 'fg.default', flexShrink: 0 }} />}
                             {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
                           </Box>
                         );
