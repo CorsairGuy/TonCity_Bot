@@ -216,6 +216,28 @@ export function Row({ lead, title, sub, trail, fill, bg = 'canvas.subtle', onCli
     </Box>
   );
 }
+// цена на карточке здания: вверх до 1 знака в своей единице (2.13B → 2.2B) — короче, и денег точно хватит
+export function fmtUp(n: number): string {
+  for (const [k, u] of [[1e15, 'Q'], [1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']] as const) {
+    if (n < k) continue;
+    const v = Math.ceil(n / k * 10 - 1e-6) / 10;
+    // 999.95K округлилось бы в 1000K — тогда следующая единица
+    return v >= 1000 && k < 1e15 ? fmtUp(1000 * k) : String(v) + u;
+  }
+  return String(Math.ceil(n));
+}
+// мини-карточка предмета, как на странице «Предметы»: цвет редкости, количество в синем ярлыке (не хватает — в красном)
+function ItemCard({ tag, count, short, className }: { tag: string; count: ReactNode; short?: boolean; className?: string }) {
+  return (
+    // непрозрачная подложка: фон редкости полупрозрачный и иначе окрашивался бы заливкой карточки
+    <Box className={className} sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', flexShrink: 0 }}>
+      <Box className={`item-card__box ic-${tag}`} style={{ width: 36, height: 36, borderRadius: 8 }}>
+        <img src={itemSrc(tag)} alt="" style={{ width: 28, height: 28, objectFit: 'contain' }} />
+        <span className="item-card__count" style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', borderRadius: 7, right: -4, bottom: -4, fontVariantNumeric: 'tabular-nums', ...(short ? { background: '#e5534b' } : null) }}>{count}</span>
+      </Box>
+    </Box>
+  );
+}
 // значение справа в карточке: одно, по центру по вертикали, 14px
 export function Val({ children, color = 'fg.default', mono, className }: { children: ReactNode; color?: string; mono?: boolean; className?: string }) {
   return <Text className={className} sx={{ fontSize: 1, fontWeight: 'semibold', color, flexShrink: 0, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 1, ...num, ...(mono ? { fontFamily: 'mono', fontSize: '13px' } : null) }}>{children}</Text>;
@@ -477,7 +499,7 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                     {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
                     <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                       <Text sx={{ fontWeight: 'semibold', lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
-                      <Text sx={{ ...sub2, ...num, whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: DONE_FG }}>готово</Text>}</Text>
+                      <Text sx={{ ...sub2, ...num, whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmtUp(g.sum.cost)} /> : <Text sx={{ color: DONE_FG }}>готово</Text>}</Text>
                     </Box>
                     <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
                   </Box>
@@ -500,7 +522,7 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                               opacity: off ? 0.35 : 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px', color: 'fg.default', ...num,
                             }}>
                             <Text sx={{ whiteSpace: 'nowrap' }}>{levels}</Text>
-                            {c.cost > 0 ? <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>
+                            {c.cost > 0 ? <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmtUp(c.cost)} /></Text>
                               : c.done >= c.span && <Octicon icon={CheckIcon} sx={{ color: 'fg.default', flexShrink: 0 }} />}
                             {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
                           </Box>
@@ -572,7 +594,7 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
               title={b ? labelFor(b.id) : '—'} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
               sub={<>{from != null ? `${from} → ${from + 1}` : `${q.x},${q.y}`}{prices[i] != null && !fits[i] && <Text sx={{ color: 'attention.fg' }}> · не хватит</Text>}</>}
               trail={<>
-                {prices[i] != null && <Val className="sw-v" color={fits[i] ? 'fg.default' : 'fg.muted'}><CoinValue value={fmt(prices[i]!)} /></Val>}
+                {prices[i] != null && <Val className="sw-v" color={fits[i] ? 'fg.default' : 'fg.muted'}><CoinValue value={fmtUp(prices[i]!)} /></Val>}
                 <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemove(i)} /></Box>
               </>} />
           </Box>
@@ -674,13 +696,14 @@ export function DemolishPanel({ tiles, lossPerHour, popLoss, income, disabled, o
 export interface ReconCell { x: number; y: number; level: number; req: number; building: boolean; ready: boolean; queued: boolean; planned: boolean }
 export interface ReconGroup { id: string; name: string; comp: number | null; gain: number | null; cells: ReconCell[] }
 export function ReconstructPanel({ groups, components, disabled, onToggle }: { groups: ReconGroup[]; components: number; disabled: boolean; onToggle: (x: number, y: number) => void }) {
-  const [open, setOpen] = useState<string | null>(null);
   const cells = groups.flatMap(g => g.cells.map(c => ({ ...c, g })));
   const ready = cells.filter(c => c.ready).length;
   const queued = cells.filter(c => c.queued);
   const spend = queued.reduce((s, c) => s + (c.g.comp ?? 0), 0), gain = queued.reduce((s, c) => s + (c.g.gain ?? 0), 0);
   if (groups.length === 0) return <Empty>В городе нет зданий, которые умеют реконструироваться.</Empty>;
-  const shownOpen = open ?? groups[0].id;
+  // в списке только выбранное кистью: отмеченное к выполнению сейчас и ждущее в плане нужного уровня
+  const picked = cells.filter(c => c.queued || c.planned).sort((a, b) => Number(b.queued) - Number(a.queued) || b.level / b.req - a.level / a.req);
+  let left = components;
   return (
     <>
       <Summary>
@@ -692,39 +715,22 @@ export function ReconstructPanel({ groups, components, disabled, onToggle }: { g
         <SumLine left={queued.length ? <>отмечено {queued.length}: <Glyph tag="component" v={`−${spend}`} /> <Glyph tag="masterplan" v={`+${gain}`} /></> : 'отметьте готовые здания'}
           right={cells.some(c => c.planned) ? `в плане ${cells.filter(c => c.planned).length}` : undefined} />
       </Summary>
-      {groups.map(g => {
-        const ok = g.cells.filter(c => c.ready).length; const o = shownOpen === g.id;
+      {picked.map(c => {
+        const span = Math.max(1, c.req - 1), done = Math.max(0, Math.min(c.level, c.req) - 1);
+        const ca = pctOf(done, span), cb = pctOf(done + (c.building && c.level < c.req ? 1 : 0), span);
+        // компонентов хватает по порядку списка: отмеченные к выполнению тратят первыми
+        const short = c.g.comp != null && (left -= c.g.comp) < 0;
         return (
-          <Box key={g.id} sx={{ display: 'flex', flexDirection: 'column' }}>
-            <Row lead={<Thumb id={g.id} size={36} bg="canvas.default" />} title={g.name} onClick={() => setOpen(o ? '' : g.id)} chevron
-              sub={<>{ok}/{g.cells.length} готовы{g.comp != null && <> · <Glyph tag="component" v={`−${g.comp}`} /></>}{g.gain != null && <> <Glyph tag="masterplan" v={`+${g.gain}`} /></>}</>}
-              fill={fillOf([[FILL_DONE, ok / g.cells.length * 100]])} trail={<Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />} />
-            {o && (
-              // клетки — плашки-прогресс до нужного уровня, как клетки в «Плане»; отмеченная — с зелёной рамкой
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-                {g.cells.map(c => {
-                  const span = Math.max(1, c.req - 1);
-                  const done = Math.max(0, Math.min(c.level, c.req) - 1);
-                  const ca = pctOf(done, span), cb = pctOf(done + (c.building && c.level < c.req ? 1 : 0), span);
-                  return (
-                    <Box key={`${c.x},${c.y}`} as="button" type="button" disabled={disabled} onClick={() => onToggle(c.x, c.y)} aria-pressed={c.queued}
-                      title={c.queued ? 'Отмечено: выполнится кнопкой внизу' : c.planned ? 'В плане: бот сделает сам. Клик — убрать' : c.ready ? 'Отметить к реконструкции' : 'Поставить в план'}
-                      sx={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, height: 24, px: 2, border: 0, borderRadius: '10px',
-                        bg: 'canvas.subtle', backgroundImage: fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]]), boxShadow: c.queued ? `inset 0 0 0 1px ${DONE_FG}` : undefined,
-                        fontFamily: 'inherit', fontSize: '12px', color: 'fg.default', cursor: 'pointer', ...num,
-                      }}>
-                      <Text sx={{ whiteSpace: 'nowrap' }}>{c.ready ? `ур. ${c.level} · готово` : `${c.level} → ${c.req}`}</Text>
-                      {c.queued ? <Octicon icon={CheckCircleFillIcon} size={14} sx={{ color: DONE_FG, flexShrink: 0 }} />
-                        : c.planned && <Octicon icon={ClockIcon} size={14} sx={{ color: 'accent.fg', flexShrink: 0 }} />}
-                    </Box>
-                  );
-                })}
-              </Box>
-            )}
-          </Box>
+          <Row key={`${c.x},${c.y}`} lead={<Thumb id={c.g.id} size={36} bg="canvas.default" />} title={c.g.name}
+            sub={c.queued ? `готово · ${c.x},${c.y}` : `ур. ${c.level} из ${c.req} · ${c.x},${c.y}`}
+            fill={c.queued ? fillOf([[FILL_RENOVATE, 100]]) : fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]])} sx={SWAP}
+            trail={<>
+              {c.g.comp != null && <ItemCard className="sw-v" tag="component" count={c.g.comp} short={short} />}
+              <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onToggle(c.x, c.y)} /></Box>
+            </>} />
         );
       })}
+      <Dashed>Кликните или проведите кистью по зданиям</Dashed>
     </>
   );
 }
@@ -759,7 +765,7 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
               <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" dim={!can} />} title={it.nextName}
                 sub={`${it.name} · ${it.x},${it.y}`} fill={it.marked ? fillOf([[FILL_RENOVATE, 100]]) : undefined}
                 onClick={can && !disabled ? () => onToggle(it.x, it.y) : undefined} sx={can ? undefined : { opacity: 0.6 }}
-                trail={<Val color={can ? 'fg.default' : 'danger.fg'}>{it.cost ?? '?'}<ItemIcon tag="masterplan" size={18} /></Val>} />
+                trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={!can} />} />
             );
           })}
         </>

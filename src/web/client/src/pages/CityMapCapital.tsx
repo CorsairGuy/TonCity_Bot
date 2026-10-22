@@ -12,7 +12,7 @@ import { useMapDayNight } from '../hooks/useMapDayNight';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
-import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
 
 // Здания столицы (config/capital_buildings.txt) — принципиально другая форма, чем городской
 // BuildingDef (api.ts): нет category/star_lvl/is_reconstructible и т.п., зато есть type
@@ -578,7 +578,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
                     return (
                       <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
                         sub={limitReached ? 'Построено' : hallUnmet ? `Нужен холл ${b.hall_lvl_required}` : undefined}
-                        trail={limitReached || hallUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmt(price)} /></Val>} />
+                        trail={limitReached || hallUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmtUp(price)} /></Val>} />
                     );
                   })}
                 </Box>

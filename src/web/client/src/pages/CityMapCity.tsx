@@ -12,7 +12,7 @@ import { DayNightMenu } from '../components/DayNightMenu';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
 import { useAsk } from '../hooks/useAsk';
 import { useNarrow } from '../hooks/useNarrow';
 import { LoadError } from '../components/LoadError';
@@ -910,7 +910,7 @@ export function CityMapCity() {
     build: 'Выберите здание в списке, затем кликайте пустые клетки или проведите кистью. Каждая клетка добавляется в действия, которые выполнит кнопка «Выполнить».',
     move: 'Кликните здание, затем пустую клетку. Можно переместить несколько подряд. Цели и очередь переедут вместе со зданием, на экономику это не влияет.',
     demolish: 'Кликайте здания или проведите кистью. Монеты за снос не возвращаются. Нажмите на плитку, чтобы снять отметку.',
-    reconstruct: 'Тратит компоненты, сбрасывает здание на 1 уровень и даёт мастерпланы. Клик по готовому зданию отмечает его к выполнению кнопкой внизу, по неготовому — ставит в план: бот сам сделает, когда здание дойдёт до нужного уровня. Повторный клик снимает.',
+    reconstruct: 'Тратит компоненты, сбрасывает здание на 1 уровень и даёт мастерпланы. Кликните или проведите кистью по зданиям на карте: готовое отмечается к выполнению кнопкой внизу, неготовое ставится в план — бот сам сделает, когда здание дойдёт до нужного уровня. В списке — только выбранное, повторный клик или крестик снимает.',
     renovate: 'Тратит мастерпланы и переводит здание в следующий звёздный тир. Отметьте здания и нажмите «Выполнить».',
     boosters: 'Бот активирует ускорители из очереди по порядку, как только освобождается слот. Молния рядом с ускорителем включает его сразу.',
     log: 'Последние действия по этому городу, и бота, и ручные.',
@@ -1069,7 +1069,7 @@ export function CityMapCity() {
                     return (
                       <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
                         sub={limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : undefined}
-                        trail={limitReached || criteriaUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmt(price)} /></Val>} />
+                        trail={limitReached || criteriaUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmtUp(price)} /></Val>} />
                     );
                   })}
                 </Box>
