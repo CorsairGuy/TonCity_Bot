@@ -369,7 +369,7 @@ const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
 const FILL_DONE = 'rgba(74,194,107,.4)';
 const FILL_WIP = 'rgba(84,174,255,.4)';
 const FILL_OFF = 'rgba(248,81,73,.4)'; // клетка помечена к удалению
-const DONE_FG = '#7ee787'; // «готово» и галочка поверх зелёной заливки — светлее success.fg
+const DONE_FG = '#7ee787'; // «готово» в шапке поверх зелёной заливки — светлее success.fg
 function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
@@ -482,7 +482,7 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                             }}>
                             <Text sx={{ whiteSpace: 'nowrap' }}>{levels}</Text>
                             {c.cost > 0 ? <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>
-                              : c.done >= c.span && <Octicon icon={CheckIcon} sx={{ color: DONE_FG, flexShrink: 0 }} />}
+                              : c.done >= c.span && <Octicon icon={CheckIcon} sx={{ color: 'fg.default', flexShrink: 0 }} />}
                             {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
                           </Box>
                         );
