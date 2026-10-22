@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
 import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon, XIcon } from '@primer/octicons-react';
-import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
+import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActiveBooster, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
 import { MapLoader, DATA_SHARE, allCounted } from '../components/MapLoader';
 import { useFlash } from '../hooks/useFlash';
@@ -293,6 +293,7 @@ export function CityMapCity() {
   // ── Ускорители/Лог/Прогноз — каждая вкладка подгружает своё при активации, не на общей загрузке
   // страницы (ускорители/лог — из БД, прогноз — единственный живой запрос всего раздела) ──────────
   const [boosters, setBoosters] = useState<CityBoosterRow[]>([]);
+  const [boosterActive, setBoosterActive] = useState<CityActiveBooster[]>([]);
   // очередь активации: порядок = приоритет, цикл идёт по ней сверху вниз
   const [boosterQueue, setBoosterQueue] = useState<{ name: string; label: string }[]>([]);
   const [boostersLoading, setBoostersLoading] = useState(false);
@@ -652,7 +653,7 @@ export function CityMapCity() {
   const loadBoosters = useCallback(() => {
     if (!account) return;
     setBoostersLoading(true);
-    api.cityBoosters(account).then(d => { if (d.ok) { setBoosters(d.boosters); setBoosterQueue(d.queue ?? []); } else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setBoostersLoading(false));
+    api.cityBoosters(account).then(d => { if (d.ok) { setBoosters(d.boosters); setBoosterActive(d.active ?? []); setBoosterQueue(d.queue ?? []); } else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setBoostersLoading(false));
   }, [account]);
   const loadActionLog = useCallback(() => {
     if (!account) return;
@@ -1121,7 +1122,7 @@ export function CityMapCity() {
           )}
 
           {mode === 'boosters' && (
-            <BoostersPanel boosters={boosters} loading={boostersLoading} queue={boosterQueue} activating={boosterActivating}
+            <BoostersPanel boosters={boosters} active={boosterActive} loading={boostersLoading} queue={boosterQueue} activating={boosterActivating}
               onAdd={queueAdd} onReorder={queueReorder} onRemoveAt={queueRemoveAt} onActivate={activateBooster} />
           )}
 
