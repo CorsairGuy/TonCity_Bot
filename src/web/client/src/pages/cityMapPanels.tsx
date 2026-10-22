@@ -439,8 +439,18 @@ function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: n
   );
 }
 const cellsWord = (n: number) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'клетка' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'клетки' : 'клеток'; };
-export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, removed, onMarkRemoved }: {
+// сравнение ключей сортировки по элементам: числа — по величине, строки — по алфавиту
+function cmpKeys(a: (string | number)[], b: (string | number)[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? '', y = b[i] ?? '';
+    const d = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'ru');
+    if (d) return d;
+  }
+  return 0;
+}
+export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, removed, onMarkRemoved, sortKey }: {
   targets: CityStrategyTarget[]; owned: MapBuilding[]; labelFor: (id: string) => string;
+  sortKey?: (id: string) => (string | number)[]; // порядок зданий — как в «Строительстве»; без него — по алфавиту
   upgradeCost: (id: string, fromLvl: number, toLvl: number) => number; // монет на улучшения fromLvl → toLvl
   onHover: (cells: string[] | null) => void; // "x_y" — на карте остаются видны только эти клетки
   // клетки ("x,y"), помеченные к удалению: остаются в списке бледными, из плана уходят при «Сохранить»
@@ -469,12 +479,12 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
       g.cells.sort((a, b) => a.x - b.x || a.y - b.y);
       const kept = g.cells.filter(c => !removed.has(c.key));
       return { ...g, sum: planSum(kept), marked: g.cells.length - kept.length };
-    }).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  }, [targets, owned, labelFor, upgradeCost, removed]);
+    }).sort((a, b) => !a.id !== !b.id ? (a.id ? -1 : 1) : sortKey ? cmpKeys(sortKey(a.id), sortKey(b.id)) : a.name.localeCompare(b.name, 'ru'));
+  }, [targets, owned, labelFor, upgradeCost, removed, sortKey]);
   const all = useMemo(() => planSum(groups.flatMap(g => g.cells.filter(c => !removed.has(c.key)))), [groups, removed]);
   const keptCount = targets.length - groups.reduce((n, g) => n + g.marked, 0);
   const ql = q.trim().toLowerCase();
-  // карточка на клетку, как в «Реконструкции»: по зданиям (по алфавиту), внутри — по клетке
+  // карточка на клетку, как в «Реконструкции»: здания подряд в порядке «Строительства», внутри — по клетке
   const cells = groups.flatMap(g => g.cells.map(c => ({ ...c, id: g.id, name: g.name })));
   const shown = ql ? cells.filter(c => c.name.toLowerCase().includes(ql) || c.key.startsWith(ql)) : cells;
   const marked = groups.reduce((n, g) => n + g.marked, 0);
