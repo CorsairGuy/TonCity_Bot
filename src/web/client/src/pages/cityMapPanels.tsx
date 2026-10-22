@@ -1,7 +1,7 @@
 // Правый сайдбар карты города: палитра инструментов внизу карты переключает его содержимое,
 // сам сайдбар всегда открыт. Здесь — оформление страниц сайдбара, данные и действия приходят из
 // CityMapCity.tsx (там же остались Строительство/Перемещение/Реконструкция в прежнем виде).
-import { useEffect, useMemo, useState, type ReactNode, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type DragEvent } from 'react';
 import { Box, Button, CounterLabel, IconButton, Octicon, ProgressBar, Spinner, Text, TextInput, Timeline } from '@primer/react';
 import { Tooltip } from '@primer/react/experimental';
 import {
@@ -15,7 +15,7 @@ import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
 import { Scrollable } from '../components/Scrollable';
 import { CoinValue, CrystalValue } from '../components/Icons';
-import { fmt } from '../utils';
+import { fmt, ITEMS_BY_ID } from '../utils';
 import { catalogItemImg } from '../hooks/useItemCatalog';
 
 export type PanelMode = CityActionMode;
@@ -202,12 +202,22 @@ function SumLine({ left, right }: { left: ReactNode; right?: ReactNode }) {
 export function Row({ lead, title, sub, trail, fill, bg = 'canvas.subtle', onClick, chevron, sx, children }: {
   lead?: ReactNode; title: ReactNode; sub?: ReactNode; trail?: ReactNode; fill?: string; bg?: string; onClick?: () => void; chevron?: boolean; sx?: object; children?: ReactNode;
 }) {
+  // не влезающее название под курсором бежит влево до конца и обратно, без курсора — сразу на место
+  const titleRef = useRef<HTMLElement>(null);
+  const [run, setRun] = useState<{ d: number; t: number } | null>(null);
+  const enter = () => {
+    const el = titleRef.current, d = el ? el.scrollWidth - el.clientWidth : 0;
+    if (d > 2) setRun({ d, t: 2 * d / 40 + 2.4 });
+  };
   return (
     <Box sx={{ borderRadius: '12px', bg, display: 'flex', flexDirection: 'column', ...sx }}>
-      <Box onClick={onClick} sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: chevron ? 3 : 2, borderRadius: '12px', backgroundImage: fill, cursor: onClick ? 'pointer' : undefined }}>
+      <Box onClick={onClick} onMouseEnter={enter} onMouseLeave={() => setRun(null)}
+        sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: chevron ? 3 : 2, borderRadius: '12px', backgroundImage: fill, cursor: onClick ? 'pointer' : undefined }}>
         {lead}
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <Text sx={{ fontWeight: 'semibold', lineHeight: '20px', ...ell }}>{title}</Text>
+          <Text ref={titleRef} sx={{ fontWeight: 'semibold', lineHeight: '20px', ...ell, ...(run ? { textOverflow: 'clip' } : null) }}>
+            <span className={run ? 'tc-marquee' : undefined} style={run ? { ['--mq' as string]: `-${run.d}px`, animationDuration: `${run.t}s` } : undefined}>{title}</span>
+          </Text>
           {sub != null && <Text sx={{ ...sub2, ...num, ...ell }}>{sub}</Text>}
         </Box>
         {trail}
@@ -227,13 +237,13 @@ export function fmtUp(n: number): string {
   return String(Math.ceil(n));
 }
 // мини-карточка предмета, как на странице «Предметы»: цвет редкости, количество в синем ярлыке (не хватает — в красном)
-function ItemCard({ tag, count, short, className }: { tag: string; count: ReactNode; short?: boolean; className?: string }) {
+function ItemCard({ tag, count, short, className, src, dim }: { tag: string; count?: ReactNode; short?: boolean; className?: string; src?: string | null; dim?: boolean }) {
   return (
     // непрозрачная подложка: фон редкости полупрозрачный и иначе окрашивался бы заливкой карточки
     <Box className={className} sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', flexShrink: 0 }}>
       <Box className={`item-card__box ic-${tag}`} style={{ width: 36, height: 36, borderRadius: 8 }}>
-        <img src={itemSrc(tag)} alt="" style={{ width: 28, height: 28, objectFit: 'contain' }} />
-        <span className="item-card__count" style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', borderRadius: 7, right: -4, bottom: -4, fontVariantNumeric: 'tabular-nums', ...(short ? { background: '#e5534b' } : null) }}>{count}</span>
+        {(src !== null) && <img src={src ?? itemSrc(tag)} alt="" style={{ width: 28, height: 28, objectFit: 'contain', opacity: dim ? 0.5 : 1 }} />}
+        {count != null && <span className="item-card__count" style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', borderRadius: 7, right: -4, bottom: -4, fontVariantNumeric: 'tabular-nums', ...(short ? { background: '#e5534b' } : null) }}>{count}</span>}
       </Box>
     </Box>
   );
@@ -267,13 +277,6 @@ function Dashed({ children, h = 48 }: { children: ReactNode; h?: number }) {
 }
 function IconThumb({ icon, color = 'fg.muted', size = 36 }: { icon: React.ElementType; color?: string; size?: number }) {
   return <Box sx={{ width: size, height: size, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0, color }}><Octicon icon={icon} /></Box>;
-}
-function ImgThumb({ src, size = 36, dim }: { src: string | null; size?: number; dim?: boolean }) {
-  return (
-    <Box sx={{ width: size, height: size, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-      {src && <img src={src} alt="" style={{ width: size - 8, height: size - 8, objectFit: 'contain', opacity: dim ? 0.5 : 1 }} />}
-    </Box>
-  );
 }
 // миниатюра здания с бейджем (номер в очереди, значок типа в логе)
 function BadgeThumb({ id, badge, badgeBg = 'accent.emphasis', corner = 'tl', dim }: { id: string; badge: ReactNode; badgeBg?: string; corner?: 'tl' | 'br'; dim?: boolean }) {
@@ -723,11 +726,8 @@ export function ReconstructPanel({ groups, components, disabled, onToggle }: { g
         return (
           <Row key={`${c.x},${c.y}`} lead={<Thumb id={c.g.id} size={36} bg="canvas.default" />} title={c.g.name}
             sub={c.queued ? `готово · ${c.x},${c.y}` : `ур. ${c.level} из ${c.req} · ${c.x},${c.y}`}
-            fill={c.queued ? fillOf([[FILL_RENOVATE, 100]]) : fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]])} sx={SWAP}
-            trail={<>
-              {c.g.comp != null && <ItemCard className="sw-v" tag="component" count={c.g.comp} short={short} />}
-              <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onToggle(c.x, c.y)} /></Box>
-            </>} />
+            fill={c.queued ? fillOf([[FILL_RENOVATE, 100]]) : fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]])}
+            trail={c.g.comp != null ? <ItemCard tag="component" count={c.g.comp} short={short} /> : undefined} />
         );
       })}
       <Dashed>Кликните или проведите кистью по зданиям</Dashed>
@@ -758,16 +758,19 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
       </Box>
       {items.length === 0 ? <Empty>Нет зданий, подходящих под реновацию</Empty> : (
         <>
-          {items.map(it => {
-            const can = it.marked || (it.cost ?? 0) <= left;
-            // клик по карточке отмечает здание, отмеченное залито фиолетовым, как кубики мастерпланов
+          {/* в списке только отмеченное на карте; мастерпланов не хватает — ярлык красный с того здания, где кончились */}
+          {(() => { let rest = masterplans; return items.filter(it => it.marked).map(it => {
+            const short = (rest -= it.cost ?? 0) < 0;
             return (
-              <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" dim={!can} />} title={it.nextName}
-                sub={`${it.name} · ${it.x},${it.y}`} fill={it.marked ? fillOf([[FILL_RENOVATE, 100]]) : undefined}
-                onClick={can && !disabled ? () => onToggle(it.x, it.y) : undefined} sx={can ? undefined : { opacity: 0.6 }}
-                trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={!can} />} />
+              <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" />} title={it.nextName}
+                fill={fillOf([[FILL_RENOVATE, 100]])} sx={SWAP}
+                trail={<>
+                  <ItemCard className="sw-v" tag="masterplan" count={it.cost ?? '?'} short={short} />
+                  <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onToggle(it.x, it.y)} /></Box>
+                </>} />
             );
-          })}
+          }); })()}
+          <Dashed>Кликните по зданиям на карте</Dashed>
         </>
       )}
       {incomeGain > 0 && <SumLine left="доход после реновации" right={<Text sx={{ color: 'success.fg' }}>+{fmt(incomeGain)}/ч</Text>} />}
@@ -784,11 +787,16 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
   if (loading && boosters.length === 0) return <Spinner size="small" />;
   const queued = (name: string) => queue.filter(q => q.name === name).length;
   const img = (name: string) => catalogItemImg(Number(name));
+  // ускоритель — карточкой предмета, как мастерплан и компонент: рамка цвета редкости (тег = редкость, у вечного — eternal)
+  const card = (name: string, count?: number, dim?: boolean) => {
+    const tag = ITEMS_BY_ID[Number(name)]?.tag?.replace(/_booster$/, '') ?? 'common';
+    return <ItemCard tag={tag} src={img(name)} count={count} dim={dim} />;
+  };
   const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   return (
     <>
       {active.map(b => (
-        <Row key={b.name} lead={<ImgThumb src={img(b.name)} />} title={b.label} bg="attention.subtle"
+        <Row key={b.name} lead={card(b.name)} title={b.label} bg="attention.subtle"
           sub={<>{`активен · ещё ${fmtTimeLeft(b.ends_at - Date.now())}`}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</>}
           trail={<Val mono color="attention.fg">{hhmm(b.ends_at)}</Val>} />
       ))}
@@ -797,7 +805,7 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
         <Box key={`${q.name}:${i}`} draggable onDragStart={e => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => setDrag(null)}
           onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (drag != null && drag !== i) onReorder(drag, i); setDrag(null); }}
           sx={{ opacity: drag === i ? 0.5 : 1, cursor: 'grab' }}>
-          <Row lead={<ImgThumb src={img(q.name)} />} title={q.label} sub={i === 0 ? '#1 · следующий' : `#${i + 1}`} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
+          <Row lead={card(q.name)} title={q.label} sub={i === 0 ? '#1 · следующий' : `#${i + 1}`} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
             trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemoveAt(i)} />} />
         </Box>
       ))}
@@ -805,9 +813,9 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
       {boosters.length === 0 ? <Empty>Ускорителей в инвентаре нет</Empty> : boosters.map(b => {
         const k = queued(b.name);
         return (
-          <Row key={b.name} lead={<ImgThumb src={img(b.name)} dim={!b.available} />} title={b.label}
+          <Row key={b.name} lead={card(b.name, b.available || undefined, !b.available)} title={b.label}
             sub={<Text sx={{ color: b.blocked_by_other && b.available ? 'attention.fg' : 'inherit' }}>
-              {b.available ? `${b.available} шт.` : 'нет на складе'}{k > 0 && ` · в очереди ${k}`}{b.blocked_by_other && b.available > 0 && ' · ждёт другой'}
+              {[!b.available && 'нет на складе', k > 0 && `в очереди ${k}`, b.blocked_by_other && b.available > 0 && 'ждёт другой'].filter(Boolean).join(' · ') || 'на складе'}
             </Text>}
             trail={<IconButton size="small" variant="invisible" icon={PlusIcon} aria-label="В очередь" disabled={k >= b.available} onClick={() => onAdd(b.name)} />} />
         );
@@ -832,7 +840,7 @@ function byDay<T>(rows: T[], at: (r: T) => number): [string, T[]][] {
   return [...m.entries()];
 }
 const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-const Time = ({ ms, title }: { ms: number; title?: string }) => <Val mono color="fg.muted"><span title={title}>{hhmm(ms)}</span></Val>;
+const Time = ({ ms, title }: { ms: number; title?: string }) => <Val mono><span title={title}>{hhmm(ms)}</span></Val>;
 // тип действия: название, значок и цвет бейджа на миниатюре
 const LOG_TYPE: Record<string, [string, React.ElementType, string]> = {
   upgrade: ['Улучшение', ArrowUpIcon, 'success.emphasis'], build: ['Постройка', PlusCircleIcon, 'accent.emphasis'],

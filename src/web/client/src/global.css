@@ -655,3 +655,8 @@ html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(
   .rdlg-card .hide-narrow { display: none; }
   .rdlg-card.editable { cursor: pointer; }
 }
+
+/* бегущая строка: не влезающее название карточки на карте под курсором едет влево и обратно (cityMapPanels Row) */
+.tc-marquee { position: relative; animation: tc-marquee ease-in-out infinite; }
+@keyframes tc-marquee { 0%, 12% { left: 0; } 44%, 56% { left: var(--mq); } 88%, 100% { left: 0; } }
+@media (prefers-reduced-motion: reduce) { .tc-marquee { animation: none; } }
