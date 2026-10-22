@@ -1,7 +1,7 @@
 // Правый сайдбар карты города: палитра инструментов внизу карты переключает его содержимое,
 // сам сайдбар всегда открыт. Здесь — оформление страниц сайдбара, данные и действия приходят из
 // CityMapCity.tsx (там же остались Строительство/Перемещение/Реконструкция в прежнем виде).
-import { useEffect, useMemo, useState, type ReactNode, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type DragEvent } from 'react';
 import { Box, Button, CounterLabel, IconButton, Octicon, ProgressBar, Spinner, Text, TextInput, Timeline } from '@primer/react';
 import { Tooltip } from '@primer/react/experimental';
 import {
@@ -202,12 +202,22 @@ function SumLine({ left, right }: { left: ReactNode; right?: ReactNode }) {
 export function Row({ lead, title, sub, trail, fill, bg = 'canvas.subtle', onClick, chevron, sx, children }: {
   lead?: ReactNode; title: ReactNode; sub?: ReactNode; trail?: ReactNode; fill?: string; bg?: string; onClick?: () => void; chevron?: boolean; sx?: object; children?: ReactNode;
 }) {
+  // не влезающее название под курсором бежит влево до конца и обратно, без курсора — сразу на место
+  const titleRef = useRef<HTMLElement>(null);
+  const [run, setRun] = useState<{ d: number; t: number } | null>(null);
+  const enter = () => {
+    const el = titleRef.current, d = el ? el.scrollWidth - el.clientWidth : 0;
+    if (d > 2) setRun({ d, t: 2 * d / 40 + 2.4 });
+  };
   return (
     <Box sx={{ borderRadius: '12px', bg, display: 'flex', flexDirection: 'column', ...sx }}>
-      <Box onClick={onClick} sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: chevron ? 3 : 2, borderRadius: '12px', backgroundImage: fill, cursor: onClick ? 'pointer' : undefined }}>
+      <Box onClick={onClick} onMouseEnter={enter} onMouseLeave={() => setRun(null)}
+        sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: chevron ? 3 : 2, borderRadius: '12px', backgroundImage: fill, cursor: onClick ? 'pointer' : undefined }}>
         {lead}
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <Text sx={{ fontWeight: 'semibold', lineHeight: '20px', ...ell }}>{title}</Text>
+          <Text ref={titleRef} sx={{ fontWeight: 'semibold', lineHeight: '20px', ...ell, ...(run ? { textOverflow: 'clip' } : null) }}>
+            <span className={run ? 'tc-marquee' : undefined} style={run ? { ['--mq' as string]: `-${run.d}px`, animationDuration: `${run.t}s` } : undefined}>{title}</span>
+          </Text>
           {sub != null && <Text sx={{ ...sub2, ...num, ...ell }}>{sub}</Text>}
         </Box>
         {trail}
@@ -830,7 +840,7 @@ function byDay<T>(rows: T[], at: (r: T) => number): [string, T[]][] {
   return [...m.entries()];
 }
 const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-const Time = ({ ms, title }: { ms: number; title?: string }) => <Val mono color="fg.muted"><span title={title}>{hhmm(ms)}</span></Val>;
+const Time = ({ ms, title }: { ms: number; title?: string }) => <Val mono><span title={title}>{hhmm(ms)}</span></Val>;
 // тип действия: название, значок и цвет бейджа на миниатюре
 const LOG_TYPE: Record<string, [string, React.ElementType, string]> = {
   upgrade: ['Улучшение', ArrowUpIcon, 'success.emphasis'], build: ['Постройка', PlusCircleIcon, 'accent.emphasis'],
