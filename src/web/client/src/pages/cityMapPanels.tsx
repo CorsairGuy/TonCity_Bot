@@ -7,7 +7,7 @@ import { Tooltip } from '@primer/react/experimental';
 import {
   GraphIcon, GoalIcon, StackIcon, ClockIcon, PlusIcon, ArrowBothIcon, TrashIcon, IterationsIcon, StarIcon, ZapIcon, LogIcon,
   QuestionIcon, SearchIcon, XIcon, DashIcon, ChevronDownIcon, ChevronRightIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
-  GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon, UndoIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon,
+  GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
 import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActiveBooster, CityActionLogRow, ForecastEvent } from '../api';
@@ -152,8 +152,8 @@ export function Caption({ children, right }: { children: ReactNode; right?: Reac
   );
 }
 export function Empty({ children }: { children: ReactNode }) { return <Text sx={muted}>{children}</Text>; }
-function Thumb({ id, size = 40, bg = 'canvas.subtle', dim }: { id: string; size?: number; bg?: string; dim?: boolean }) {
-  return <Box sx={{ width: size, height: size, borderRadius: '8px', bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} dim={dim} /></Box>;
+function Thumb({ id, size = 40, bg = 'canvas.subtle', dim, radius = 8 }: { id: string; size?: number; bg?: string; dim?: boolean; radius?: number }) {
+  return <Box sx={{ width: size, height: size, borderRadius: `${radius}px`, bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} dim={dim} /></Box>;
 }
 // тот же формат, что во всей панели (fmt, 1 знак): раньше карта писала 55.27M, а таблицы — 55.3M
 export const fmtStat = (n: number): string => fmt(n);
@@ -365,9 +365,10 @@ function planSum(cells: PlanCell[]): PlanSum {
   return r;
 }
 const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
-// заливка шапки здания: те же цвета, что у полос, приглушённые (переменные Primer с запасным значением)
+// заливка шапки здания и плашек клеток: те же цвета, что у полос, приглушённые
 const FILL_DONE = 'rgba(74,194,107,.4)';
 const FILL_WIP = 'rgba(84,174,255,.4)';
+const FILL_OFF = 'rgba(248,81,73,.4)'; // клетка помечена к удалению
 function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
@@ -443,58 +444,51 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
             {shown.map(g => {
               const o = open === g.id;
               const toggle = () => setOpen(o ? null : g.id);
-              // прогресс здания — заливка шапки карточки; шапка скруглена и в раскрытом виде
+              // прогресс здания — заливка шапки; под раскрытым списком фона нет, плашки клеток — во всю ширину шапки
               const a = pctOf(g.sum.done, g.sum.span), b = pctOf(g.sum.done + g.sum.wip, g.sum.span);
               return (
-                <Box key={g.id} sx={{ borderRadius: '12px', bg: 'canvas.subtle', display: 'flex', flexDirection: 'column' }}>
+                <Box key={g.id} sx={{ display: 'flex', flexDirection: 'column' }}>
                   <Box role="button" tabIndex={0} aria-expanded={o} onClick={toggle} {...hover(g.cells.map(c => c.key))}
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
                     sx={{
-                      display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, borderRadius: '12px', cursor: 'pointer',
-                      backgroundImage: `linear-gradient(90deg, ${FILL_DONE} 0 ${a}%, ${FILL_WIP} ${a}% ${b}%, transparent ${b}%)`,
+                      display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: 3, borderRadius: '12px', cursor: 'pointer',
+                      bg: 'canvas.subtle', backgroundImage: fillOf([[FILL_DONE, a], [FILL_WIP, b - a]]),
                     }}>
-                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
+                    {/* картинка 36px и две строки 20+16px: шапка 52px, картинка в 8px от краёв со всех сторон; скругление 4px = 12 − 8 */}
+                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" radius={4} /> : <Box sx={{ width: 36, height: 36 }} />}
                     <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                      <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
-                      <Text sx={{ ...muted, ...num, whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: 'success.fg' }}>готово</Text>}</Text>
+                      <Text sx={{ fontWeight: 'semibold', lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
+                      <Text sx={{ ...muted, ...num, lineHeight: '16px', whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: 'success.fg' }}>готово</Text>}</Text>
                     </Box>
                     <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
                   </Box>
                   {o && (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2 }}>
-                      {/* строки 22 px вплотную: полоса 16 px + бывший зазор входят в саму строку, щелей для мыши нет */}
-                      <Box sx={{ display: 'flex', flexDirection: 'column', my: '-3px' }}>
-                        {g.cells.map(c => {
-                          const off = removed.has(c.key);
-                          const levels = c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`;
-                          const k = c.key.replace(',', '_');
-                          // под курсором полоса сменяется строкой «уровень → цель · цена»; клик помечает клетку к удалению
-                          // (полоса бледнеет и перечёркнута), повторный — возвращает
-                          return (
-                            <Box key={c.key} as="button" type="button" aria-label={`${c.key} · ${levels}`} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)}
-                              onMouseEnter={() => { setHot(c.key); onHover([k]); }} onMouseLeave={() => { setHot(h => h === c.key ? null : h); onHover(null); }}
-                              sx={{ position: 'relative', display: 'flex', alignItems: 'center', height: 22, p: 0, border: 0, bg: 'transparent', cursor: 'pointer', fontFamily: 'inherit', color: 'fg.default' }}>
-                              {hot === c.key && !off
-                                ? <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, height: 20, px: 2, borderRadius: '4px', bg: 'canvas.default', fontSize: '11px', ...num }}>
-                                    <Text sx={{ color: 'fg.muted', whiteSpace: 'nowrap' }}>{levels}</Text>
-                                    {c.cost > 0 && <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>}
-                                  </Box>
-                                : <>
-                                    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
-                                      <PlanBar done={c.done} wip={c.wip} span={c.span} />
-                                    </Box>
-                                    {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
-                                  </>}
-                            </Box>
-                          );
-                        })}
-                      </Box>
+                    // от шапки до первой плашки и от последней до следующего здания — по 8px, как между зданиями
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+                      {g.cells.map(c => {
+                        const off = removed.has(c.key);
+                        const levels = c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`;
+                        const k = c.key.replace(',', '_');
+                        const ca = pctOf(c.done, c.span), cb = pctOf(c.done + c.wip, c.span);
+                        // плашка-прогресс без подписи; под курсором — «уровень → цель» и цена; клик помечает клетку
+                        // к удалению (плашка бледнеет, заливка красная, перечёркнута), повторный — возвращает
+                        return (
+                          <Box key={c.key} as="button" type="button" aria-label={`${c.key} · ${levels}`} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)}
+                            onMouseEnter={() => { setHot(c.key); onHover([k]); }} onMouseLeave={() => { setHot(h => h === c.key ? null : h); onHover(null); }}
+                            sx={{
+                              position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, height: 24, px: 2,
+                              border: 0, borderRadius: '10px', bg: 'canvas.subtle', backgroundImage: fillOf(off ? [[FILL_OFF, cb]] : [[FILL_DONE, ca], [FILL_WIP, cb - ca]]),
+                              opacity: off ? 0.35 : 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px', color: 'fg.default', ...num,
+                            }}>
+                            {hot === c.key && <>
+                              <Text sx={{ opacity: 0.8, whiteSpace: 'nowrap' }}>{levels}</Text>
+                              {c.cost > 0 && <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>}
+                            </>}
+                            {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
+                          </Box>
+                        );
+                      })}
                       {g.marked > 0 && <Text sx={{ fontSize: 0, color: 'danger.fg', textAlign: 'center' }}>{g.marked} {cellsWord(g.marked)} {g.marked === 1 ? 'уйдёт' : 'уйдут'} из плана при сохранении</Text>}
-                      {g.marked < g.cells.length
-                        ? <Button size="small" block variant="invisible" leadingVisual={TrashIcon} onClick={() => onMarkRemoved(g.cells.map(c => c.key), true)}
-                            sx={{ color: 'danger.fg', bg: 'canvas.default', '& svg': { color: 'danger.fg' }, '&:hover:not([disabled])': { bg: 'danger.subtle' }, '&:active:not([disabled])': { bg: 'danger.muted' } }}>Убрать все клетки</Button>
-                        : <Button size="small" block variant="invisible" leadingVisual={UndoIcon} onClick={() => onMarkRemoved(g.cells.map(c => c.key), false)}
-                            sx={{ bg: 'canvas.default', '&:hover:not([disabled])': { bg: 'neutral.muted' }, '&:active:not([disabled])': { bg: 'neutral.muted' } }}>Вернуть все клетки</Button>}
                     </Box>
                   )}
                 </Box>
