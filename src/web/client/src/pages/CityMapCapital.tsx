@@ -391,6 +391,11 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   // те же короткие коды категорий, что и на странице "Общий план улучшений" (COM/BEN/SPE/DEC —
   // префикс id, см. buildingCat выше), не человеческое название типа
   const paletteTypes = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean);
+  // порядок зданий в «Плане» — как в «Строительстве»: категории в порядке вкладок, внутри — по названию
+  const planSortKey = useMemo(() => (id: string): (string | number)[] => {
+    const i = paletteTypes.indexOf(buildingCat(id));
+    return [i === -1 ? 999 : i, labelFor(id), id];
+  }, [paletteTypes.join(','), labelFor]);
   // выбранной категории в каталоге нет (COM у столицы без торговых зданий) — первая из имеющихся
   const paletteTypesKey = paletteTypes.join(',');
   useEffect(() => { if (paletteTypes.length && !paletteTypes.includes(typeFilter)) setTypeFilter(paletteTypes[0]); }, [paletteTypesKey, typeFilter]);
@@ -542,7 +547,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
           )}
 
           {mode === 'upgrade' && (
-            <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
+            <PlanPanel targets={targets} owned={owned} labelFor={labelFor} sortKey={planSortKey}
               upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
           )}
 

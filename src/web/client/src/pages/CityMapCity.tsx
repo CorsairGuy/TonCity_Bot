@@ -823,6 +823,16 @@ export function CityMapCity() {
   // выбранной категории в каталоге нет (COM у столицы без торговых зданий) — первая из имеющихся
   const paletteCatsKey = paletteCats.join(',');
   useEffect(() => { if (paletteCats.length && !paletteCats.includes(catFilter)) setCatFilter(paletteCats[0]); }, [paletteCatsKey, catFilter]);
+  // порядок зданий в «Плане» — как в «Строительстве»: категории в порядке вкладок, внутри — по показателю
+  // категории (звёздные тиры — по базовому зданию, чтобы стояли рядом), затем по названию
+  const planSortKey = useMemo(() => {
+    const byId = new Map(buildingsCatalog.map(b => [b.id, b]));
+    return (id: string): (string | number)[] => {
+      const cat = buildingCat(id), b = byId.get(familyId(id)), i = paletteCats.indexOf(cat);
+      const v = !b ? 0 : cat === 'COM' ? b.base_profit ?? 0 : cat === 'RES' ? b.base_population ?? 0 : cat === 'SER' ? b.service_coverage ?? 0 : 0;
+      return [i === -1 ? 999 : i, -v, labelFor(familyId(id)), id];
+    };
+  }, [buildingsCatalog, paletteCatsKey, labelFor]);
 
   // ── данные страниц сайдбара ─────────────────────────────────────────────────
   const nameWithStar = (id: string) => { const m = id.match(/_(\d+)_star\.png$/i); return m ? `${labelFor(id)} ★${m[1]}` : labelFor(id); };
@@ -1032,7 +1042,7 @@ export function CityMapCity() {
           {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
 
           {mode === 'upgrade' && (
-            <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
+            <PlanPanel targets={targets} owned={owned} labelFor={labelFor} sortKey={planSortKey}
               upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
           )}
 
