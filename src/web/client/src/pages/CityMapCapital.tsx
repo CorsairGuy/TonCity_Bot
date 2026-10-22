@@ -12,7 +12,7 @@ import { useMapDayNight } from '../hooks/useMapDayNight';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
-import { MapPalette, MapBrushLevel, PanelShell, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
 
 // Здания столицы (config/capital_buildings.txt) — принципиально другая форма, чем городской
 // BuildingDef (api.ts): нет category/star_lvl/is_reconstructible и т.п., зато есть type
@@ -567,7 +567,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
                     </span>
                   ))}
                 </div>
-                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {paletteFiltered.map(b => {
                     const k = familyCounts.get(b.id) ?? 0;
                     const limitReached = b.limit != null && k >= b.limit;
@@ -576,40 +576,35 @@ export function CityMapCapital({ account: guildTitle }: Props) {
                     const unaffordable = !limitReached && !hallUnmet && price > (row?.coins ?? 0);
                     const unavailable = limitReached || hallUnmet || unaffordable;
                     return (
-                      <div key={b.id}
-                        className={'map-bitem' + (buildFamily === b.id ? ' active' : '') + (unavailable ? ' disabled' : '')}
-                        onClick={() => { if (!unavailable) setBuildFamily(b.id); }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildingName(b)}</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: unavailable ? 'var(--fg-muted)' : 'var(--fg)', flexShrink: 0 }}>
-                          {limitReached ? 'Построено' : hallUnmet ? `Нужен холл ${b.hall_lvl_required}` : <CoinValue value={fmt(price)} />}
-                        </span>
-                      </div>
+                      <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
+                        sub={limitReached ? 'Построено' : hallUnmet ? `Нужен холл ${b.hall_lvl_required}` : undefined}
+                        trail={limitReached || hallUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmt(price)} /></Val>} />
                     );
                   })}
                 </Box>
               </Box>
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'move' && (
             <>
               <MovePanel from={moveFromInfo} moves={moveRows} labelFor={labelFor} disabled={executing} onCancel={() => setMoveFrom(null)} onRemove={removeQueued} />
-              <PendingList rows={pendingNot('move')} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingNot('move')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'demolish' && (
             <>
               {pendingOf('demolish').length === 0 && <Empty>Кликните или проведите кистью по зданиям.</Empty>}
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'skip' && (
             <>
               {skippableSet.size === 0 && pendingOf('skip').length === 0 && <Empty>Сейчас ничего не строится.</Empty>}
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
