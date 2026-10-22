@@ -199,25 +199,41 @@ function SumLine({ left, right }: { left: ReactNode; right?: ReactNode }) {
 }
 // карточка-строка, как у здания в «Плане»: миниатюра 36px и две строки 20+16px — карточка 52px,
 // картинка ровно в 8px от краёв со всех сторон; справа — действие, стрелка раскрытия (chevron) в 16px от края
+// название карточки: не влезающее бежит влево до конца и обратно, пока курсор на карточке ([data-mq-host]),
+// без курсора сразу встаёт на место. Слушатели — на самой карточке, поэтому работает и в шапках внутри map
+function MarqueeTitle({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
+  const [run, setRun] = useState<{ d: number; t: number } | null>(null);
+  useEffect(() => {
+    const el = ref.current, host = el?.closest('[data-mq-host]');
+    if (!el || !host) return;
+    const enter = () => {
+      // ширину меряем дробной: scrollWidth округляется, и при переполнении меньше пикселя
+      // многоточие уже есть, а scrollWidth === clientWidth — строка не бежала
+      const inner = el.firstElementChild;
+      const d = inner ? Math.ceil(inner.getBoundingClientRect().width - el.getBoundingClientRect().width) : 0;
+      if (d > 0) setRun({ d, t: 2 * d / 40 + 2.4 });
+    };
+    const leave = () => setRun(null);
+    host.addEventListener('mouseenter', enter); host.addEventListener('mouseleave', leave);
+    return () => { host.removeEventListener('mouseenter', enter); host.removeEventListener('mouseleave', leave); };
+  }, []);
+  return (
+    <Text ref={ref} sx={{ fontWeight: 'semibold', lineHeight: '20px', ...ell, ...(run ? { textOverflow: 'clip' } : null) }}>
+      <span className={run ? 'tc-marquee' : undefined} style={run ? { ['--mq' as string]: `-${run.d}px`, animationDuration: `${run.t}s` } : undefined}>{children}</span>
+    </Text>
+  );
+}
 export function Row({ lead, title, sub, trail, fill, bg = 'canvas.subtle', onClick, chevron, sx, children }: {
   lead?: ReactNode; title: ReactNode; sub?: ReactNode; trail?: ReactNode; fill?: string; bg?: string; onClick?: () => void; chevron?: boolean; sx?: object; children?: ReactNode;
 }) {
-  // не влезающее название под курсором бежит влево до конца и обратно, без курсора — сразу на место
-  const titleRef = useRef<HTMLElement>(null);
-  const [run, setRun] = useState<{ d: number; t: number } | null>(null);
-  const enter = () => {
-    const el = titleRef.current, d = el ? el.scrollWidth - el.clientWidth : 0;
-    if (d > 2) setRun({ d, t: 2 * d / 40 + 2.4 });
-  };
   return (
     <Box sx={{ borderRadius: '12px', bg, display: 'flex', flexDirection: 'column', ...sx }}>
-      <Box onClick={onClick} onMouseEnter={enter} onMouseLeave={() => setRun(null)}
+      <Box onClick={onClick} data-mq-host=""
         sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: chevron ? 3 : 2, borderRadius: '12px', backgroundImage: fill, cursor: onClick ? 'pointer' : undefined }}>
         {lead}
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <Text ref={titleRef} sx={{ fontWeight: 'semibold', lineHeight: '20px', ...ell, ...(run ? { textOverflow: 'clip' } : null) }}>
-            <span className={run ? 'tc-marquee' : undefined} style={run ? { ['--mq' as string]: `-${run.d}px`, animationDuration: `${run.t}s` } : undefined}>{title}</span>
-          </Text>
+          <MarqueeTitle>{title}</MarqueeTitle>
           {sub != null && <Text sx={{ ...sub2, ...num, ...ell }}>{sub}</Text>}
         </Box>
         {trail}
@@ -492,7 +508,7 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
               const a = pctOf(g.sum.done, g.sum.span), b = pctOf(g.sum.done + g.sum.wip, g.sum.span);
               return (
                 <Box key={g.id} sx={{ display: 'flex', flexDirection: 'column' }}>
-                  <Box role="button" tabIndex={0} aria-expanded={o} onClick={toggle} {...hover(g.cells.map(c => c.key))}
+                  <Box role="button" tabIndex={0} aria-expanded={o} onClick={toggle} {...hover(g.cells.map(c => c.key))} data-mq-host=""
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
                     sx={{
                       display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: 3, borderRadius: '12px', cursor: 'pointer',
@@ -501,7 +517,7 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                     {/* картинка 36px и две строки 20+16px: шапка 52px, картинка в 8px от краёв со всех сторон */}
                     {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
                     <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                      <Text sx={{ fontWeight: 'semibold', lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
+                      <MarqueeTitle>{g.name}</MarqueeTitle>
                       <Text sx={{ ...sub2, ...num, whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmtUp(g.sum.cost)} /> : <Text sx={{ color: DONE_FG }}>готово</Text>}</Text>
                     </Box>
                     <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
@@ -763,11 +779,8 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
             const short = (rest -= it.cost ?? 0) < 0;
             return (
               <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" />} title={it.nextName}
-                fill={fillOf([[FILL_RENOVATE, 100]])} sx={SWAP}
-                trail={<>
-                  <ItemCard className="sw-v" tag="masterplan" count={it.cost ?? '?'} short={short} />
-                  <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onToggle(it.x, it.y)} /></Box>
-                </>} />
+                fill={fillOf([[FILL_RENOVATE, 100]])}
+                trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={short} />} />
             );
           }); })()}
           <Dashed>Кликните по зданиям на карте</Dashed>

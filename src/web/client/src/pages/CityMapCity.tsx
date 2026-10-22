@@ -325,7 +325,8 @@ export function CityMapCity() {
   const [buildFamily, setBuildFamily] = useState('');
   const [moveFrom, setMoveFrom] = useState<{ x: number; y: number } | null>(null);
   const [search, setSearch] = useState('');
-  const [catFilter, setCatFilter] = useState('');
+  // вкладки категорий без «ВСЕ»: по умолчанию COM
+  const [catFilter, setCatFilter] = useState('COM');
 
   const [loadErr, setLoadErr] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
@@ -792,13 +793,7 @@ export function CityMapCity() {
   // явно говорит "не выполнено" (напр. не хватает населения — конкретный порог не храним у себя,
   // это отдаёт сама игра); либо не хватает монет на цену со всеми скидками. Дальнейшая постройка
   // вернёт ошибку от игры, поэтому просто не даём выбрать такое здание, но оставляем в списке
-  // видимым (в конце, неактивным).
-  const isUnavailable = (b: BuildingDef) => {
-    const k = familyCounts.get(familyId(b.id)) ?? 0;
-    if (b.limit != null && k >= b.limit) return true;
-    if (isCriteriaUnmet(buildCriteria, b.id)) return true;
-    return buildPriceAt(b, k, buildCostMultiplier) > balance;
-  };
+  // видимым (на своём месте в сортировке, неактивным).
 
   // палитра построимых зданий (Строительство) — поиск+категории, как в MapEditor.tsx
   const purchasable = useMemo(
@@ -806,21 +801,16 @@ export function CityMapCity() {
     [buildingsCatalog],
   );
   const paletteFiltered = purchasable.filter(b => {
-    if (catFilter && buildingCat(b.id) !== catFilter) return false;
+    if (buildingCat(b.id) !== catFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!buildingName(b).toLowerCase().includes(q) && !b.id.toLowerCase().includes(q)) return false;
     }
     return true;
   }).sort((a, b) => {
-    // недоступные к покупке (лимит семьи исчерпан) — всегда в конец списка, вне зависимости от
-    // остальной сортировки по категории
-    const ua = isUnavailable(a), ub = isUnavailable(b);
-    if (ua !== ub) return ua ? 1 : -1;
     // сортировка по показателю, релевантному именно этой категории — коммерческие по прибыли,
-    // жилые по населению, служебные по покрытию (всё по убыванию — лучшее сверху); без выбранной
-    // категории (ВСЕ) или для остального (SPE) — просто по алфавиту, смешивать разные метрики
-    // в одном списке не имеет смысла
+    // жилые по населению, служебные по покрытию (всё по убыванию — лучшее сверху); остальное (SPE) —
+    // по алфавиту. Недоступные и те, на которые не хватает монет, — на своём месте, а не в конце
     if (catFilter === 'COM') return (b.base_profit ?? 0) - (a.base_profit ?? 0);
     if (catFilter === 'RES') return (b.base_population ?? 0) - (a.base_population ?? 0);
     if (catFilter === 'SER') return (b.service_coverage ?? 0) - (a.service_coverage ?? 0);
@@ -830,6 +820,9 @@ export function CityMapCity() {
   const CAT_ORDER = ['COM', 'RES'];
   const catRank = (c: string) => { const i = CAT_ORDER.indexOf(c); return i === -1 ? 999 : i; };
   const paletteCats = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean).sort((a, b) => catRank(a) - catRank(b));
+  // выбранной категории в каталоге нет (COM у столицы без торговых зданий) — первая из имеющихся
+  const paletteCatsKey = paletteCats.join(',');
+  useEffect(() => { if (paletteCats.length && !paletteCats.includes(catFilter)) setCatFilter(paletteCats[0]); }, [paletteCatsKey, catFilter]);
 
   // ── данные страниц сайдбара ─────────────────────────────────────────────────
   const nameWithStar = (id: string) => { const m = id.match(/_(\d+)_star\.png$/i); return m ? `${labelFor(id)} ★${m[1]}` : labelFor(id); };
@@ -914,7 +907,7 @@ export function CityMapCity() {
     move: 'Кликните здание, затем пустую клетку. Можно переместить несколько подряд. Цели и очередь переедут вместе со зданием, на экономику это не влияет.',
     demolish: 'Кликайте здания или проведите кистью. Монеты за снос не возвращаются. Нажмите на плитку, чтобы снять отметку.',
     reconstruct: 'Тратит компоненты, сбрасывает здание на 1 уровень и даёт мастерпланы. Кликните или проведите кистью по зданиям на карте: готовое отмечается к выполнению кнопкой внизу, неготовое ставится в план — бот сам сделает, когда здание дойдёт до нужного уровня. В списке — только выбранное, снимает выбор повторный клик или кисть.',
-    renovate: 'Тратит мастерпланы и переводит здание в следующий звёздный тир. Кликните по подсвеченным зданиям на карте и нажмите «Выполнить». В списке — только выбранное, повторный клик или крестик снимает.',
+    renovate: 'Тратит мастерпланы и переводит здание в следующий звёздный тир. Кликните по подсвеченным зданиям на карте и нажмите «Выполнить». В списке — только выбранное, снимает отметку повторный клик по зданию.',
     boosters: 'Бот активирует ускорители из очереди по порядку, как только освобождается слот. Молния рядом с ускорителем включает его сразу.',
     log: 'Последние действия по этому городу, и бота, и ручные.',
   };
@@ -1055,9 +1048,9 @@ export function CityMapCity() {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
                 <div id="map-cat-tabs">
-                  {['', ...paletteCats].map(cat => (
-                    <span key={cat || '__all'} className={'map-cat-tab' + (catFilter === cat ? ' active' : '')} onClick={() => setCatFilter(cat)}>
-                      {cat || 'ВСЕ'}
+                  {paletteCats.map(cat => (
+                    <span key={cat} className={'map-cat-tab' + (catFilter === cat ? ' active' : '')} onClick={() => setCatFilter(cat)}>
+                      {cat}
                     </span>
                   ))}
                 </div>
