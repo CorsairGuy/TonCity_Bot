@@ -586,16 +586,27 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
 // ── отложенные действия (строительство/перемещение/снос/реконструкция/реновация) ─────────────
 export interface PendingRow { id: number; kind: string; label: string; sprite?: string }
 const PENDING_ICON: Record<string, React.ElementType> = { build: PlusIcon, move: ArrowBothIcon, demolish: TrashIcon, reconstruct: IterationsIcon, renovate: StarIcon, skip: RocketIcon };
-export function PendingList({ rows, disabled, onRemove }: { rows: PendingRow[]; disabled: boolean; onRemove: (id: number) => void }) {
+const PENDING_BADGE: Record<string, string> = { build: 'accent.emphasis', move: 'accent.emphasis', demolish: 'danger.emphasis', reconstruct: 'done.emphasis', renovate: 'done.emphasis', skip: 'attention.emphasis' };
+// как у остальных карточек: сверху здание, второй строкой «действие · клетка», значок действия — бейджем на картинке
+export function PendingList({ rows, labelFor, disabled, onRemove }: { rows: PendingRow[]; labelFor: (id: string) => string; disabled: boolean; onRemove: (id: number) => void }) {
   if (!rows.length) return null;
   return (
     <>
       <Caption right={`всего ${rows.length}`}>Ждут выполнения</Caption>
-      {rows.map(r => (
-        <Row key={r.id} lead={r.sprite ? <Thumb id={r.sprite} size={36} bg="canvas.default" dim={r.kind === 'demolish'} /> : <IconThumb icon={PENDING_ICON[r.kind] ?? PlusIcon} />}
-          title={r.label.split(': ')[0]} sub={r.label.split(': ').slice(1).join(': ')}
+      {rows.map(r => {
+        const cut = r.label.indexOf(': ');
+        const action = cut > 0 ? r.label.slice(0, cut) : r.label;
+        const name = r.sprite ? labelFor(r.sprite) : '';
+        let rest = cut > 0 ? r.label.slice(cut + 2) : '';
+        if (name && rest.startsWith(name)) rest = rest.slice(name.length).trim();
+        rest = rest.replace(/\((\d+,\d+)\)/g, '$1');
+        const icon = PENDING_ICON[r.kind] ?? PlusIcon;
+        return (
+        <Row key={r.id} lead={r.sprite ? <BadgeThumb id={r.sprite} badge={<Octicon icon={icon} size={10} />} badgeBg={PENDING_BADGE[r.kind] ?? 'accent.emphasis'} corner="br" dim={r.kind === 'demolish'} /> : <IconThumb icon={icon} />}
+          title={name || action} sub={name ? (rest ? `${action} · ${rest}` : action) : rest}
           trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onRemove(r.id)} />} />
-      ))}
+        );
+      })}
     </>
   );
 }
@@ -759,9 +770,9 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
 }
 
 // ── Ускорители: активный жёлтой карточкой, очередь и склад карточками ───────
-export function BoostersPanel({ boosters, active, loading, queue, activating, onAdd, onReorder, onRemoveAt, onActivate }: {
-  boosters: CityBoosterRow[]; active: CityActiveBooster[]; loading: boolean; queue: { name: string; label: string }[]; activating: Set<string>;
-  onAdd: (name: string) => void; onReorder: (from: number, to: number) => void; onRemoveAt: (i: number) => void; onActivate: (name: string) => void;
+export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReorder, onRemoveAt }: {
+  boosters: CityBoosterRow[]; active: CityActiveBooster[]; loading: boolean; queue: { name: string; label: string }[];
+  onAdd: (name: string) => void; onReorder: (from: number, to: number) => void; onRemoveAt: (i: number) => void;
 }) {
   const [drag, setDrag] = useState<number | null>(null);
   if (loading && boosters.length === 0) return <Spinner size="small" />;
@@ -787,17 +798,12 @@ export function BoostersPanel({ boosters, active, loading, queue, activating, on
       <Caption>На складе</Caption>
       {boosters.length === 0 ? <Empty>Ускорителей в инвентаре нет</Empty> : boosters.map(b => {
         const k = queued(b.name);
-        const canActivate = b.available > 0 && b.currently_active < b.active_limit && !b.blocked_by_other;
         return (
           <Row key={b.name} lead={<ImgThumb src={img(b.name)} dim={!b.available} />} title={b.label}
-            sub={<Text sx={{ color: b.blocked_by_other && b.available ? 'attention.fg' : 'fg.muted' }}>
+            sub={<Text sx={{ color: b.blocked_by_other && b.available ? 'attention.fg' : 'inherit' }}>
               {b.available ? `${b.available} шт.` : 'нет на складе'}{k > 0 && ` · в очереди ${k}`}{b.blocked_by_other && b.available > 0 && ' · ждёт другой'}
             </Text>}
-            trail={<>
-              {/* у IconButton своя подсказка из aria-label; Tooltip вокруг выключенной кнопки Primer не принимает */}
-              <IconButton size="small" variant="invisible" icon={ZapIcon} aria-label="Активировать сейчас" disabled={!canActivate || activating.has(b.name)} onClick={() => onActivate(b.name)} />
-              <IconButton size="small" variant="invisible" icon={PlusIcon} aria-label="В очередь" disabled={k >= b.available} onClick={() => onAdd(b.name)} />
-            </>} />
+            trail={<IconButton size="small" variant="invisible" icon={PlusIcon} aria-label="В очередь" disabled={k >= b.available} onClick={() => onAdd(b.name)} />} />
         );
       })}
     </>

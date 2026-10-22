@@ -297,7 +297,6 @@ export function CityMapCity() {
   // очередь активации: порядок = приоритет, цикл идёт по ней сверху вниз
   const [boosterQueue, setBoosterQueue] = useState<{ name: string; label: string }[]>([]);
   const [boostersLoading, setBoostersLoading] = useState(false);
-  const [boosterActivating, setBoosterActivating] = useState<Set<string>>(new Set());
   const [boostersChecking, setBoostersChecking] = useResumableRefresh(`boostersCheck:${account}`, () => loadBoosters());
   const [actionLog, setActionLog] = useState<CityActionLogRow[]>([]);
   const [actionLogLoading, setActionLogLoading] = useState(false);
@@ -700,15 +699,6 @@ export function CityMapCity() {
     const [x] = next.splice(from, 1); next.splice(to, 0, x);
     saveQueue(next);
   };
-  const activateBooster = async (name: string) => {
-    setBoosterActivating(prev => new Set(prev).add(name));
-    try {
-      const r = await api.activateBooster(account, name);
-      showFlash(r.ok ? `${boosterLabelFor(name)} активирован` : (r.error ?? 'Ошибка'), !!r.ok);
-      if (r.ok) loadBoosters();
-    } catch (e) { showFlash(String(e), false); }
-    finally { setBoosterActivating(prev => { const next = new Set(prev); next.delete(name); return next; }); }
-  };
   const checkBoosters = async () => {
     setBoostersChecking(true);
     try {
@@ -1084,41 +1074,41 @@ export function CityMapCity() {
                   })}
                 </Box>
               </Box>
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'move' && (
             <>
               <MovePanel from={moveFromInfo} moves={moveRows} labelFor={labelFor} disabled={executing} onCancel={() => setMoveFrom(null)} onRemove={removeQueued} />
-              <PendingList rows={pendingRows.filter(r => r.kind !== 'move')} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'move')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'demolish' && (
             <>
               <DemolishPanel tiles={demolishTiles} lossPerHour={demolish.loss} popLoss={demolish.pop} income={currentStats.profitFinal} disabled={executing} onRemove={removeQueued} />
-              <PendingList rows={pendingNoDemolish} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingNoDemolish} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'reconstruct' && (
             <>
               <ReconstructPanel groups={reconGroups} components={components} disabled={executing} onToggle={toggleReconstruct} />
-              <PendingList rows={pendingRows.filter(r => r.kind !== 'reconstruct')} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'reconstruct')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'renovate' && (
             <>
               <RenovatePanel masterplans={masterplans} items={renovateItems} incomeGain={renovateGain} onToggle={toggleRenovate} disabled={executing} />
-              <PendingList rows={pendingRows.filter(r => r.kind !== 'renovate')} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'renovate')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'boosters' && (
-            <BoostersPanel boosters={boosters} active={boosterActive} loading={boostersLoading} queue={boosterQueue} activating={boosterActivating}
-              onAdd={queueAdd} onReorder={queueReorder} onRemoveAt={queueRemoveAt} onActivate={activateBooster} />
+            <BoostersPanel boosters={boosters} active={boosterActive} loading={boostersLoading} queue={boosterQueue}
+              onAdd={queueAdd} onReorder={queueReorder} onRemoveAt={queueRemoveAt} />
           )}
 
           {mode === 'log' && <LogPanel rows={actionLog} loading={actionLogLoading} label={r => logLabel(r, labelFor, boosterLabelFor)} labelFor={labelFor} />}

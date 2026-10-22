@@ -583,28 +583,28 @@ export function CityMapCapital({ account: guildTitle }: Props) {
                   })}
                 </Box>
               </Box>
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'move' && (
             <>
               <MovePanel from={moveFromInfo} moves={moveRows} labelFor={labelFor} disabled={executing} onCancel={() => setMoveFrom(null)} onRemove={removeQueued} />
-              <PendingList rows={pendingNot('move')} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingNot('move')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'demolish' && (
             <>
               {pendingOf('demolish').length === 0 && <Empty>Кликните или проведите кистью по зданиям.</Empty>}
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'skip' && (
             <>
               {skippableSet.size === 0 && pendingOf('skip').length === 0 && <Empty>Сейчас ничего не строится.</Empty>}
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
