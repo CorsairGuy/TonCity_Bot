@@ -2,7 +2,7 @@ import { memo, useEffect, useRef } from 'react';
 
 // Спрайт здания из атласа игры для списков сайдбара карты — тот же /sprites/sprite-map.json, что
 // рисует CityActionsCanvas. Атлас и карта грузятся один раз на модуль, кадр рисуется в маленький
-// canvas, вписанный по нижнему краю (изометрические здания стоят на земле).
+// canvas, вписанный по центру: прижатые к низу низкие широкие здания (парки, стадион) уезжали вниз подложки.
 type SpriteInfo = { atlas: string; frame: { x: number; y: number; w: number; h: number } };
 let spriteMap: Record<string, SpriteInfo> | null = null;
 let spriteMapP: Promise<void> | null = null;
@@ -26,7 +26,7 @@ export const BuildingSprite = memo(function BuildingSprite({ id, size = 32, dim 
         const x = c.getContext('2d'); if (!x) return;
         const f = info.frame; const k = Math.min(size / f.w, size / f.h) * d;
         x.clearRect(0, 0, c.width, c.height);
-        x.drawImage(im, f.x, f.y, f.w, f.h, (c.width - f.w * k) / 2, c.height - f.h * k, f.w * k, f.h * k);
+        x.drawImage(im, f.x, f.y, f.w, f.h, (c.width - f.w * k) / 2, (c.height - f.h * k) / 2, f.w * k, f.h * k);
       };
       const im = atlases[url];
       if (im && im.complete) draw(im);
