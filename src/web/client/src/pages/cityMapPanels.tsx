@@ -152,8 +152,8 @@ export function Caption({ children, right }: { children: ReactNode; right?: Reac
   );
 }
 export function Empty({ children }: { children: ReactNode }) { return <Text sx={muted}>{children}</Text>; }
-function Thumb({ id, size = 40, bg = 'canvas.subtle', dim, radius = 8 }: { id: string; size?: number; bg?: string; dim?: boolean; radius?: number }) {
-  return <Box sx={{ width: size, height: size, borderRadius: `${radius}px`, bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} dim={dim} /></Box>;
+function Thumb({ id, size = 40, bg = 'canvas.subtle', dim }: { id: string; size?: number; bg?: string; dim?: boolean }) {
+  return <Box sx={{ width: size, height: size, borderRadius: '8px', bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} dim={dim} /></Box>;
 }
 // тот же формат, что во всей панели (fmt, 1 знак): раньше карта писала 55.27M, а таблицы — 55.3M
 export const fmtStat = (n: number): string => fmt(n);
@@ -453,8 +453,8 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                       display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: 3, borderRadius: '12px', cursor: 'pointer',
                       bg: 'canvas.subtle', backgroundImage: fillOf([[FILL_DONE, a], [FILL_WIP, b - a]]),
                     }}>
-                    {/* картинка 36px и две строки 20+16px: шапка 52px, картинка в 8px от краёв со всех сторон; скругление 4px = 12 − 8 */}
-                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" radius={4} /> : <Box sx={{ width: 36, height: 36 }} />}
+                    {/* картинка 36px и две строки 20+16px: шапка 52px, картинка в 8px от краёв со всех сторон */}
+                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
                     <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                       <Text sx={{ fontWeight: 'semibold', lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
                       <Text sx={{ ...muted, ...num, lineHeight: '16px', whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: 'success.fg' }}>готово</Text>}</Text>
