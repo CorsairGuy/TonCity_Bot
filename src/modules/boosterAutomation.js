@@ -68,8 +68,10 @@ async function fetchEndsByType(api){
   const active=Array.isArray(raw)?raw:(raw?.boosters||[]);
   const endsByType=new Map();
   for(const a of active){
-    const id=rMap.get(a?.rarity);
-    if(id==null||!a?.end_time)continue;
+    if(!a?.end_time)continue;
+    // редкость не из каталога (новый тип, выданный ивентом) — всё равно считаем занятым слотом,
+    // иначе цикл решит, что ничего не активно, и упрётся в отказ игры
+    const id=rMap.get(a?.rarity)??(a?.item_id!=null?String(a.item_id):`rarity:${a?.rarity}`);
     const arr=endsByType.get(id)||[];
     arr.push(new Date(a.end_time).getTime());
     endsByType.set(id,arr);
@@ -147,6 +149,16 @@ async function runBoosterAutomationLoop(api,name,accountId){
       // ПРАВИЛО ИГРЫ (подтверждено пользователем вживую): пока активен ХОТЬ ОДИН ускоритель, можно
       // активировать ТОЛЬКО ТОТ ЖЕ тип (если он стакается, т.е. active_limit>1) — любой ДРУГОЙ тип
       // заблокирован целиком до окончания ВСЕХ инстансов активного, независимо от своего active_limit.
+      // Активный тип берём из ВСЕГО живого ответа игры, а не только из строк инвентаря: израсходованного
+      // до нуля типа (последний мифический только что включили) на складе нет, и раньше его активный
+      // инстанс не учитывался — цикл пытался включить легендарный и получал 400 «Достигнуто
+      // максимальное количество активных Ускорителей».
+      if(live)for(const[id,arr]of live){
+        const key=String(id);
+        if(endsOf.has(key))continue;
+        const alive=arr.filter(t=>t>now);
+        if(alive.length)endsOf.set(key,alive);
+      }
       let activeTypeName=null;
       for(const[n,arr]of endsOf)if(arr.length){activeTypeName=n;break;}
 
