@@ -15,7 +15,7 @@ import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
 import { Scrollable } from '../components/Scrollable';
 import { CoinValue, CrystalValue } from '../components/Icons';
-import { fmt } from '../utils';
+import { fmt, ITEMS_BY_ID } from '../utils';
 import { catalogItemImg } from '../hooks/useItemCatalog';
 
 export type PanelMode = CityActionMode;
@@ -227,13 +227,13 @@ export function fmtUp(n: number): string {
   return String(Math.ceil(n));
 }
 // мини-карточка предмета, как на странице «Предметы»: цвет редкости, количество в синем ярлыке (не хватает — в красном)
-function ItemCard({ tag, count, short, className }: { tag: string; count: ReactNode; short?: boolean; className?: string }) {
+function ItemCard({ tag, count, short, className, src, dim }: { tag: string; count?: ReactNode; short?: boolean; className?: string; src?: string | null; dim?: boolean }) {
   return (
     // непрозрачная подложка: фон редкости полупрозрачный и иначе окрашивался бы заливкой карточки
     <Box className={className} sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', flexShrink: 0 }}>
       <Box className={`item-card__box ic-${tag}`} style={{ width: 36, height: 36, borderRadius: 8 }}>
-        <img src={itemSrc(tag)} alt="" style={{ width: 28, height: 28, objectFit: 'contain' }} />
-        <span className="item-card__count" style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', borderRadius: 7, right: -4, bottom: -4, fontVariantNumeric: 'tabular-nums', ...(short ? { background: '#e5534b' } : null) }}>{count}</span>
+        {(src !== null) && <img src={src ?? itemSrc(tag)} alt="" style={{ width: 28, height: 28, objectFit: 'contain', opacity: dim ? 0.5 : 1 }} />}
+        {count != null && <span className="item-card__count" style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', borderRadius: 7, right: -4, bottom: -4, fontVariantNumeric: 'tabular-nums', ...(short ? { background: '#e5534b' } : null) }}>{count}</span>}
       </Box>
     </Box>
   );
@@ -267,13 +267,6 @@ function Dashed({ children, h = 48 }: { children: ReactNode; h?: number }) {
 }
 function IconThumb({ icon, color = 'fg.muted', size = 36 }: { icon: React.ElementType; color?: string; size?: number }) {
   return <Box sx={{ width: size, height: size, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0, color }}><Octicon icon={icon} /></Box>;
-}
-function ImgThumb({ src, size = 36, dim }: { src: string | null; size?: number; dim?: boolean }) {
-  return (
-    <Box sx={{ width: size, height: size, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-      {src && <img src={src} alt="" style={{ width: size - 8, height: size - 8, objectFit: 'contain', opacity: dim ? 0.5 : 1 }} />}
-    </Box>
-  );
 }
 // миниатюра здания с бейджем (номер в очереди, значок типа в логе)
 function BadgeThumb({ id, badge, badgeBg = 'accent.emphasis', corner = 'tl', dim }: { id: string; badge: ReactNode; badgeBg?: string; corner?: 'tl' | 'br'; dim?: boolean }) {
@@ -723,11 +716,8 @@ export function ReconstructPanel({ groups, components, disabled, onToggle }: { g
         return (
           <Row key={`${c.x},${c.y}`} lead={<Thumb id={c.g.id} size={36} bg="canvas.default" />} title={c.g.name}
             sub={c.queued ? `готово · ${c.x},${c.y}` : `ур. ${c.level} из ${c.req} · ${c.x},${c.y}`}
-            fill={c.queued ? fillOf([[FILL_RENOVATE, 100]]) : fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]])} sx={SWAP}
-            trail={<>
-              {c.g.comp != null && <ItemCard className="sw-v" tag="component" count={c.g.comp} short={short} />}
-              <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onToggle(c.x, c.y)} /></Box>
-            </>} />
+            fill={c.queued ? fillOf([[FILL_RENOVATE, 100]]) : fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]])}
+            trail={c.g.comp != null ? <ItemCard tag="component" count={c.g.comp} short={short} /> : undefined} />
         );
       })}
       <Dashed>Кликните или проведите кистью по зданиям</Dashed>
@@ -787,11 +777,16 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
   if (loading && boosters.length === 0) return <Spinner size="small" />;
   const queued = (name: string) => queue.filter(q => q.name === name).length;
   const img = (name: string) => catalogItemImg(Number(name));
+  // ускоритель — карточкой предмета, как мастерплан и компонент: рамка цвета редкости (тег = редкость, у вечного — eternal)
+  const card = (name: string, count?: number, dim?: boolean) => {
+    const tag = ITEMS_BY_ID[Number(name)]?.tag?.replace(/_booster$/, '') ?? 'common';
+    return <ItemCard tag={tag} src={img(name)} count={count} dim={dim} />;
+  };
   const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   return (
     <>
       {active.map(b => (
-        <Row key={b.name} lead={<ImgThumb src={img(b.name)} />} title={b.label} bg="attention.subtle"
+        <Row key={b.name} lead={card(b.name)} title={b.label} bg="attention.subtle"
           sub={<>{`активен · ещё ${fmtTimeLeft(b.ends_at - Date.now())}`}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</>}
           trail={<Val mono color="attention.fg">{hhmm(b.ends_at)}</Val>} />
       ))}
@@ -800,7 +795,7 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
         <Box key={`${q.name}:${i}`} draggable onDragStart={e => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => setDrag(null)}
           onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (drag != null && drag !== i) onReorder(drag, i); setDrag(null); }}
           sx={{ opacity: drag === i ? 0.5 : 1, cursor: 'grab' }}>
-          <Row lead={<ImgThumb src={img(q.name)} />} title={q.label} sub={i === 0 ? '#1 · следующий' : `#${i + 1}`} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
+          <Row lead={card(q.name)} title={q.label} sub={i === 0 ? '#1 · следующий' : `#${i + 1}`} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
             trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemoveAt(i)} />} />
         </Box>
       ))}
@@ -808,9 +803,9 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
       {boosters.length === 0 ? <Empty>Ускорителей в инвентаре нет</Empty> : boosters.map(b => {
         const k = queued(b.name);
         return (
-          <Row key={b.name} lead={<ImgThumb src={img(b.name)} dim={!b.available} />} title={b.label}
+          <Row key={b.name} lead={card(b.name, b.available || undefined, !b.available)} title={b.label}
             sub={<Text sx={{ color: b.blocked_by_other && b.available ? 'attention.fg' : 'inherit' }}>
-              {b.available ? `${b.available} шт.` : 'нет на складе'}{k > 0 && ` · в очереди ${k}`}{b.blocked_by_other && b.available > 0 && ' · ждёт другой'}
+              {[!b.available && 'нет на складе', k > 0 && `в очереди ${k}`, b.blocked_by_other && b.available > 0 && 'ждёт другой'].filter(Boolean).join(' · ') || 'на складе'}
             </Text>}
             trail={<IconButton size="small" variant="invisible" icon={PlusIcon} aria-label="В очередь" disabled={k >= b.available} onClick={() => onAdd(b.name)} />} />
         );
