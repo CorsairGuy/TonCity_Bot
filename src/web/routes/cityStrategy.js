@@ -235,7 +235,7 @@ module.exports=function(app,ctx){
       await opRegistry.run(`boostersCheck:${req.params.account}`,async()=>{
         const acc=await findAccountByName(req.params.account);
         const api=await makeApiForAccount(acc.id,{noLock:true});
-        const{getEndsByType}=require('../../modules/boosterAutomation');
+        const{getEndsByType,ensureActiveRows}=require('../../modules/boosterAutomation');
         const{Inventory}=require('../../db/index');
         const before=new Set((await Inventory.findAll({where:{account:acc.name,type:'booster'},attributes:['name']})).map(r=>r.name));
         await require('../../modules/inventory').runInventory(api,acc.name,{rethrow:true});
@@ -243,6 +243,7 @@ module.exports=function(app,ctx){
           getEndsByType(api),
           Inventory.findAll({where:{account:acc.name,type:'booster'}}),
         ]);
+        await ensureActiveRows(acc.name,endsByType,rows);
         added=rows.filter(r=>!before.has(r.name)).length;
         for(const row of rows){
           const ends=endsByType.get(row.name)||[];

@@ -114,6 +114,23 @@ async function getDurationBoosterInfo(api){
   return{name:rMap.get(last.rarity)??null,multiplier:Number(last.multiplier)||1,endsAt:endMs,count:active.length};
 }
 
+// Активный по ответу игры тип, которого нет на складе (последний экземпляр израсходован при
+// активации, или ускоритель включён прямо в игре) — заводим ему строку Inventory с нулевым
+// запасом, иначе вкладка «Ускорители» его не покажет. Только типы из каталога (числовой id).
+async function ensureActiveRows(name,endsByType,rows){
+  const now=Date.now();
+  for(const[id,arr]of endsByType){
+    const key=String(id);
+    if(!/^\d+$/.test(key)||rows.some(r=>r.name===key))continue;
+    const alive=arr.filter(t=>t>now);
+    if(!alive.length)continue;
+    const row=await Inventory.create({account:name,name:key,type:'booster',marketable:0,locked:0,
+      booster_currently_active:alive.length,booster_active_until:new Date(Math.max(...alive))}).catch(()=>null);
+    if(row)rows.push(row);
+  }
+  return rows;
+}
+
 async function runBoosterAutomationLoop(api,name,accountId){
   logger.info(`[${name}] [booster-loop] started`);
   while(true){
@@ -136,6 +153,7 @@ async function runBoosterAutomationLoop(api,name,accountId){
       // (активно 3, осталось 18ч → освободился слот → ставим ещё один, снова 24ч), а цикл видел 4/4
       // до конца последнего и спал до него. Не ответила игра — запасной вариант из БД, как раньше.
       const live=await fetchEndsByType(api);
+      if(live)await ensureActiveRows(name,live,rows);
       const endsOf=new Map();   // тип → [end ms] живых инстансов; дополняем своими активациями
       for(const r of rows){
         let arr;
@@ -371,4 +389,4 @@ async function combineBoosterForRarity(api,name,rarity){
   return{ok:true,toName:toItemId};
 }
 
-module.exports={runBoosterAutomationLoop,getEndsByType,getActiveBoosterInfo,getDurationBoosterInfo,rarityToId,activateBoosterForRarity,combineBoosterForRarity};
+module.exports={runBoosterAutomationLoop,getEndsByType,ensureActiveRows,getActiveBoosterInfo,getDurationBoosterInfo,rarityToId,activateBoosterForRarity,combineBoosterForRarity};

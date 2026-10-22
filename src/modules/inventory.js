@@ -12,9 +12,18 @@ async function runInventory(api,name,{rethrow=false}={}){
     const all=await api.get('/storage/allitemdata');
     const items=all?.items||[];
     const presentIds=items.map(i=>String(i.id));
-    // удаляем из БД предметы которых больше нет в инвентаре
-    const deleted=await Inventory.destroy({where:{account:name,name:{[Op.notIn]:presentIds.length?presentIds:['__none__']}}});
+    // удаляем из БД предметы которых больше нет в инвентаре. Кроме ускорителей, которые сейчас
+    // активны: последний экземпляр уходит со склада при активации, а строка нужна вкладке
+    // «Ускорители» и циклу очереди, чтобы видеть активный тип. Запас у неё обнуляем, удалится
+    // она на первой синхронизации после окончания.
+    const gone={account:name,name:{[Op.notIn]:presentIds.length?presentIds:['__none__']}};
+    const now=new Date();
+    const stillActive={type:'booster',booster_active_until:{[Op.gt]:now}};
+    // не через Op.not: NULL в type/booster_active_until дал бы NULL вместо «удалить»
+    const notActive={[Op.or]:[{type:null},{type:{[Op.ne]:'booster'}},{booster_active_until:null},{booster_active_until:{[Op.lte]:now}}]};
+    const deleted=await Inventory.destroy({where:{...gone,...notActive}});
     if(deleted)logger.info(`[${name}] [inventory] удалено ${deleted} устаревших записей`);
+    await Inventory.update({marketable:0,locked:0},{where:{...gone,...stillActive}});
     for(const item of items){
       const qty=item.quantity||0,soul=item.soulbound||0,free=Math.max(0,qty-soul);
       const n=String(item.id);
