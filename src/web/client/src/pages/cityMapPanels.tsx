@@ -758,16 +758,19 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
       </Box>
       {items.length === 0 ? <Empty>Нет зданий, подходящих под реновацию</Empty> : (
         <>
-          {items.map(it => {
-            const can = it.marked || (it.cost ?? 0) <= left;
-            // клик по карточке отмечает здание, отмеченное залито фиолетовым, как кубики мастерпланов
+          {/* в списке только отмеченное на карте; мастерпланов не хватает — ярлык красный с того здания, где кончились */}
+          {(() => { let rest = masterplans; return items.filter(it => it.marked).map(it => {
+            const short = (rest -= it.cost ?? 0) < 0;
             return (
-              <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" dim={!can} />} title={it.nextName}
-                sub={`${it.name} · ${it.x},${it.y}`} fill={it.marked ? fillOf([[FILL_RENOVATE, 100]]) : undefined}
-                onClick={can && !disabled ? () => onToggle(it.x, it.y) : undefined} sx={can ? undefined : { opacity: 0.6 }}
-                trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={!can} />} />
+              <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" />} title={it.nextName}
+                fill={fillOf([[FILL_RENOVATE, 100]])} sx={SWAP}
+                trail={<>
+                  <ItemCard className="sw-v" tag="masterplan" count={it.cost ?? '?'} short={short} />
+                  <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onToggle(it.x, it.y)} /></Box>
+                </>} />
             );
-          })}
+          }); })()}
+          <Dashed>Кликните по зданиям на карте</Dashed>
         </>
       )}
       {incomeGain > 0 && <SumLine left="доход после реновации" right={<Text sx={{ color: 'success.fg' }}>+{fmt(incomeGain)}/ч</Text>} />}
