@@ -763,11 +763,8 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
             const short = (rest -= it.cost ?? 0) < 0;
             return (
               <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" />} title={it.nextName}
-                fill={fillOf([[FILL_RENOVATE, 100]])} sx={SWAP}
-                trail={<>
-                  <ItemCard className="sw-v" tag="masterplan" count={it.cost ?? '?'} short={short} />
-                  <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onToggle(it.x, it.y)} /></Box>
-                </>} />
+                fill={fillOf([[FILL_RENOVATE, 100]])}
+                trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={short} />} />
             );
           }); })()}
           <Dashed>Кликните по зданиям на карте</Dashed>
