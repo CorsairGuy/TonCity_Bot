@@ -193,13 +193,34 @@ module.exports=function(app,ctx){
         BoosterAutomation.findAll({where:{account:req.params.account}}),
       ]);
       const now=Date.now();
-      const isStillActive=r=>r.booster_active_until&&new Date(r.booster_active_until).getTime()>now;
+      // активные инстансы по типам: из последнего живого ответа игры (utils/activeBoosters) — там
+      // есть и тип, которого уже нет на складе (последний экземпляр ушёл при активации). Пока
+      // ответа в памяти нет (сразу после перезапуска) — из Inventory, как раньше.
+      const mem=require('../../utils/activeBoosters').get(req.params.account);
+      const endsOf=new Map();
+      if(mem){
+        for(const[id,arr]of mem.ends){const alive=arr.filter(t=>t>now);if(alive.length)endsOf.set(id,alive);}
+      }else{
+        for(const r of rows){
+          const until=r.booster_active_until?new Date(r.booster_active_until).getTime():0;
+          if(until>now)endsOf.set(r.name,Array(Math.max(1,r.booster_currently_active??0)).fill(until));
+        }
+      }
       let activeTypeName=null;
-      for(const r of rows)if(isStillActive(r)){activeTypeName=r.name;break;}
+      for(const[id]of endsOf){activeTypeName=id;break;}
+      const limitOf=new Map(rows.map(r=>[r.name,r.booster_active_limit??0]));
+      // активные — отдельным списком: склад показывает только то, что на складе есть
+      const active=[...endsOf].map(([id,arr])=>({
+        name:id,
+        label:items[id]?.name||id,
+        active_limit:limitOf.get(id)??0,
+        currently_active:arr.length,
+        ends_at:Math.max(...arr),
+      }));
       const autoMap=new Map(settings.map(s=>[s.booster_name,!!s.enabled]));
       const posMap=new Map(settings.map(s=>[s.booster_name,s.queue_pos]));
       const boosters=rows.map(r=>{
-        const stillActive=isStillActive(r);
+        const alive=endsOf.get(r.name)||[];
         return{
           name:r.name,
           label:items[r.name]?.name||r.name,
@@ -208,8 +229,8 @@ module.exports=function(app,ctx){
           // «В наличии: 0», не давая поставить его в очередь, хотя активировать его можно.
           available:(r.marketable??0)+(r.locked??0),
           active_limit:r.booster_active_limit??0,
-          currently_active:stillActive?(r.booster_currently_active??0):0,
-          ends_at:stillActive?new Date(r.booster_active_until).getTime():null,
+          currently_active:alive.length,
+          ends_at:alive.length?Math.max(...alive):null,
           blocked_by_other:activeTypeName!=null&&activeTypeName!==r.name,
           auto:autoMap.get(r.name)??false,
           queue_pos:posMap.get(r.name)??null,
@@ -219,7 +240,7 @@ module.exports=function(app,ctx){
       const{BoosterQueue}=require('../../db/index');
       const qrows=await BoosterQueue.findAll({where:{account:req.params.account},order:[['pos','ASC'],['id','ASC']]});
       const queue=qrows.map(q=>({id:q.id,name:q.booster_name,label:items[q.booster_name]?.name||q.booster_name}));
-      res.json({ok:true,boosters,queue});
+      res.json({ok:true,boosters,active,queue});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
@@ -235,15 +256,14 @@ module.exports=function(app,ctx){
       await opRegistry.run(`boostersCheck:${req.params.account}`,async()=>{
         const acc=await findAccountByName(req.params.account);
         const api=await makeApiForAccount(acc.id,{noLock:true});
-        const{getEndsByType,ensureActiveRows}=require('../../modules/boosterAutomation');
+        const{getEndsByType}=require('../../modules/boosterAutomation');
         const{Inventory}=require('../../db/index');
         const before=new Set((await Inventory.findAll({where:{account:acc.name,type:'booster'},attributes:['name']})).map(r=>r.name));
         await require('../../modules/inventory').runInventory(api,acc.name,{rethrow:true});
         const[endsByType,rows]=await Promise.all([
-          getEndsByType(api),
+          getEndsByType(api,acc.name),
           Inventory.findAll({where:{account:acc.name,type:'booster'}}),
         ]);
-        await ensureActiveRows(acc.name,endsByType,rows);
         added=rows.filter(r=>!before.has(r.name)).length;
         for(const row of rows){
           const ends=endsByType.get(row.name)||[];
@@ -322,6 +342,9 @@ module.exports=function(app,ctx){
           });
         }
       }catch(_){}
+      // активные — живым ответом игры (ручная активация редкая): вкладка увидит этот тип, даже
+      // если это был последний экземпляр и строка склада уйдёт на ближайшей синхронизации
+      await require('../../modules/boosterAutomation').getEndsByType(api,acc.name).catch(()=>{});
       await logAction(acc.name,'booster_activate',{building_id:req.params.name});
       require('../../utils/cityWake').wake(acc.name);
       res.json({ok:true});

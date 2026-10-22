@@ -10,7 +10,7 @@ import {
   GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon, UndoIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
-import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActionLogRow, ForecastEvent } from '../api';
+import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActiveBooster, CityActionLogRow, ForecastEvent } from '../api';
 import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
 import { Scrollable } from '../components/Scrollable';
@@ -739,13 +739,12 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
 }
 
 // ── Ускорители: активный жёлтой карточкой, очередь и склад карточками ───────
-export function BoostersPanel({ boosters, loading, queue, activating, onAdd, onReorder, onRemoveAt, onActivate }: {
-  boosters: CityBoosterRow[]; loading: boolean; queue: { name: string; label: string }[]; activating: Set<string>;
+export function BoostersPanel({ boosters, active, loading, queue, activating, onAdd, onReorder, onRemoveAt, onActivate }: {
+  boosters: CityBoosterRow[]; active: CityActiveBooster[]; loading: boolean; queue: { name: string; label: string }[]; activating: Set<string>;
   onAdd: (name: string) => void; onReorder: (from: number, to: number) => void; onRemoveAt: (i: number) => void; onActivate: (name: string) => void;
 }) {
   const [drag, setDrag] = useState<number | null>(null);
   if (loading && boosters.length === 0) return <Spinner size="small" />;
-  const active = boosters.filter(b => b.currently_active > 0);
   const queued = (name: string) => queue.filter(q => q.name === name).length;
   const img = (name: string) => catalogItemImg(Number(name));
   const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
@@ -753,8 +752,8 @@ export function BoostersPanel({ boosters, loading, queue, activating, onAdd, onR
     <>
       {active.map(b => (
         <Row key={b.name} lead={<ImgThumb src={img(b.name)} />} title={b.label} bg="attention.subtle"
-          sub={<>{b.ends_at != null ? `активен · ещё ${fmtTimeLeft(b.ends_at - Date.now())}` : 'активен'}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</>}
-          trail={b.ends_at != null ? <Text sx={{ fontFamily: 'mono', fontWeight: 'semibold', fontSize: 1, color: 'attention.fg', flexShrink: 0 }}>{hhmm(b.ends_at)}</Text> : undefined} />
+          sub={<>{`активен · ещё ${fmtTimeLeft(b.ends_at - Date.now())}`}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</>}
+          trail={<Text sx={{ fontFamily: 'mono', fontWeight: 'semibold', fontSize: 1, color: 'attention.fg', flexShrink: 0 }}>{hhmm(b.ends_at)}</Text>} />
       ))}
       <Caption right={queue.length ? `${queue.length}` : undefined}>Очередь</Caption>
       {queue.length === 0 ? <Dashed>Пусто. Бот включает ускорители отсюда по порядку, как только освобождается слот.</Dashed> : queue.map((q, i) => (

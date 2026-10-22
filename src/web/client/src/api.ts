@@ -268,7 +268,7 @@ export const api = {
     req<{ ok: boolean; criteria: unknown; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/build-criteria`),
   // ускорители — читаются только из БД, единственный живой запрос всего раздела — сама активация
   cityBoosters: (account: string) =>
-    req<{ ok: boolean; boosters: CityBoosterRow[]; queue?: { name: string; label: string }[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters`),
+    req<{ ok: boolean; boosters: CityBoosterRow[]; active?: CityActiveBooster[]; queue?: { name: string; label: string }[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters`),
   // очередь активации: шлём ВЕСЬ порядок разом (что не в массиве — выбывает из очереди)
   saveBoosterQueue: (account: string, order: string[]) =>
     req<{ ok: boolean; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters/queue`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order }) }),
@@ -1233,6 +1233,14 @@ export interface CityBoosterRow {
   ends_at: number | null; // мс — когда закончится ПОСЛЕДНИЙ активный инстанс этого типа
   blocked_by_other: boolean; // активен другой тип — этот нельзя активировать, пока тот не кончится
   auto: boolean; // включена ли автоактивация
+}
+// активный ускоритель (вкладка "Ускорители") — по ответу игры, даже если на складе его уже нет
+export interface CityActiveBooster {
+  name: string;
+  label: string;
+  active_limit: number;
+  currently_active: number;
+  ends_at: number; // мс — когда закончится последний активный инстанс
 }
 // запись лога действий по городу (вкладка "Лог")
 export interface CityActionLogRow {
