@@ -12,7 +12,7 @@ import { useMapDayNight } from '../hooks/useMapDayNight';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
-import { MapPalette, MapBrushLevel, PanelShell, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
 
 // Здания столицы (config/capital_buildings.txt) — принципиально другая форма, чем городской
 // BuildingDef (api.ts): нет category/star_lvl/is_reconstructible и т.п., зато есть type
@@ -567,7 +567,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
                     </span>
                   ))}
                 </div>
-                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {paletteFiltered.map(b => {
                     const k = familyCounts.get(b.id) ?? 0;
                     const limitReached = b.limit != null && k >= b.limit;
@@ -576,14 +576,8 @@ export function CityMapCapital({ account: guildTitle }: Props) {
                     const unaffordable = !limitReached && !hallUnmet && price > (row?.coins ?? 0);
                     const unavailable = limitReached || hallUnmet || unaffordable;
                     return (
-                      <div key={b.id}
-                        className={'map-bitem' + (buildFamily === b.id ? ' active' : '') + (unavailable ? ' disabled' : '')}
-                        onClick={() => { if (!unavailable) setBuildFamily(b.id); }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildingName(b)}</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: unavailable ? 'var(--fg-muted)' : 'var(--fg)', flexShrink: 0 }}>
-                          {limitReached ? 'Построено' : hallUnmet ? `Нужен холл ${b.hall_lvl_required}` : <CoinValue value={fmt(price)} />}
-                        </span>
-                      </div>
+                      <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
+                        sub={limitReached ? 'Построено' : hallUnmet ? `Нужен холл ${b.hall_lvl_required}` : <CoinValue value={fmt(price)} />} />
                     );
                   })}
                 </Box>

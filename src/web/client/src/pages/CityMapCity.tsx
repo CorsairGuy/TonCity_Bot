@@ -12,7 +12,7 @@ import { DayNightMenu } from '../components/DayNightMenu';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, MapBrushLevel, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
 import { useAsk } from '../hooks/useAsk';
 import { useNarrow } from '../hooks/useNarrow';
 import { LoadError } from '../components/LoadError';
@@ -1068,7 +1068,7 @@ export function CityMapCity() {
                     </span>
                   ))}
                 </div>
-                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {paletteFiltered.map(b => {
                     const k = familyCounts.get(familyId(b.id)) ?? 0;
                     const limitReached = b.limit != null && k >= b.limit;
@@ -1077,14 +1077,8 @@ export function CityMapCity() {
                     const unaffordable = !limitReached && !criteriaUnmet && price > balance;
                     const unavailable = limitReached || criteriaUnmet || unaffordable;
                     return (
-                      <div key={b.id}
-                        className={'map-bitem' + (buildFamily === b.id ? ' active' : '') + (unavailable ? ' disabled' : '')}
-                        onClick={() => { if (!unavailable) setBuildFamily(b.id); }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildingName(b)}</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: unavailable ? 'var(--fg-muted)' : 'var(--fg)', flexShrink: 0 }}>
-                          {limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : <CoinValue value={fmt(price)} />}
-                        </span>
-                      </div>
+                      <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
+                        sub={limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : <CoinValue value={fmt(price)} />} />
                     );
                   })}
                 </Box>

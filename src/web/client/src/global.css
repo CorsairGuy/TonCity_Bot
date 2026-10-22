@@ -41,6 +41,7 @@ button { font-family: inherit; }
   --border: #d1d9e0;
   --fg: #1f2328;
   --fg-muted: #59636e;
+  --fg-sub: #424a53;    /* вторая строка карточек сайдбара карты: между --fg и --fg-muted */
   --fg-subtle: #818b98;
   --accent: #6a3bab;
   --accent-light: #8654cc;
@@ -463,6 +464,7 @@ html[data-theme="dark"] {
   --border: #30363d;
   --fg: #e6edf3;
   --fg-muted: #8b949e;
+  --fg-sub: #b1bac4;
   --fg-subtle: #6e7681;
   --accent: #a371f7;
   --accent-light: #b98bff;
