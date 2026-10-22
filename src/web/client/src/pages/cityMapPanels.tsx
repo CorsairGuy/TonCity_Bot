@@ -369,6 +369,7 @@ const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
 const FILL_DONE = 'rgba(74,194,107,.4)';
 const FILL_WIP = 'rgba(84,174,255,.4)';
 const FILL_OFF = 'rgba(248,81,73,.4)'; // клетка помечена к удалению
+const DONE_FG = '#7ee787'; // «готово» и галочка поверх зелёной заливки — светлее success.fg
 function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
@@ -457,7 +458,7 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                     {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
                     <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                       <Text sx={{ fontWeight: 'semibold', lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
-                      <Text sx={{ ...muted, ...num, lineHeight: '16px', whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: 'success.fg' }}>готово</Text>}</Text>
+                      <Text sx={{ fontSize: 0, color: 'fg.default', ...num, lineHeight: '16px', whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: DONE_FG }}>готово</Text>}</Text>
                     </Box>
                     <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
                   </Box>
@@ -479,9 +480,9 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                               border: 0, borderRadius: '10px', bg: 'canvas.subtle', backgroundImage: fillOf(off ? [[FILL_OFF, cb]] : [[FILL_DONE, ca], [FILL_WIP, cb - ca]]),
                               opacity: off ? 0.35 : 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px', color: 'fg.default', ...num,
                             }}>
-                            <Text sx={{ opacity: 0.8, whiteSpace: 'nowrap' }}>{levels}</Text>
+                            <Text sx={{ whiteSpace: 'nowrap' }}>{levels}</Text>
                             {c.cost > 0 ? <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>
-                              : c.done >= c.span && <Octicon icon={CheckIcon} sx={{ color: 'success.fg', flexShrink: 0 }} />}
+                              : c.done >= c.span && <Octicon icon={CheckIcon} sx={{ color: DONE_FG, flexShrink: 0 }} />}
                             {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
                           </Box>
                         );
