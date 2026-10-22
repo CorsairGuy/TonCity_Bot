@@ -387,7 +387,6 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-  const [hot, setHot] = useState<string | null>(null); // клетка под курсором: вместо полосы — уровни и цена
   useEffect(() => () => onHover(null), [onHover]); // ушли со вкладки — карта снова целиком
   const groups = useMemo(() => {
     const now = Date.now();
@@ -467,23 +466,22 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
                       {g.cells.map(c => {
                         const off = removed.has(c.key);
-                        const levels = c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`;
+                        const levels = c.done >= c.span ? `ур. ${c.level}` : `${c.level} → ${c.target}`;
                         const k = c.key.replace(',', '_');
                         const ca = pctOf(c.done, c.span), cb = pctOf(c.done + c.wip, c.span);
-                        // плашка-прогресс без подписи; под курсором — «уровень → цель» и цена; клик помечает клетку
+                        // плашка-прогресс с подписью «уровень → цель» и ценой; клик помечает клетку
                         // к удалению (плашка бледнеет, заливка красная, перечёркнута), повторный — возвращает
                         return (
                           <Box key={c.key} as="button" type="button" aria-label={`${c.key} · ${levels}`} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)}
-                            onMouseEnter={() => { setHot(c.key); onHover([k]); }} onMouseLeave={() => { setHot(h => h === c.key ? null : h); onHover(null); }}
+                            onMouseEnter={() => onHover([k])} onMouseLeave={() => onHover(null)}
                             sx={{
                               position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, height: 24, px: 2,
                               border: 0, borderRadius: '10px', bg: 'canvas.subtle', backgroundImage: fillOf(off ? [[FILL_OFF, cb]] : [[FILL_DONE, ca], [FILL_WIP, cb - ca]]),
                               opacity: off ? 0.35 : 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px', color: 'fg.default', ...num,
                             }}>
-                            {hot === c.key && <>
-                              <Text sx={{ opacity: 0.8, whiteSpace: 'nowrap' }}>{levels}</Text>
-                              {c.cost > 0 && <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>}
-                            </>}
+                            <Text sx={{ opacity: 0.8, whiteSpace: 'nowrap' }}>{levels}</Text>
+                            {c.cost > 0 ? <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>
+                              : c.done >= c.span && <Octicon icon={CheckIcon} sx={{ color: 'success.fg', flexShrink: 0 }} />}
                             {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
                           </Box>
                         );
