@@ -19,9 +19,9 @@ RUN npm ci
 COPY . .
 COPY --from=web /app/src/web/dist ./src/web/dist
 
-# Справочники из config/ (здания, координаты, фазы, слова вордли) — копия в образе. config/ на сервере
-# подключается с хоста (там же settings.json и кэши), поэтому при старте недостающие файлы
-# докладываются из копии; существующие не трогаются (их могли править из панели).
+# Справочники из config/ (здания, координаты, секции, предметы, слова вордли) — копия в образе. config/ на
+# сервере подключается с хоста (там же settings.json и кэши), поэтому при каждом старте scripts/docker-start.sh
+# раскладывает копию в config/: справочники обновляются, словарь вордли объединяется с серверным.
 RUN mkdir -p logs config && cp -r config /app/config-defaults
 
 # Коммит, из которого собран образ (передаёт GitHub Actions). По нему панель показывает версию
@@ -31,6 +31,5 @@ ARG APP_COMMIT=
 ARG APP_REF=
 ENV APP_COMMIT=$APP_COMMIT APP_REF=$APP_REF
 
-# exec — чтобы SIGTERM от Docker/Watchtower доходил до node (штатное закрытие WS и БД).
-# На 32-битном ARM куча 3 ГБ не помещается в адресное пространство процесса — там 1,5 ГБ.
-CMD ["sh", "-c", "for f in /app/config-defaults/*; do [ -e \"/app/config/${f##*/}\" ] || cp -r \"$f\" /app/config/; done; case \"$(uname -m)\" in arm*) H=1536;; *) H=3072;; esac; exec node --max-old-space-size=$H src/index.js"]
+# Раскладка справочников и запуск node (exec, чтобы SIGTERM от Docker доходил до node) — в скрипте.
+CMD ["sh", "/app/scripts/docker-start.sh"]

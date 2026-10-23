@@ -6,6 +6,7 @@ const {getConfig}=require('../config');
 const logger=require('../utils/logger');
 const {sleep,sleepUntilUtcMidnight}=require('../utils/helpers');
 const {WordleLog}=require('../db/index');
+const solver=require('./wordleSolver');
 
 // --- словарь ---
 const WORDS_PATH=path.join(process.cwd(),'config','wordle-words.txt');
@@ -55,122 +56,28 @@ async function _sendWordleResult(word){
 
 // --- shared state ---
 const sharedState={
-  date:null,word:null,correct:{},present:[],absent:new Set(),usedWords:[],
+  date:null,word:null,usedWords:[],history:[],stuck:false,
 };
 const rejectedWords=_loadRejected();
 
-// --- алгоритм (по мотивам Python-версии) ---
-
-// Вычисляет частоты букв по словарю. probs — карта буква→вес (override/boost).
-function _buildFreq(wordList, probs={}){
-  const freq={};
-  for(const w of wordList)for(const c of w)freq[c]=(freq[c]||0)+1;
-  // применяем overrides
-  for(const[k,v]of Object.entries(probs)){freq[k]=v===0?0:(freq[k]||0)*10;}
-  // нормализуем
-  const total=Object.values(freq).reduce((a,b)=>a+b,0)||1;
-  for(const k of Object.keys(freq))freq[k]=freq[k]/total;
-  return freq;
-}
-
-// Возвращает отсортированные буквы по убыванию частоты
-function _topLetters(freq){
-  return Object.keys(freq).sort((a,b)=>freq[b]-freq[a]);
-}
-
-// rebalance: находит слова, чей набор уникальных букв входит в topK наиболее частых
-// numPasses расширяет topK на случай если ничего не найдено
-function _rebalance(wordList, freq, numPasses=0){
-  const sorted=_topLetters(freq);
-  const topK=new Set(sorted.slice(0,15+numPasses));
-  for(let extra=0;extra<sorted.length;extra++){
-    topK.add(sorted[extra]);
-    const result=wordList.filter(w=>{
-      const letters=new Set(w);
-      for(const c of letters)if(!topK.has(c))return false;
-      return true;
-    });
-    if(result.length>0)return result;
-    if(extra>=numPasses)break;
-  }
-  return wordList; // крайний fallback — весь словарь
-}
-
-// Фильтрует список слов по текущим ограничениям (зелёные/жёлтые/серые)
-function _filterByConstraints(wordList){
-  const{correct,present,absent}=sharedState;
-  return wordList.filter(w=>{
-    const letters=[...w];
-    for(const[pos,letter]of Object.entries(correct)){
-      if(letters[Number(pos)-1]!==letter)return false;
-    }
-    for(const{letter,pos}of present){
-      if(!letters.includes(letter))return false;
-      if(letters[pos-1]===letter)return false;
-    }
-    for(const letter of absent){
-      if(letters.includes(letter))return false;
-    }
-    return true;
-  });
-}
-
-// Скоринг слова — сумма частот уникальных букв + бонус за разнообразие
-function _score(word, freq){
-  const seen=new Set();
-  let s=0;
-  for(const c of word){
-    if(!seen.has(c)){s+=(freq[c]||0);seen.add(c);}
-  }
-  // бонус: слова с большим числом уникальных букв предпочтительнее
-  s+=seen.size*0.001;
-  return s;
-}
-
-// Выбирает лучшее слово-кандидат
-function _pickGuess(probs={}){
-  const avail=w=>!sharedState.usedWords.includes(w)&&!rejectedWords.has(w);
-
-  // если слово уже найдено — вернём его
+// Выбирает догадку энтропийным подбором (modules/wordleSolver.js). Если ни одно слово словаря не сходится
+// с ответами игры (загадано слово не из словаря), бот больше не гадает: попытки остаются для ручной подачи.
+async function _pickGuess(){
   if(sharedState.word)return sharedState.word;
-
-  const freq=_buildFreq(WORDS,probs);
-  let candidates=_filterByConstraints(WORDS.filter(avail));
-
-  if(!candidates.length){
-    // расширяем поиск через numPasses
-    for(let passes=1;passes<=10;passes++){
-      const pool=_rebalance(WORDS.filter(avail),freq,passes);
-      candidates=_filterByConstraints(pool);
-      if(candidates.length)break;
-    }
-  }
-
-  if(!candidates.length){
-    // последний шанс — любое неиспользованное слово
-    candidates=WORDS.filter(avail);
-  }
-
-  if(!candidates.length)return null;
-
-  // берём топ-5 по score, затем случайный (как в Python)
-  const top=candidates.sort((a,b)=>_score(b,freq)-_score(a,freq)).slice(0,5);
-  return top[Math.floor(Math.random()*top.length)];
+  if(sharedState.stuck)return null;
+  try{
+    const r=await solver.bestGuess(WORDS,sharedState.history,new Set([...sharedState.usedWords,...rejectedWords]));
+    if(r){logger.info(`[wordle] подходящих слов: ${r.left}, догадка "${r.guess}"${r.pool?` (первое слово, случайное из: ${r.pool.join(', ')})`:''}`);return r.guess;}
+    logger.warn('[wordle] ни одно слово словаря не подходит под ответы игры — загадано слово не из словаря, попытки оставлены для ручной подачи');
+  }catch(e){logger.error(`[wordle] подбор слова: ${e.message}`);}
+  sharedState.stuck=true;
+  return null;
 }
 
 function _applyFeedback(feedback){
-  for(const f of feedback){
-    const{position,letter,status}=f;
-    if(status==='correct'){
-      sharedState.correct[position]=letter;
-    }else if(status==='present'){
-      sharedState.present.push({letter,pos:position});
-    }else if(status==='absent'){
-      const inCurrentFeedback=feedback.some(x=>x.letter===letter&&x.status!=='absent');
-      const alreadyKnown=Object.values(sharedState.correct).includes(letter)||sharedState.present.some(p=>p.letter===letter);
-      if(!inCurrentFeedback&&!alreadyKnown)sharedState.absent.add(letter);
-    }
-  }
+  const word=Array.isArray(feedback)?feedback.slice().sort((a,b)=>a.position-b.position).map(f=>f.letter).join(''):'';
+  const pattern=solver.patternOfFeedback(feedback);
+  if(word.length===5&&pattern!=null&&!sharedState.history.some(h=>h.word===word))sharedState.history.push({word,pattern});
 }
 
 // --- игровая логика ---
@@ -178,17 +85,14 @@ function _applyFeedback(feedback){
 // Бот использует не больше 5 попыток на аккаунт — 6-я оставлена для ручного ввода слова через UI.
 const MAX_BOT_ATTEMPTS=5;
 
-const PROBES=['волна','берег','стиль','домик','голос','вилка','лампа','тесак','рынок','сазан'];
-
 function _resetIfNewDay(){
   const today=new Date().toISOString().slice(0,10);
   if(sharedState.date!==today){
     sharedState.date=today;
     sharedState.word=null;
-    sharedState.correct={};
-    sharedState.present=[];
-    sharedState.absent=new Set();
     sharedState.usedWords=[];
+    sharedState.history=[];
+    sharedState.stuck=false;
     // перезагрузим словарь в начале нового дня
     WORDS=_loadWords();
   }
@@ -207,15 +111,6 @@ async function _guessOnce(api,name,word){
   }
 }
 
-// Строит probs из текущего состояния: буст жёлтых/зелёных букв, обнуление серых
-function _currentProbs(){
-  const probs={};
-  for(const letter of sharedState.absent)probs[letter]=0;
-  for(const letter of Object.values(sharedState.correct))probs[letter]=10;
-  for(const{letter}of sharedState.present)probs[letter]=10;
-  return probs;
-}
-
 async function _solveForAccount(api,name,maxAttempts){
   let statsResp;
   try{statsResp=await api.get('/wordle/stats');}catch(e){logger.warn(`[${name}] [wordle] stats error: ${e.message}`);return false;}
@@ -232,14 +127,8 @@ async function _solveForAccount(api,name,maxAttempts){
   }
 
   for(let tries=0;tries<20;tries++){
-    // первые ходы — из probe-слов
-    let guess=null;
-    if(!sharedState.usedWords.length){
-      const unusedProbes=PROBES.filter(w=>!sharedState.usedWords.includes(w)&&!rejectedWords.has(w));
-      if(unusedProbes.length)guess=unusedProbes[Math.floor(Math.random()*unusedProbes.length)];
-    }
-    if(!guess)guess=_pickGuess(_currentProbs());
-    if(!guess){logger.warn(`[${name}] [wordle] нет доступных слов`);return false;}
+    const guess=await _pickGuess();
+    if(!guess)return false;
 
     await sleep(3000);
     const res=await _guessOnce(api,name,guess);
@@ -318,7 +207,7 @@ async function runWordleOnce(clients){
       }catch(e){logger.error(`[wordle] [${name}] ${e.message}`);}
       await sleep(500);
     }
-    if(!anyActive){logger.info('[wordle] все попытки исчерпаны');break;}
+    if(!anyActive){logger.info(sharedState.stuck?'[wordle] подбор остановлен: слова нет в словаре':'[wordle] все попытки исчерпаны');break;}
   }
 
   if(sharedState.word){
