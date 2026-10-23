@@ -8,7 +8,7 @@
 // частота берётся по времени кадров за последнюю секунду: кадров в окне, делённое на время от кадра
 // перед окном до последнего. Так число не скачет на ±1 от того, попал ли крайний кадр в окно, а
 // зависание главного потока честно его роняет. Число на экране меняется на кадрах карты, но не чаще
-// 60 раз в секунду. Неподвижная карта не стоит пустой: через секунду без кадров она перерисовывается
+// 60 раз в секунду. Неподвижная карта не стоит пустой: через 1,25 с без кадров она перерисовывается
 // сама (heartbeat), и счётчик показывает 1.
 
 const COLOR = '#76b900';
@@ -50,6 +50,7 @@ function draw(canvas: HTMLCanvasElement, value: number) {
 }
 
 const SECOND_MS = 1000;
+const HEARTBEAT_MS = 1250;  // кадр неподвижной карте, если столько не было своих
 const DRAW_MS = 15;   // не чаще 60 обновлений числа в секунду (кадр 60 Гц — 16,7 мс, с запасом на дрожание)
 
 export interface FpsCounter {
@@ -57,7 +58,7 @@ export interface FpsCounter {
   stop(): void;
 }
 
-// запускает счётчик на переданном canvas; heartbeat — перерисовать карту (зовётся, если карта секунду
+// запускает счётчик на переданном canvas; heartbeat — перерисовать карту (зовётся, если карта 1,25 с
 // не перерисовывалась); onSample получает значение на каждом кадре карты
 export function startFpsCounter(canvas: HTMLCanvasElement, heartbeat: () => void, onSample?: (fps: number) => void): FpsCounter {
   canvas.style.position = 'absolute';
@@ -67,10 +68,11 @@ export function startFpsCounter(canvas: HTMLCanvasElement, heartbeat: () => void
   const times: number[] = [];   // метки кадров карты за последнюю секунду и одного кадра перед ней
   let shown = -1, drawnAt = -Infinity, idle: ReturnType<typeof setTimeout> | null = null;
   draw(canvas, 0);
-  // кадр по таймеру приходит чуть позже секунды (плюс ожидание requestAnimationFrame): один кадр за
-  // ~1,02 с — стоящая карта показывает 1. Таймер взводится заново и сам: перерисовка может выйти
-  // раньше кадра (карта ещё без размера или данных)
-  const arm = () => { if (idle) clearTimeout(idle); idle = setTimeout(() => { arm(); heartbeat(); }, SECOND_MS); };
+  // пауза heartbeat чуть длиннее секунды: у карты со стройкой свой тик раз в секунду (отсчёт
+  // таймеров, liveTimer в CityActionsCanvas), и heartbeat, вставший перед ним, давал бы второй кадр в
+  // секунду — счётчик прыгал 1↔2. Один кадр за 1,25 с — это 0,8, на экране 1. Таймер взводится заново
+  // и сам: перерисовка может выйти раньше кадра (карта ещё без размера или данных)
+  const arm = () => { if (idle) clearTimeout(idle); idle = setTimeout(() => { arm(); heartbeat(); }, HEARTBEAT_MS); };
   arm();
   // время в фоновой вкладке — не кадры: браузер не рисует, а таймеры там приторможены
   const onVis = () => { times.length = 0; arm(); };
