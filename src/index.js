@@ -305,7 +305,6 @@ function gracefulShutdown(sig){
   const hardTimer=setTimeout(()=>{logger.warn('[shutdown] таймаут — принудительный выход');process.exit(0);},4000);
   hardTimer.unref&&hardTimer.unref();
   try{require('./utils/wsSession').closeAll();}catch(_){}
-  try{require('./utils/game2048Recorder').flushAllSync();}catch(_){}
   Promise.resolve()
     .then(()=>require('./db/index').seq.close())
     .catch(()=>{})
