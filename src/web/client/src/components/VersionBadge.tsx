@@ -44,10 +44,11 @@ export function VersionBadge() {
     for (let p = el.parentElement; !sc && p; p = p.parentElement) if (/auto|scroll/.test(getComputedStyle(p).overflowY)) sc = p;
     if (!sc) return;
     const box = sc;
-    const sync = () => el.style.setProperty('--dock-fade', String(Math.max(0, Math.min(1, (box.scrollHeight - box.scrollTop - box.clientHeight) / 24))));
+    const sync = () => el.style.setProperty('--dock-fade', String(Math.max(0, Math.min(1, (box.scrollHeight - box.scrollTop - box.clientHeight - 2) / 24))));
     sync();
     box.addEventListener('scroll', sync, { passive: true });
-    const ro = new ResizeObserver(sync); ro.observe(box);
+    // пересчёт и при смене высоты содержимого (раскрыли группу меню), а не только при прокрутке
+    const ro = new ResizeObserver(sync); ro.observe(box); if (box.firstElementChild) ro.observe(box.firstElementChild);
     return () => { box.removeEventListener('scroll', sync); ro.disconnect(); };
   });
   // обновление идёт на сервере (в т.ч. начатое с другой страницы/вкладки или автообновлением)
