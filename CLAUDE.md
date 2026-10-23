@@ -47,6 +47,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 - `schema-dump.js` — снимок схемы БД (сравнить боевую базу с базой «с нуля»).
 - `probe-new-endpoints.js` — дамп сырых ответов новых систем игры (только GET, можно при работающем боте).
 - `download-sprites.js` — выкачка спрайтов карты.
+- `2048-replay.js` — разбор записанных партий 2048 (`logs/2048/`, `utils/game2048Recorder.js`, запись включается на странице 2048): сводка, `--agree`, `--ndjson`, `--sim N`. При правке алгоритма 2048 повышать `ALGO_VERSION` в `modules/game2048.js`.
 
 ## 2. Архитектура бэкенда
 

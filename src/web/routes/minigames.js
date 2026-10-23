@@ -174,6 +174,7 @@ module.exports=function(app,ctx){
   const {logResult}=require('../../modules/game2048');
   const perAccountRateLimit=require('../lib/perAccountRateLimit');
   const game2048Progress=require('../lib/game2048Progress');
+  const game2048Recorder=require('../../utils/game2048Recorder');
 
   // ВАЖНО: /live должен быть зарегистрирован РАНЬШE /:accountId — Express матчит роуты в порядке
   // регистрации, а не по специфичности. Раньше /live стоял НИЖЕ /:accountId, из-за чего запрос
@@ -191,6 +192,12 @@ module.exports=function(app,ctx){
       // транзитные сетевые сбои (ECONNABORTED и т.п.) у игры бывают регулярно — без ретрая они
       // всплывали прямо в браузер как голый 500 при открытии модалки
       const st=await withRetry(()=>perAccountRateLimit.forAccount(req.params.accountId).run(()=>api.get('/game2048/')),3,1500,`game2048 state ${req.params.accountId}`);
+      // запись партии (если включена) начинается с доски, которую человек видит при открытии модалки
+      if(game2048Recorder.enabled()&&!game2048Progress.get(Number(req.params.accountId))){
+        const{Account}=require('../../db/index');
+        const acc=await Account.findByPk(Number(req.params.accountId),{attributes:['name']}).catch(()=>null);
+        game2048Recorder.touch(Number(req.params.accountId),acc?.name||String(req.params.accountId),st);
+      }
       res.json({ok:true,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
@@ -203,6 +210,7 @@ module.exports=function(app,ctx){
       const acc=await Account.findByPk(Number(req.params.accountId),{attributes:['name']});
       const api=await makeApiForAccount(Number(req.params.accountId),{noLock:true});
       const st=await perAccountRateLimit.forAccount(req.params.accountId).run(()=>api.post('/game2048/',{direction}));
+      game2048Recorder.record(Number(req.params.accountId),acc?.name||String(req.params.accountId),direction,st);
       if(st?.game_status&&st.game_status!=='ongoing')await logResult(acc?.name||String(req.params.accountId),st);
       res.json({ok:true,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status,reward:st.reward});
     }catch(e){res.status(500).json({ok:false,error:e?.response?.data?.error||e.message});}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Box, Button, Flash, Heading, Text, Label, Spinner } from '@primer/react';
+import { Box, Button, Flash, Heading, Text, Label, Spinner, ToggleSwitch } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { PlayIcon, CheckIcon, ZapIcon, StopIcon } from '@primer/octicons-react';
 import { api, type Account, type Game2048Status, type Game2048Direction } from '../api';
@@ -38,6 +38,23 @@ export function Game2048() {
     return () => { listenersRef.current.get(id)?.delete(cb); };
   };
   const { flash, showFlash } = useFlash();
+  // запись партий в logs/2048/ для анализа алгоритма (utils/game2048Recorder.js), features.game2048Record
+  const [record, setRecord] = useState(false);
+  const [savingRecord, setSavingRecord] = useState(false);
+  useEffect(() => {
+    api.config().then(d => {
+      if (d.ok) setRecord(!!(d.settings.features as Record<string, boolean> | undefined)?.game2048Record);
+    }).catch(() => {});
+  }, []);
+  const toggleRecord = async (next: boolean) => {
+    setRecord(next);
+    setSavingRecord(true);
+    try {
+      const d = await api.saveConfig({ features: { game2048Record: next } });
+      if (!d.ok) { setRecord(!next); showFlash('Ошибка: ' + d.error, false); }
+    } catch (e) { setRecord(!next); showFlash(String(e), false); }
+    finally { setSavingRecord(false); }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -115,12 +132,20 @@ export function Game2048() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Heading as="h2" sx={{ fontSize: 3, mb: 1 }}>2048</Heading>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 2 }}>
+        <Heading as="h2" sx={{ fontSize: 3 }}>2048</Heading>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Text id="g2048-record-label" sx={{ fontSize: 1 }}>Запись партий</Text>
+          <ToggleSwitch size="small" aria-labelledby="g2048-record-label" statusLabelPosition="end"
+            checked={record} disabled={savingRecord} onClick={() => toggleRecord(!record)} />
+        </Box>
+      </Box>
       <Text sx={{ color: 'fg.muted', fontSize: 1, display: 'block', mb: 3 }}>
         Оплот Мудрости — ежедневная игра в 2048. Раз в день на аккаунт. «Играть» открывает живое поле —
         управление стрелками, свайпом или мышью. «Решить» запускает автоматическую игру в фоне —
         продолжает играть, даже если закрыть модалку, перейти на другую страницу или закрыть вкладку;
         «Смотреть» открывает то же поле, чтобы понаблюдать за уже идущей партией.
+        {record && <> Запись включена: каждая партия (ходы бота и ваши) сохраняется в папку logs/2048 одним файлом в конце игры.</>}
       </Text>
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
