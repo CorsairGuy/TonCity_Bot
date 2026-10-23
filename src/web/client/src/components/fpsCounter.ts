@@ -3,11 +3,13 @@
 // сегменты, но с глухими прямыми углами), без шрифта — так они одинаковые на любом устройстве и
 // попадают точно в пиксели экрана.
 //
-// Показывает реальное число перерисовок карты за последнюю секунду (requestAnimationFrame идёт и
-// тогда, когда карта не перерисовывается, поэтому считаются кадры самой карты — frame()). Окно
-// скользящее, и число перерисовывается на каждом кадре карты: 144 кадра — 144 обновления счётчика.
-// Неподвижная карта не стоит пустой: через секунду без кадров она перерисовывается сама (heartbeat),
-// и счётчик честно показывает 1. Зависание главного потока тоже видно: за такую секунду кадров меньше.
+// Считает реальные перерисовки карты (requestAnimationFrame идёт и тогда, когда карта не
+// перерисовывается, поэтому считаются кадры самой карты — frame()). Как у оверлеев NVIDIA/RTSS,
+// частота берётся по времени кадров за последнюю секунду: кадров в окне, делённое на время от кадра
+// перед окном до последнего. Так число не скачет на ±1 от того, попал ли крайний кадр в окно, а
+// зависание главного потока честно его роняет. Число на экране меняется на кадрах карты, но не чаще
+// 60 раз в секунду. Неподвижная карта не стоит пустой: через секунду без кадров она перерисовывается
+// сама (heartbeat), и счётчик показывает 1.
 
 const COLOR = '#76b900';
 const OUTLINE = 'rgba(0,0,0,0.85)';
@@ -48,6 +50,7 @@ function draw(canvas: HTMLCanvasElement, value: number) {
 }
 
 const SECOND_MS = 1000;
+const DRAW_MS = 15;   // не чаще 60 обновлений числа в секунду (кадр 60 Гц — 16,7 мс, с запасом на дрожание)
 
 export interface FpsCounter {
   frame(): void;    // карта перерисована
@@ -55,18 +58,18 @@ export interface FpsCounter {
 }
 
 // запускает счётчик на переданном canvas; heartbeat — перерисовать карту (зовётся, если карта секунду
-// не перерисовывалась); onSample получает значение на каждом кадре
+// не перерисовывалась); onSample получает значение на каждом кадре карты
 export function startFpsCounter(canvas: HTMLCanvasElement, heartbeat: () => void, onSample?: (fps: number) => void): FpsCounter {
   canvas.style.position = 'absolute';
   canvas.style.left = `${MARGIN}px`;
   canvas.style.top = `${MARGIN}px`;
   canvas.style.pointerEvents = 'none';
-  const times: number[] = [];   // метки кадров карты за последнюю секунду
-  let shown = -1, idle: ReturnType<typeof setTimeout> | null = null;
+  const times: number[] = [];   // метки кадров карты за последнюю секунду и одного кадра перед ней
+  let shown = -1, drawnAt = -Infinity, idle: ReturnType<typeof setTimeout> | null = null;
   draw(canvas, 0);
-  // кадр по таймеру приходит чуть позже секунды (плюс ожидание requestAnimationFrame), поэтому
-  // прошлый кадр уже выпал из окна и стоящая карта показывает ровно 1. Таймер взводится заново и
-  // сам: перерисовка может выйти раньше кадра (карта ещё без размера или данных)
+  // кадр по таймеру приходит чуть позже секунды (плюс ожидание requestAnimationFrame): один кадр за
+  // ~1,02 с — стоящая карта показывает 1. Таймер взводится заново и сам: перерисовка может выйти
+  // раньше кадра (карта ещё без размера или данных)
   const arm = () => { if (idle) clearTimeout(idle); idle = setTimeout(() => { arm(); heartbeat(); }, SECOND_MS); };
   arm();
   // время в фоновой вкладке — не кадры: браузер не рисует, а таймеры там приторможены
@@ -76,9 +79,11 @@ export function startFpsCounter(canvas: HTMLCanvasElement, heartbeat: () => void
     frame: () => {
       const now = performance.now();
       times.push(now);
-      while (times[0] <= now - SECOND_MS) times.shift();
-      if (times.length !== shown) { shown = times.length; draw(canvas, shown); }
-      onSample?.(shown);
+      while (times.length > 2 && times[1] <= now - SECOND_MS) times.shift();
+      const span = now - times[0];
+      const fps = times.length > 1 && span > 0 ? Math.round((times.length - 1) * 1000 / span) : 0;
+      if (fps !== shown && now - drawnAt >= DRAW_MS) { shown = fps; drawnAt = now; draw(canvas, fps); }
+      onSample?.(fps);
       arm();
     },
     stop: () => { if (idle) clearTimeout(idle); document.removeEventListener('visibilitychange', onVis); },
