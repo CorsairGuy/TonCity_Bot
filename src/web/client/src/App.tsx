@@ -335,7 +335,8 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         {item('satoshi', 'Башня Сатоши', PulseIcon)}
 
-        <div className="nav-separator" />
+        {/* разделитель как у блока версии внизу: тот же цвет border.muted */}
+        <Box sx={{ height: 1, m: 2, bg: 'border.muted' }} />
         {item('logs',     'Логи',       FileIcon)}
         {item('settings', 'Настройки',  GearIcon)}
         <VersionBadge />

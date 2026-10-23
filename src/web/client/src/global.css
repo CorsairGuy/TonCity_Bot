@@ -116,7 +116,6 @@ body {
 .nav-item.active i.mdi { color: var(--fg); }
 
 /* тонкая линия перед служебными пунктами меню (Логи/Настройки) — отделяет их от основной навигации */
-.nav-separator { height: 1px; background: rgb(208 181 255 / 20%); margin: 8px 8px 8px; }
 /* блок версии, прилипший к низу меню (есть обновление): подложка на всю ширину меню, чтобы пункты не
    просвечивали под карточкой при прокрутке (см. VersionBadge). Затухание пунктов идёт по пустой полосе
    над карточкой (место разделителя), а не над ней: так не добавляется лишнего пустого места */
@@ -138,7 +137,6 @@ html[data-theme="dark"] .version-changes { background: rgb(110 118 129 / 20%); }
 .version-glow::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid rgb(63 185 80); pointer-events: none;
   animation: version-beat-ring 2.4s ease-out infinite; }
 @media (prefers-reduced-motion: reduce) { .version-glow, .version-glow::after { animation: none; } .version-glow::after { opacity: 0; } }
-html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 
 .nav-group-head {
   display: flex; align-items: center; gap: 8px;

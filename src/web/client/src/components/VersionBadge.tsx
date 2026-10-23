@@ -141,7 +141,7 @@ export function VersionBadge() {
           ставится) — блок прилипает к низу меню и виден при любой прокрутке. */}
       <div ref={dockRef} className={pinnedToBottom ? 'version-dock' : undefined} style={pinnedToBottom ? undefined : { paddingTop: 8 }}>
       <Box sx={{ height: 1, mx: 2, bg: 'border.muted' }} />
-      <Box sx={{ pt: '13px', px: 2, pb: 1, fontSize: '12px', lineHeight: '16px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <Box sx={{ pt: '13px', px: 2, pb: pinnedToBottom ? 0 : 1, fontSize: '12px', lineHeight: '16px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <Box sx={{ display: 'flex', gap: 2, minWidth: 0 }}>
           <Box sx={{ width: 16, height: 18, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: st.color }}>
             <Box as="span" className={fresh ? 'version-glow' : undefined} sx={{ display: 'inline-flex', borderRadius: '50%' }}>{st.icon}</Box>
@@ -165,7 +165,10 @@ export function VersionBadge() {
         {prog && prog.stage != null && (
           <ProgressBar barSize="small" aria-label={prog.title} progress={prog.stage === 'run' ? 100 : prog.stage} animated={prog.stage === 'run'} />
         )}
-        {!updating && shown.length > 0 && (
+        {/* список и кнопки: между ними 8px, как и от кнопки до краёв меню (низ прилипшего блока — тоже 8px) */}
+        {!updating && (shown.length > 0 || (hasUpdate && canClick) || (pinned && !!v.newerReleases)) && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {shown.length > 0 && (
           // что придёт с обновлением: подложка на всю ширину меню (края как у пунктов меню и кнопки)
           <Box className="version-changes" sx={{ mx: '-8px', p: 2, borderRadius: 2, color: 'fg.default', display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {shown.map((c, i) => (
@@ -179,8 +182,10 @@ export function VersionBadge() {
           </Box>
         )}
         {/* кнопки высотой 32px, как пункты меню, и с теми же краями (8px от края меню) */}
-        {!updating && hasUpdate && canClick && <Button variant="primary" block leadingVisual={DownloadIcon} onClick={() => setConfirm(true)} sx={{ mx: '-8px', width: 'auto' }}>Обновить</Button>}
-        {!updating && pinned && !!v.newerReleases && <Button as={RouterLink} to="/settings#updates" block sx={{ mx: '-8px', width: 'auto' }}>Выбрать версию</Button>}
+        {hasUpdate && canClick && <Button variant="primary" block leadingVisual={DownloadIcon} onClick={() => setConfirm(true)} sx={{ mx: '-8px', width: 'auto' }}>Обновить</Button>}
+        {pinned && !!v.newerReleases && <Button as={RouterLink} to="/settings#updates" block sx={{ mx: '-8px', width: 'auto' }}>Выбрать версию</Button>}
+        </Box>
+        )}
         {(note || upd.msg || v.error || outdated) && (
           <Box sx={{ pl: '24px', display: 'flex', flexDirection: 'column', gap: 1 }}>
             {note && <Text sx={{ color: 'fg.subtle' }}>{note}</Text>}
