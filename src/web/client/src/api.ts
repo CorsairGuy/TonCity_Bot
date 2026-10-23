@@ -2206,6 +2206,8 @@ export interface VersionInfo {
   status: 'current' | 'behind' | 'pinned' | 'ahead' | 'diverged' | 'unknown_local' | 'unknown';
   behindBy: number | null;
   compareUrl: string | null;
+  // что придёт с обновлением, новые сверху: смерженные PR (или коммиты, если PR нет)
+  changes?: { title: string; pr: number | null; url: string }[] | null;
   // сборка Docker-образа головы канала в GitHub Actions
   build: { status: string; conclusion: string | null; url: string } | null;
   canUpdate?: boolean;
