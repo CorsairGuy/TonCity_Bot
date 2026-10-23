@@ -29,7 +29,7 @@ BOT="${BOT_CONTAINER:?нужен BOT_CONTAINER}"
 SERVICE="${BOT_SERVICE:-bot}"
 POLL="${POLL_SECONDS:-3}"
 HEARTBEAT="${HEARTBEAT_SECONDS:-20}"
-VERSION=7
+VERSION=8
 PORTAINER_URL="${PORTAINER_URL:-}"
 PORTAINER_TOKEN="${PORTAINER_TOKEN:-}"
 
@@ -233,7 +233,8 @@ process(){ # id tag
   case "$dir" in [A-Za-z]:[\\/]*|*\\*)
     wdir=$(printf '%s' "$dir" | tr '\\' / | sed 's|/*$||')
     edir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "'"$PROJECT_MNT"'"}}{{.Source}}{{end}}{{end}}' "$(hostname)" 2>/dev/null)
-    [ -n "$edir" ] || edir="/run/desktop/mnt/host/$(printf '%s' "${wdir%%:*}" | tr 'A-Z' 'a-z')${wdir#?:}"
+    # нужен путь в форме Linux; если движок отдал путь Windows (или ничего) — та же форма из буквы диска
+    case "$edir" in /*) ;; *) edir="/run/desktop/mnt/host/$(printf '%s' "${wdir%%:*}" | tr 'A-Z' 'a-z')${wdir#?:}";; esac
     nf=; old_ifs=$IFS; IFS=,
     for f in $files; do
       f=$(printf '%s' "$f" | tr '\\' /)
@@ -270,6 +271,42 @@ process(){ # id tag
   CUR_TAG="$tag"
   if [ -n "$before" ] && [ "$before" = "$after" ]; then status "$id" unchanged "$tag" "эта версия уже установлена"
   else status "$id" updated "$tag" "бот перезапущен"; docker image prune -f >/dev/null 2>&1; fi
+  self_update "$dir" "$@"
+}
+
+# Самообновление. «Обновить» в панели меняет только бота, а обновлятель так и оставался на образе,
+# с которым его когда-то запустили: исправления в нём (например, путей Docker Desktop) до сервера не
+# доезжали. После каждой удачной заявки качаем свежий образ :updater и, если он новее нашего,
+# пересоздаём себя. Сам себя компоуз пересоздать не может (остановит контейнер, в котором работает),
+# поэтому это делает одноразовый контейнер из нового образа с той же папкой проекта и сокетом.
+shq(){ printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+self_update(){ # dir compose-аргументы…
+  dir="$1"; shift
+  me=$(hostname)
+  ref=$(docker inspect -f '{{.Config.Image}}' "$me" 2>/dev/null) && [ -n "$ref" ] || return 0
+  cur=$(docker inspect -f '{{.Image}}' "$me" 2>/dev/null)
+  docker pull -q "$ref" >/dev/null 2>&1 || { log "самообновление: не удалось скачать $ref"; return 0; }
+  new=$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null)
+  [ -n "$new" ] && [ "$new" != "$cur" ] || return 0
+  svc=$(label "$me" com.docker.compose.service); svc="${svc:-updater}"
+  src=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "'"$PROJECT_MNT"'"}}{{.Source}}{{end}}{{end}}' "$me" 2>/dev/null)
+  [ -n "$src" ] || { log "самообновление: не найден том $PROJECT_MNT"; return 0; }
+  # скрипт для одноразового контейнера: та же папка проекта, симлинк по пути хоста, те же файлы compose
+  s="$Q/self-update.sh"
+  {
+    echo 'set -u; sleep 2'
+    echo "d=$(shq "$dir")"
+    echo '[ "$d" = /project ] || [ -e "$d" ] || { mkdir -p "$(dirname "$d")" && ln -s /project "$d"; }'
+    printf 'cd "$d" && exec docker compose'
+    for a in "$@"; do printf ' %s' "$(shq "$a")"; done
+    printf ' up -d --no-deps --pull never %s\n' "$(shq "$svc")"
+  } > "$s"
+  name="$(docker inspect -f '{{.Name}}' "$me" 2>/dev/null | sed 's|^/||')_self"
+  docker rm -f "$name" >/dev/null 2>&1
+  if out=$(docker run -d --rm --name "$name" -v /var/run/docker.sock:/var/run/docker.sock -v "$src:$PROJECT_MNT" \
+      --entrypoint sh "$ref" "$PROJECT_MNT/config/updater/self-update.sh" 2>&1); then
+    log "самообновление: вышел новый образ обновлятеля, перезапускаюсь"
+  else log "самообновление не запустилось: $(echo "$out" | tail -n 2 | tr '\n' ' ')"; fi
 }
 
 if [ -n "$PORTAINER_TOKEN" ]; then

@@ -61,6 +61,7 @@ export function VersionBadge() {
 
   if (!v) return null;
   const updating = upd.updating || serverBusy;
+  const outdated = !!(v.updater?.alive && v.updater.outdated);
   const short = (s?: string | null) => (s ? s.slice(0, 7) : '—');
   const ch = v.channel;
   const pinned = ch && (ch.kind === 'release' || ch.kind === 'commit');
@@ -156,10 +157,11 @@ export function VersionBadge() {
         )}
         {!updating && hasUpdate && canClick && <Button size="small" variant="primary" block leadingVisual={DownloadIcon} onClick={() => setConfirm(true)}>Обновить</Button>}
         {!updating && pinned && !!v.newerReleases && <Button as={RouterLink} to="/settings#updates" size="small" block>Выбрать версию</Button>}
-        {(note || upd.msg || v.error) && (
+        {(note || upd.msg || v.error || outdated) && (
           <Box sx={{ pl: '24px', display: 'flex', flexDirection: 'column', gap: 1 }}>
             {note && <Text sx={{ color: 'fg.subtle' }}>{note}</Text>}
             {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
+            {outdated && <Text sx={{ color: 'attention.fg' }}>Обновлятель устарел, обновите его один раз вручную (Настройки → Обновления)</Text>}
             {v.error && <Text sx={{ color: 'attention.fg' }}>Нет связи с GitHub: {v.error}</Text>}
           </Box>
         )}
