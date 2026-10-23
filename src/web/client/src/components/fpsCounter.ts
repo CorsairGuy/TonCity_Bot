@@ -4,14 +4,13 @@
 // попадают точно в пиксели экрана.
 //
 // Считает реальные перерисовки карты (requestAnimationFrame идёт и тогда, когда карта не
-// перерисовывается, поэтому считаются кадры самой карты — frame()). Как у оверлеев NVIDIA/RTSS,
-// частота берётся по времени кадров за последнюю секунду: кадров в окне, делённое на время от кадра
-// перед окном до последнего. Так число не скачет на ±1 от того, попал ли крайний кадр в окно, а
-// зависание главного потока честно его роняет. Число на экране меняется на кадрах карты, но не чаще
-// 60 раз в секунду. Когда карта трогается с места, окно начинается заново, и число сразу
-// показывает новую частоту, а не разгоняется секунду. Сам счётчик кадров не заказывает: неподвижная
-// карта перерисовывается раз в секунду своим тиком (liveTimer в CityActionsCanvas), и счётчик
-// показывает 1.
+// перерисовывается, поэтому считаются кадры самой карты — frame()). Как в RivaTuner Statistics Server:
+// частота усредняется за период и раз в период выводится, только период 250 мс (решение 23.10.2026),
+// число меняется 4 раза в секунду. Частота — кадров в окне, делённое на время от кадра перед окном до
+// последнего, поэтому число не скачет на ±1 от того, попал ли крайний кадр в окно, а зависание главного
+// потока честно его роняет. Когда карта трогается с места, окно начинается заново и число показывается
+// сразу, не дожидаясь конца периода. Сам счётчик кадров не заказывает: неподвижная карта
+// перерисовывается раз в секунду своим тиком (liveTimer в CityActionsCanvas), и счётчик показывает 1.
 
 const COLOR = '#76b900';
 const OUTLINE = 'rgba(0,0,0,0.85)';
@@ -51,8 +50,7 @@ function draw(canvas: HTMLCanvasElement, value: number) {
   for (const [x, y, rw, rh] of rects) ctx.fillRect(x, y, rw, rh);
 }
 
-const SECOND_MS = 1000;
-const DRAW_MS = 15;   // не чаще 60 обновлений числа в секунду (кадр 60 Гц — 16,7 мс, с запасом на дрожание)
+const WINDOW_MS = 250;   // окно усреднения и период обновления числа (RefreshPeriod у RTSS): 4 раза в секунду
 
 export interface FpsCounter {
   frame(): void;    // карта перерисована
@@ -65,7 +63,7 @@ export function startFpsCounter(canvas: HTMLCanvasElement, onSample?: (fps: numb
   canvas.style.left = `${MARGIN}px`;
   canvas.style.top = `${MARGIN}px`;
   canvas.style.pointerEvents = 'none';
-  const times: number[] = [];   // метки кадров карты за последнюю секунду и одного кадра перед ней
+  const times: number[] = [];   // метки кадров карты за окно и одного кадра перед ним
   let shown = -1, drawnAt = -Infinity;
   draw(canvas, 0);
   // время в фоновой вкладке — не кадры: браузер не рисует, а таймеры там приторможены
@@ -75,16 +73,21 @@ export function startFpsCounter(canvas: HTMLCanvasElement, onSample?: (fps: numb
     frame: () => {
       const now = performance.now();
       // карта резко ускорилась (стояла и поехала): кадр пришёл вчетверо быстрее среднего по окну —
-      // старые редкие кадры окна выбрасываются, иначе число секунду ползло бы от 1 до 144. Порог 4×,
-      // чтобы обычные рывки (кадр через один) окно не сбрасывали. Замедление так не сбрасывается:
-      // провал и остановка честно видны по окну
+      // старые редкие кадры окна выбрасываются, иначе число ползло бы от 1 до 144. Порог 4×, чтобы
+      // обычные рывки (кадр через один) окно не сбрасывали. Замедление так не сбрасывается: провал и
+      // остановка честно видны по окну
       const n = times.length;
-      if (n >= 2 && (now - times[n - 1]) * 4 < (times[n - 1] - times[0]) / (n - 1)) times.splice(0, n - 1);
+      const restart = n >= 2 && (now - times[n - 1]) * 4 < (times[n - 1] - times[0]) / (n - 1);
+      if (restart) times.splice(0, n - 1);
       times.push(now);
-      while (times.length > 2 && times[1] <= now - SECOND_MS) times.shift();
+      while (times.length > 2 && times[1] <= now - WINDOW_MS) times.shift();
       const span = now - times[0];
       const fps = times.length > 1 && span > 0 ? Math.round((times.length - 1) * 1000 / span) : 0;
-      if (fps !== shown && now - drawnAt >= DRAW_MS) { shown = fps; drawnAt = now; draw(canvas, fps); }
+      // число — раз в окно; после рестарта окна — сразу, на втором кадре движения уже верное
+      if (restart || now - drawnAt >= WINDOW_MS) {
+        drawnAt = now;
+        if (fps !== shown) { shown = fps; draw(canvas, fps); }
+      }
       onSample?.(fps);
     },
     stop: () => document.removeEventListener('visibilitychange', onVis),
