@@ -1,7 +1,7 @@
 #!/bin/sh
-# Сборка поиска хода 2048 в WASM для бота: src/modules/game2048.wasm. 2048.cpp/2048.h/platdefs.h/
-# config.h — сторонний код под MIT (лицензия и авторство — LICENSE рядом, её условие: сохранять это
-# уведомление); wasm_entry.cpp — наша обёртка. Готовый .wasm лежит в git, при сборке образа ничего
+# Сборка алгоритма 2048 в WASM для бота: src/modules/game2048.wasm. 2048.cpp/2048.h/platdefs.h/
+# config.h — nneonneo/2048-ai (https://github.com/nneonneo/2048-ai, © Robert Xiao, MIT, см. LICENSE
+# рядом) без изменений; wasm_entry.cpp — наша обёртка. Готовый .wasm лежит в git, при сборке образа ничего
 # не компилируется. Нужно: clang 18 + пакеты wasi-libc, libc++-18-dev-wasm32,
 # libc++abi-18-dev-wasm32, libclang-rt-18-dev-wasm32 (Ubuntu 24.04).
 set -e
