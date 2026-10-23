@@ -6,6 +6,7 @@ const {getConfig}=require('../config');
 const logger=require('../utils/logger');
 const {sleep,sleepUntilUtcMidnight}=require('../utils/helpers');
 const {WordleLog}=require('../db/index');
+const solver=require('./wordleSolver');
 
 // --- словарь ---
 const WORDS_PATH=path.join(process.cwd(),'config','wordle-words.txt');
@@ -55,11 +56,11 @@ async function _sendWordleResult(word){
 
 // --- shared state ---
 const sharedState={
-  date:null,word:null,correct:{},present:[],absent:new Set(),usedWords:[],
+  date:null,word:null,correct:{},present:[],absent:new Set(),usedWords:[],history:[],
 };
 const rejectedWords=_loadRejected();
 
-// --- алгоритм (по мотивам Python-версии) ---
+// --- запасной алгоритм (частоты букв): нужен, только если энтропийный подбор не нашёл кандидатов ---
 
 // Вычисляет частоты букв по словарю. probs — карта буква→вес (override/boost).
 function _buildFreq(wordList, probs={}){
@@ -127,12 +128,20 @@ function _score(word, freq){
   return s;
 }
 
-// Выбирает лучшее слово-кандидат
-function _pickGuess(probs={}){
-  const avail=w=>!sharedState.usedWords.includes(w)&&!rejectedWords.has(w);
-
-  // если слово уже найдено — вернём его
+// Выбирает догадку: энтропийный подбор (modules/wordleSolver.js), при пустом списке кандидатов
+// (раскраска игры не сошлась со словарём) — прежний частотный
+async function _pickGuess(){
   if(sharedState.word)return sharedState.word;
+  try{
+    const r=await solver.bestGuess(WORDS,sharedState.history,new Set([...sharedState.usedWords,...rejectedWords]));
+    if(r){logger.info(`[wordle] подходящих слов: ${r.left}, догадка "${r.guess}"`);return r.guess;}
+    logger.warn('[wordle] ни одно слово словаря не подходит под ответы игры, частотный подбор');
+  }catch(e){logger.warn(`[wordle] энтропийный подбор: ${e.message}`);}
+  return _pickGuessFreq(_currentProbs());
+}
+
+function _pickGuessFreq(probs={}){
+  const avail=w=>!sharedState.usedWords.includes(w)&&!rejectedWords.has(w);
 
   const freq=_buildFreq(WORDS,probs);
   let candidates=_filterByConstraints(WORDS.filter(avail));
@@ -159,6 +168,9 @@ function _pickGuess(probs={}){
 }
 
 function _applyFeedback(feedback){
+  const word=Array.isArray(feedback)?feedback.slice().sort((a,b)=>a.position-b.position).map(f=>f.letter).join(''):'';
+  const pattern=solver.patternOfFeedback(feedback);
+  if(word.length===5&&pattern!=null&&!sharedState.history.some(h=>h.word===word))sharedState.history.push({word,pattern});
   for(const f of feedback){
     const{position,letter,status}=f;
     if(status==='correct'){
@@ -178,8 +190,6 @@ function _applyFeedback(feedback){
 // Бот использует не больше 5 попыток на аккаунт — 6-я оставлена для ручного ввода слова через UI.
 const MAX_BOT_ATTEMPTS=5;
 
-const PROBES=['волна','берег','стиль','домик','голос','вилка','лампа','тесак','рынок','сазан'];
-
 function _resetIfNewDay(){
   const today=new Date().toISOString().slice(0,10);
   if(sharedState.date!==today){
@@ -189,6 +199,7 @@ function _resetIfNewDay(){
     sharedState.present=[];
     sharedState.absent=new Set();
     sharedState.usedWords=[];
+    sharedState.history=[];
     // перезагрузим словарь в начале нового дня
     WORDS=_loadWords();
   }
@@ -232,13 +243,7 @@ async function _solveForAccount(api,name,maxAttempts){
   }
 
   for(let tries=0;tries<20;tries++){
-    // первые ходы — из probe-слов
-    let guess=null;
-    if(!sharedState.usedWords.length){
-      const unusedProbes=PROBES.filter(w=>!sharedState.usedWords.includes(w)&&!rejectedWords.has(w));
-      if(unusedProbes.length)guess=unusedProbes[Math.floor(Math.random()*unusedProbes.length)];
-    }
-    if(!guess)guess=_pickGuess(_currentProbs());
+    const guess=await _pickGuess();
     if(!guess){logger.warn(`[${name}] [wordle] нет доступных слов`);return false;}
 
     await sleep(3000);
