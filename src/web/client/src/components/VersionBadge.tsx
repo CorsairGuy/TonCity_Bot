@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Box, Text, Link, Button, CounterLabel, ConfirmationDialog, Spinner } from '@primer/react';
+import { Box, Text, Link, Button, CounterLabel, ConfirmationDialog, Spinner, ProgressBar } from '@primer/react';
 import { SyncIcon, PinIcon, DownloadIcon, CheckCircleFillIcon, XCircleFillIcon, ClockFillIcon, AlertFillIcon, QuestionIcon } from '@primer/octicons-react';
 import { api, VersionInfo } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
-import { UpdateProgress } from './UpdateProgress';
+import { updateStageView, ProgressRing } from './UpdateProgress';
 
 // Блок версии внизу меню: статус (значок в столбце иконок меню), канал и коммит, список того, что
 // придёт с обновлением (названия PR), и кнопка обновления
@@ -74,9 +74,12 @@ export function VersionBadge() {
   const hasUpdate = v.status === 'behind' || (!!pinned && !!v.newerReleases);
   const pinnedToBottom = updating || hasUpdate;
 
+  // идёт обновление: этап в заголовке, полоса — ход этапа, кольцо слева — общий ход
+  const prog = updating ? updateStageView(build.update) : null;
   // значок слева (16×16, на вертикали иконок меню), заголовок и подпись под ним
   const st: { icon: ReactNode; color: string; title: ReactNode; sub?: ReactNode } =
-    updating ? { icon: <Spinner size="small" sx={{ width: 16, height: 16, color: 'success.fg' }} />, color: 'success.fg', title: 'Обновляюсь' }
+    updating ? { icon: prog!.overall != null ? <ProgressRing pct={prog!.overall} /> : <Spinner size="small" sx={{ width: 16, height: 16, color: 'success.fg' }} />,
+      color: 'success.fg', title: prog!.title, sub: prog!.sub ?? undefined }
     : buildFailed && v.build ? { icon: <XCircleFillIcon size={16} />, color: 'danger.fg', title: 'Сборка не удалась', sub: ext(v.build.url, 'открыть лог на GitHub') }
     : buildRunning && v.build ? { icon: <ClockFillIcon size={16} />, color: 'attention.fg', title: 'Образ собирается', sub: ext(v.build.url, 'идёт на GitHub') }
     : v.status === 'behind' ? { icon: <ArrowUpCircleFill />, color: 'success.fg', title: <>Новая версия<Counter n={v.changes?.length || v.behindBy} /></> }
@@ -135,7 +138,9 @@ export function VersionBadge() {
             </Box>
           )}
         </Box>
-        {updating && <Box sx={{ pl: '24px' }}><UpdateProgress stage={build.update} /></Box>}
+        {prog && prog.stage != null && (
+          <ProgressBar barSize="small" aria-label={prog.title} progress={prog.stage === 'run' ? 100 : prog.stage} animated={prog.stage === 'run'} />
+        )}
         {!updating && shown.length > 0 && (
           // линия идёт из-под значка по его вертикали, текст — с позиции заголовка
           <Box sx={{ ml: '7px', pl: '15px', mt: '-20px', pt: '20px', borderLeft: '2px solid', borderColor: 'success.muted', color: 'fg.default',
