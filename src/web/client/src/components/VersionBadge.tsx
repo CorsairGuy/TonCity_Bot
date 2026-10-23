@@ -52,6 +52,12 @@ export function VersionBadge() {
   };
 
   useEffect(() => { load(); }, []);
+  // свежие данные из карточки «Обновления» в настройках
+  useEffect(() => {
+    const on = (e: Event) => { const d = (e as CustomEvent<VersionInfo>).detail; if (d) setV(d); };
+    window.addEventListener('tc-version', on);
+    return () => window.removeEventListener('tc-version', on);
+  }, []);
   // пока образ собирается на GitHub — чаще (сервер тогда сам держит кэш 3 минуты), иначе раз в 30 минут
   const building = !!v?.build && v.build.status !== 'completed';
   useEffect(() => {
@@ -161,7 +167,7 @@ export function VersionBadge() {
           <Box sx={{ pl: '24px', display: 'flex', flexDirection: 'column', gap: 1 }}>
             {note && <Text sx={{ color: 'fg.subtle' }}>{note}</Text>}
             {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
-            {outdated && <Text sx={{ color: 'attention.fg' }}>Обновлятель устарел, обновите его один раз вручную (Настройки → Обновления)</Text>}
+            {outdated && <Link as={RouterLink} to="/settings#updates" sx={{ color: 'attention.fg' }}>Обновлятель устарел, обновите его один раз вручную: как — в Настройки → Обновления</Link>}
             {v.error && <Text sx={{ color: 'attention.fg' }}>Нет связи с GitHub: {v.error}</Text>}
           </Box>
         )}
