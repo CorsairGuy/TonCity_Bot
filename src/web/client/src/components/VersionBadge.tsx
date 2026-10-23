@@ -127,7 +127,7 @@ export function VersionBadge() {
       <Box sx={{ pt: '13px', px: 2, pb: 1, fontSize: '12px', lineHeight: '16px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <Box sx={{ display: 'flex', gap: 2, minWidth: 0 }}>
           <Box sx={{ width: 16, height: 18, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: st.color }}>
-            <Box as="span" sx={{ display: 'inline-flex', borderRadius: '50%', boxShadow: fresh ? (t: any) => `0 0 0 3px ${t.colors.success.subtle}, 0 0 10px 2px ${t.colors.success.muted}` : undefined }}>{st.icon}</Box>
+            <Box as="span" className={fresh ? 'version-glow' : undefined} sx={{ display: 'inline-flex', borderRadius: '50%' }}>{st.icon}</Box>
           </Box>
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Text as="div" sx={{ fontSize: '13px', lineHeight: '18px', fontWeight: 'semibold', color: fresh ? 'success.fg' : 'fg.default', display: 'flex', alignItems: 'center' }}>{st.title}</Text>
@@ -154,7 +154,10 @@ export function VersionBadge() {
             display: 'flex', flexDirection: 'column', gap: '5px' }}
             style={{ borderImage: 'linear-gradient(to bottom, transparent 2px, var(--version-line) 8px) 1' }}>
             {shown.map((c, i) => (
-              <Link key={i} href={c.url} target="_blank" rel="noreferrer" sx={{ color: 'fg.default', ':hover': { color: 'accent.fg' } }}>
+              // при наведении — без синего и подчёркивания: участок линии напротив пункта загорается зелёным
+              <Link key={i} href={c.url} target="_blank" rel="noreferrer" sx={{ position: 'relative', color: 'fg.default',
+                ':hover': { color: 'fg.default', textDecoration: 'none' },
+                ':hover::before': { content: '""', position: 'absolute', left: '-17px', top: 0, bottom: 0, width: '2px', bg: 'success.fg' } }}>
                 {c.title}{c.pr ? <Text sx={{ color: 'fg.subtle' }}> #{c.pr}</Text> : null}
               </Link>
             ))}

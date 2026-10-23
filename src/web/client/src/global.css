@@ -128,6 +128,13 @@ body {
 .version-dock::before { content: ''; position: absolute; left: 0; right: 0; top: -24px; height: 24px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--dock-bg)); }
 html[data-theme="dark"] .version-dock { --dock-bg: color-mix(in srgb, rgb(22 27 34) 82%, var(--bg)); }
 html[data-theme="dark"] { --version-line: rgb(46 160 67 / 40%); }
+/* значок «Новая версия»: свечение медленно пульсирует (кружок не меняется) */
+@keyframes version-glow {
+  0%, 100% { box-shadow: 0 0 0 3px rgb(46 160 67 / 15%), 0 0 4px 0 rgb(46 160 67 / 20%); }
+  50%      { box-shadow: 0 0 0 3px rgb(46 160 67 / 30%), 0 0 12px 4px rgb(46 160 67 / 55%); }
+}
+.version-glow { animation: version-glow 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .version-glow { animation: none; box-shadow: 0 0 0 3px rgb(46 160 67 / 20%), 0 0 10px 2px rgb(46 160 67 / 40%); } }
 html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 
 .nav-group-head {
