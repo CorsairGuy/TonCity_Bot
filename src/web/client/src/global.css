@@ -118,21 +118,21 @@ body {
 
 /* тонкая линия перед служебными пунктами меню (Логи/Настройки) — отделяет их от основной навигации */
 .nav-separator { height: 1px; background: rgb(208 181 255 / 20%); margin: 8px 8px 8px; }
-/* блок версии, прилипший к низу меню (есть обновление): непрозрачная подложка на всю ширину меню,
-   чтобы пункты не просвечивали под карточкой при прокрутке (см. VersionBadge) */
+/* блок версии, прилипший к низу меню (есть обновление): подложка на всю ширину меню, чтобы пункты не
+   просвечивали под карточкой при прокрутке (см. VersionBadge). Затухание пунктов идёт по пустой полосе
+   над карточкой (место разделителя), а не над ней: так не добавляется лишнего пустого места */
 .version-dock { --dock-bg: color-mix(in srgb, rgb(255 255 255) 85%, var(--bg));  /* непрозрачный цвет меню поверх фона страницы */
-  position: sticky; bottom: -8px; z-index: 1; margin: 0 -8px -8px; padding: 8px 8px 8px; background: var(--dock-bg); }
+  position: sticky; bottom: -8px; z-index: 1; margin: 0 -8px -8px; padding: 8px 8px 8px;
+  background: linear-gradient(to bottom, transparent, var(--dock-bg) 18px); }
 .version-dock > div { margin-bottom: 0 !important; }
-/* прилипший блок: вместо разделителя пункты меню плавно растворяются над ним (место линии сохраняем) */
-/* у самого низа прокрутки затухание плавно сменяется разделителем: --dock-fade ставит VersionBadge */
+/* у самого низа прокрутки затухание сменяется разделителем: --dock-fade (1 — затухание, 0 — разделитель) ставит VersionBadge */
 .version-dock > div:first-child { opacity: calc(1 - var(--dock-fade, 1)); }
-.version-dock::before { content: ''; position: absolute; left: 0; right: 0; top: -24px; height: 24px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--dock-bg)); opacity: var(--dock-fade, 1); }
 html[data-theme="dark"] .version-dock { --dock-bg: color-mix(in srgb, rgb(22 27 34) 82%, var(--bg)); }
 html[data-theme="dark"] { --version-line: rgb(46 160 67 / 40%); }
-/* значок «Новая версия»: «сердцебиение» — двойной удар значка, от удара расходится кольцо (до ×1.9),
+/* значок «Новая версия»: «сердцебиение» — двойной удар значка, от удара расходится кольцо (до ×1.6),
    потом пауза. Кольцо — псевдоэлемент поверх, разметку не сдвигает */
 @keyframes version-beat { 0%, 40%, 100% { transform: scale(1); } 8% { transform: scale(1.12); } 16% { transform: scale(1); } 24% { transform: scale(1.08); } }
-@keyframes version-beat-ring { 0%, 6% { transform: scale(1); opacity: 0; } 8% { transform: scale(1); opacity: .85; } 55%, 100% { transform: scale(1.9); opacity: 0; } }
+@keyframes version-beat-ring { 0%, 6% { transform: scale(1); opacity: 0; } 8% { transform: scale(1); opacity: .85; } 55%, 100% { transform: scale(1.6); opacity: 0; } }
 .version-glow { position: relative; animation: version-beat 2.4s ease-in-out infinite; }
 .version-glow::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid rgb(63 185 80); pointer-events: none;
   animation: version-beat-ring 2.4s ease-out infinite; }
