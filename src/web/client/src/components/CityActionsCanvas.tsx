@@ -1122,6 +1122,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     if (s.needsCenter && W > 0 && H > 0) { centerOnBuildings(); s.needsCenter = false; }
     if (!s.cols || !s.rows) return;
     fpsCtl.current?.frame();
+    // стоящая карта перерисовывается раз в секунду: идут отсчёты стройки (тексту минут чаще не нужно),
+    // и счётчик кадров честно показывает 1. Пока карта рисуется чаще, тик сбрасывается каждым кадром
+    if (s.liveTimer) clearTimeout(s.liveTimer);
+    s.liveTimer = setTimeout(() => { s.liveTimer = null; redraw(); }, 1000);
 
     // стройка закончилась по времени — здание снова рисуется своим спрайтом и обычным бейджем
     if (Date.now() >= s.nextEndMs) { s.listDirty = true; s.ver++; }
@@ -1152,7 +1156,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const building = s.blist.some(b => b.end && new Date(b.end).getTime() > nowMs && s.labels.get(`${b.x}_${b.y}`) != null);
     const overlayNeeded = building || s.pickedSet.size > 0 || (s.selDragging && !!s.selCur) || (!!s.hoverTile && s.mode !== 'view');
     if (!overlayNeeded && !s.overlayUsed) {
-      if (s.liveTimer) { clearTimeout(s.liveTimer); s.liveTimer = null; }
       if (layerPending) requestRedraw();
       return;
     }
@@ -1170,7 +1173,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // проход 2 — живой прогресс-бар стройки для зданий, у которых b.end ещё в будущем (обычные
     // бейджи уровней — в неподвижном слое, см. buildDrawList)
     const fsz = Math.max(8, Math.round(TW * 0.13));
-    let anyUnderConstruction = false;
     for (const b of s.blist) {
       const col = b.x - s.x0, row = b.y - s.y0;
       if (col < 0 || col >= s.cols || row < 0 || row >= s.rows) continue;
@@ -1179,12 +1181,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const { x: sx, y: sy } = isoToScreen(col, row);
       const bx = sx + TW / 2, by = sy + TH / 2;
       const endMs = b.end ? new Date(b.end).getTime() : 0;
-      if (endMs > nowMs && s.labels.get(`${b.x}_${b.y}`) != null) anyUnderConstruction = true;
       if (bx < vx0 || bx > vx1 || by < vy0 || by > vy1) continue;
       if (endMs > nowMs) {
         const label = s.labels.get(`${b.x}_${b.y}`) ?? null;
         if (label == null) continue; // здание нельзя улучшить (special) — прогресс не рисуем
-        anyUnderConstruction = true;
         // start — реальное время начала стройки, отдаёт сама игра (см. api.ts MapBuilding.start,
         // подтверждено бандлом: deserialize() читает n.start наравне с n.end). Работает для ЛЮБого
         // улучшения — и запущенного ботом, и напрямую в игре — duration=end-start точно, без формул
@@ -1301,9 +1301,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
 
     ctx.restore();
 
-    // живой тик прогресс-бара стройки — раз в секунду достаточно (не 60кадр/с, тексту минут не нужно)
-    if (s.liveTimer) { clearTimeout(s.liveTimer); s.liveTimer = null; }
-    if (anyUnderConstruction) s.liveTimer = setTimeout(() => { s.liveTimer = null; redraw(); }, 1000);
     // куски, не успевшие в бюджет кадра, дорисовываются в следующих кадрах
     if (layerPending) requestRedraw();
   }
@@ -1362,10 +1359,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   useEffect(() => {
     const c = fpsRef.current;
     if (!c) return undefined;
-    const ctl = startFpsCounter(c, requestRedraw);
+    const ctl = startFpsCounter(c);
     fpsCtl.current = ctl;
     return () => { ctl.stop(); fpsCtl.current = null; };
-  }, [requestRedraw]);
+  }, []);
 
   // roadMap/coords — статические импортированные данные (см. COORDS/ROAD_MAP выше), доступны
   // синхронно уже в самом первом рендере через инициализатор state.current; этот эффект нужен
