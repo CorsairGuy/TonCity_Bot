@@ -178,14 +178,14 @@ module.exports=function(app,ctx){
       let acc=existing,created=false,oldName=existing?.name||null;
       if(!acc){
         // не нашли по tg_uid — резервно дедупим по имени (на случай старых записей без токена/tg_uid)
-        const r=await Account.findOrCreate({where:{name:accountName},defaults:{name:accountName,access_token,refresh_token,init_token:token}});
+        const r=await Account.findOrCreate({where:{name:accountName},defaults:{name:accountName,access_token,refresh_token}});
         acc=r[0];created=r[1];
         if(!created)oldName=acc.name;
       }
       // при обновлении существующей записи имя НЕ трогаем (кроме случая, когда пользователь явно
       // ввёл новое в форме) — иначе затрём уже подтянутое настоящее имя плейсхолдером
       if(!created){
-        const upd={access_token,refresh_token,init_token:token};
+        const upd={access_token,refresh_token};
         const renameFrom=(typedName&&typedName!==acc.name)?acc.name:null;
         if(renameFrom)upd.name=typedName;
         await acc.update(upd);
@@ -197,7 +197,7 @@ module.exports=function(app,ctx){
         // (reqSign), ни переоткрытие WS (wsSession). Прогрев ниже (seed+ensureSession) запускается
         // ТОЛЬКО для новых аккаунтов-плейсхолдеров (нужно узнать настоящее имя) — уже именованный
         // аккаунт, у которого давно крутятся фоновые циклы, просто продолжал долбиться старым
-        // мёртвым seed'ом ещё до 10 минут (см. modules/session.js DEAD_COOLDOWN_MS), и статус на
+        // мёртвым seed'ом (см. modules/session.js _refreshDead), и статус на
         // странице Аккаунты висел "Подключается…" сколько угодно после нажатия "Добавить". Явно
         // сбрасываем сюда — seed сразу, WS принудительно переоткрываем, кулдаун снимаем.
         if(session_seed)require('../../utils/reqSign').setSeed(acc.id,session_seed);
@@ -289,6 +289,7 @@ module.exports=function(app,ctx){
 
   const{Account}=require('../../db/index');
   const wsSession=require('../../utils/wsSession');
+  const{isRefreshDead}=require('../../modules/session');
   const pn=v=>{const n=parseFloat(v);return isFinite(n)?n:null;};
   function mapAccountRow(r){
     const special=String(r.special_buildings||'').split(',').filter(Boolean);
@@ -299,12 +300,13 @@ module.exports=function(app,ctx){
       profit_final:pn(r.profit_final),population_final:pn(r.population_final),happiness_final:pn(r.happiness_final),
       staked_coins:pn(r.staked_coins),staked_crystals:pn(r.staked_crystals),
       hasToken:!!(r.access_token&&r.access_token!=='placeholder'),
-      hasInit:!!r.init_token,
       // особые здания на карте (для фильтрации страниц: fortune/wisdom/market/reserve)
       buildings:special,
       // реальный статус сессии (WS) на этот момент — не просто "есть токен в БД", т.к. токен
       // не удаляется сам по себе при протухании. 'active'/'dead'/'connecting'/'unknown'.
-      sessionStatus:wsSession.getStatus(r.id).state,
+      // Протухший refresh_token — сразу 'dead': WS у такого аккаунта засыпает без новых отказов
+      // авторизации, и по одному WS он навсегда висел бы как 'connecting'.
+      sessionStatus:isRefreshDead(r.id)?'dead':wsSession.getStatus(r.id).state,
     };
   }
   app.get('/api/accounts',async(req,res)=>{

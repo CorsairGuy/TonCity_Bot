@@ -192,7 +192,7 @@ class ApiClient{
       if(this._accountId!=null){
         if(!reqSign.hasSeed(this._accountId)){
           // сессия для этого клиента ещё ни разу не поднималась — пробуем получить seed через
-          // refreshFn (doRefresh/exchangeToken кладут его при успехе), прежде чем слать запрос вслепую
+          // refreshFn (doRefresh кладёт его при успехе), прежде чем слать запрос вслепую
           if(this._refreshFn){try{await this._refreshFn();}catch(_){}}
           if(!reqSign.hasSeed(this._accountId))throw noSeedError(method,p); // не репортим maintenance — запроса не было
         }

@@ -126,7 +126,7 @@ async function _connect(s) {
   // seed — напр. этим аккаунтом параллельно зашёл живой человек в Telegram). Реконнект со СТАРЫМ
   // seed снова падает — нужен свежий seed, а он приходит ТОЛЬКО с refresh. Раньше ждали 3 отказа
   // (~10с), всё это время REST к аккаунту падал на гейте (Direct API/Invalid signature). Теперь
-  // восстановление ~3с. От refresh-шторма защищает кулдаун _refreshDeadUntil (10 мин) в session.js.
+  // восстановление ~3с. От refresh-шторма защищает отметка «мёртв» (_refreshDead) в session.js.
   const forceRefresh = s.authFailCount >= 1;
   if (s.refreshFn && (!token || _tokenExpired(token) || forceRefresh)) {
     try { await s.refreshFn(); } catch (_) {}
