@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Text, Link, Button, CounterLabel, ConfirmationDialog, Spinner, ProgressBar } from '@primer/react';
 import { SyncIcon, PinIcon, DownloadIcon, CheckCircleFillIcon, XCircleFillIcon, ClockFillIcon, AlertFillIcon, QuestionIcon } from '@primer/octicons-react';
@@ -34,6 +34,22 @@ export function VersionBadge() {
   const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const upd = useSelfUpdate();
+  // прилипший блок: затухание над ним тает на последних 24px прокрутки меню и у самого низа
+  // сменяется разделителем (--dock-fade: 1 — затухание, 0 — разделитель)
+  const dockRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = dockRef.current;
+    if (!el) return;
+    let sc: HTMLElement | null = el.closest('[data-overlayscrollbars-viewport]');
+    for (let p = el.parentElement; !sc && p; p = p.parentElement) if (/auto|scroll/.test(getComputedStyle(p).overflowY)) sc = p;
+    if (!sc) return;
+    const box = sc;
+    const sync = () => el.style.setProperty('--dock-fade', String(Math.max(0, Math.min(1, (box.scrollHeight - box.scrollTop - box.clientHeight) / 24))));
+    sync();
+    box.addEventListener('scroll', sync, { passive: true });
+    const ro = new ResizeObserver(sync); ro.observe(box);
+    return () => { box.removeEventListener('scroll', sync); ro.disconnect(); };
+  });
   // обновление идёт на сервере (в т.ч. начатое с другой страницы/вкладки или автообновлением)
   const build = useBuildState();
   const serverBusy = build.busy;
@@ -122,7 +138,7 @@ export function VersionBadge() {
           на вертикали стрелок групп, заголовок — с той же позиции, что текст пунктов. Над блоком
           разделитель; отступы до него и после равны (14px до текста). Есть что ставить (или уже
           ставится) — блок прилипает к низу меню и виден при любой прокрутке. */}
-      <div className={pinnedToBottom ? 'version-dock' : undefined} style={pinnedToBottom ? undefined : { paddingTop: 8 }}>
+      <div ref={dockRef} className={pinnedToBottom ? 'version-dock' : undefined} style={pinnedToBottom ? undefined : { paddingTop: 8 }}>
       <Box sx={{ height: 1, mx: 2, bg: 'border.muted' }} />
       <Box sx={{ pt: '13px', px: 2, pb: 1, fontSize: '12px', lineHeight: '16px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <Box sx={{ display: 'flex', gap: 2, minWidth: 0 }}>
