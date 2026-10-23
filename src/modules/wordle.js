@@ -67,7 +67,7 @@ async function _pickGuess(){
   if(sharedState.stuck)return null;
   try{
     const r=await solver.bestGuess(WORDS,sharedState.history,new Set([...sharedState.usedWords,...rejectedWords]));
-    if(r){logger.info(`[wordle] подходящих слов: ${r.left}, догадка "${r.guess}"`);return r.guess;}
+    if(r){logger.info(`[wordle] подходящих слов: ${r.left}, догадка "${r.guess}"${r.pool?` (первое слово, случайное из: ${r.pool.join(', ')})`:''}`);return r.guess;}
     logger.warn('[wordle] ни одно слово словаря не подходит под ответы игры — загадано слово не из словаря, попытки оставлены для ручной подачи');
   }catch(e){logger.error(`[wordle] подбор слова: ${e.message}`);}
   sharedState.stuck=true;

@@ -58,17 +58,21 @@ const _yield=()=>new Promise(r=>setImmediate(r));
 // Лучшая догадка. history — [{word,pattern}] всех аккаунтов за день, exclude — слова, которые
 // нельзя подавать (уже поданы или игра их не принимает). Возвращает {guess,left} или null.
 // Первый ход по полному словарю — ~43 млн раскрасок, поэтому счёт асинхронный с паузами для event loop,
-// а результат кэшируется на словарь.
-async function bestGuess(words,history,exclude=new Set()){
+// а пятёрка лучших слов кэшируется на словарь; первым идёт случайное из неё. Замер на словаре 6618 слов:
+// коран 3,847 догадки в среднем, карет 3,846, норка 3,871, ранок 3,872, киноа 3,886 — случайный выбор
+// стоит ~0,02 догадки против всегда одного слова.
+const FIRST_POOL=5;
+async function bestGuess(words,history,exclude=new Set(),rng=Math.random){
   const c=_prep(words);const{enc}=c;
   const C=candidates(words,history,exclude);
   if(!C.length)return null;
   if(C.length<=2)return{guess:words[C[0]],left:C.length};
   const firstKey=history.length?null:[...exclude].sort().join(',');
-  if(firstKey!=null&&c.first.has(firstKey))return{guess:c.first.get(firstKey),left:C.length};
+  const pickFirst=pool=>({guess:pool[Math.floor(rng()*pool.length)],left:C.length,pool});
+  if(firstKey!=null&&c.first.has(firstKey))return pickFirst(c.first.get(firstKey));
   const inC=new Uint8Array(words.length);for(const i of C)inC[i]=1;
   const hist=new Int32Array(243);const n=C.length;
-  let bg=-1,bs=-Infinity;
+  let bg=-1,bs=-Infinity;const top=[];
   for(let g=0;g<words.length;g++){
     if((g&63)===0&&n>200)await _yield();
     if(exclude.has(words[g]))continue;
@@ -78,9 +82,10 @@ async function bestGuess(words,history,exclude=new Set()){
     // кандидат может сразу оказаться ответом — небольшой бонус при равной информации
     if(inC[g])s+=1e-6+0.5/n;
     if(s>bs){bs=s;bg=g;}
+    if(firstKey!=null){top.push([s,g]);top.sort((a,b)=>b[0]-a[0]);if(top.length>FIRST_POOL)top.pop();}
   }
   if(bg<0)return null;
-  if(firstKey!=null)c.first.set(firstKey,words[bg]);
+  if(firstKey!=null){const pool=top.map(([,g])=>words[g]);c.first.set(firstKey,pool);return pickFirst(pool);}
   return{guess:words[bg],left:n};
 }
 
