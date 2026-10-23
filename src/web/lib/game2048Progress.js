@@ -36,12 +36,17 @@ function start(accountId,name,makeApiForAccount){
   if(existing)return existing;
   const entry={board:null,score:0,max_tile:0,game_status:'ongoing',subscribers:new Set(),stopped:false,promise:null};
   registry.set(accountId,entry);
+  let engine=null;
   entry.promise=(async()=>{
     try{
-      const{bestMove,searchDepth,logResult}=require('../../modules/game2048');
+      const{searchDepth,logResult}=require('../../modules/game2048');
       const recorder=require('../../utils/game2048Recorder');
       const perAccountRateLimit=require('./perAccountRateLimit');
-      const api=await makeApiForAccount(accountId,{noLock:true});
+      // запросы автоигры идут через общий apiLock (решение 23.10.2026): партии многих аккаунтов
+      // одновременно не должны упираться в рейт-лимит игры. Ход считается в своём потоке на партию
+      // (modules/game2048Worker.js), поэтому расчёт не держит ни apiLock, ни процесс бота.
+      const api=await makeApiForAccount(accountId);
+      engine=require('../../modules/game2048Worker').create();
       const limiter=perAccountRateLimit.forAccount(accountId);
       // withRetry — иначе один транзитный сетевой сбой (ECONNABORTED/таймаут, реально наблюдалось в
       // логах: "POST: /game2048/: нет ответа от сервера (ECONNABORTED)") убивал всю фоновую партию
@@ -51,9 +56,8 @@ function start(accountId,name,makeApiForAccount){
       entry.board=st.board;entry.score=st.score;entry.max_tile=st.max_tile;entry.game_status=st.game_status;
       recorder.touch(accountId,name,st);
       while(st?.game_status==='ongoing'&&!entry.stopped){
-        const t0=process.hrtime.bigint();
-        const dir=bestMove(st.board);
-        const thinkMs=Number(process.hrtime.bigint()-t0)/1e6,depth=searchDepth(st.board);
+        const{dir,ms:thinkMs}=await engine.bestMove(st.board);
+        const depth=searchDepth(st.board);
         if(!dir)break;
         await new Promise(r=>setTimeout(r,400));
         if(entry.stopped)break;
@@ -85,6 +89,7 @@ function start(accountId,name,makeApiForAccount){
       logger.warn(`[${name}] [2048] solve: ${e.message}`);
       broadcast(accountId,{type:'done',ok:false,error:e.message});
     }finally{
+      if(engine)engine.close();
       for(const res of entry.subscribers){try{res.end();}catch(_){}}
       registry.delete(accountId);
     }
