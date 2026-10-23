@@ -1,9 +1,5 @@
 'use strict';
-// MinigameLog берём лениво в logResult: модуль подключает и scripts/2048-replay.js, которому БД не нужна
-
-// Версия алгоритма выбора хода — пишется в каждую запись партии (utils/game2048Recorder.js), чтобы
-// при анализе отличать партии разных версий. Менять при любой правке поиска хода.
-const ALGO_VERSION=6;
+// MinigameLog берём лениво в logResult: поток расчёта хода (game2048Worker.js) подключает модуль без БД
 
 // Механика 2048 подтверждена реверсом бандла игры (chunks/game2048-*.js): доска 4x4 (0=пусто),
 // направления 'up'|'down'|'left'|'right', POST /game2048/ {direction}. Функции ниже (extractLine/
@@ -72,10 +68,6 @@ function encode(board){
   }
   return x;
 }
-// глубина поиска (для записи партий) — та же формула, что внутри WASM
-function searchDepth(board){
-  return Math.max(3,new Set(board.flat().filter(v=>v)).size-2);
-}
 // возвращает лучший ход ('up'|'down'|'left'|'right') или null, если ходов нет; порядок ходов в WASM
 // совпадает с DIRS
 function bestMove(board){
@@ -94,5 +86,4 @@ async function logResult(account,st){
 // Автоигры больше нет по решению пользователя — 2048 играется ТОЛЬКО вручную (кнопка в модалке или
 // в таблице "Оплот Мудрости", см. web/routes/minigames.js). bestMove/canMove/logResult используются
 // именно этими ручными путями (для кнопки "Решить" и записи результата в лог миниигр).
-// move/searchDepth/ALGO_VERSION — для записи партий и офлайн-анализа (scripts/2048-replay.js).
-module.exports={bestMove,canMove,logResult,move,searchDepth,DIRS,ALGO_VERSION};
+module.exports={bestMove,canMove,logResult,move,DIRS};
