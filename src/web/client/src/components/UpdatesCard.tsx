@@ -201,6 +201,14 @@ export function UpdatesCard() {
             {' '}<Text sx={{ fontFamily: 'mono' }}>docker compose up -d --remove-orphans</Text>.
           </Flash>
         )}
+        {v.updater?.alive && v.updater.outdated && (
+          <Flash variant="warning">
+            Обновлятель устарел (версия {v.updater.version ?? '?'}), из-за этого обновление может не работать. Новый обновлятель
+            сам обновляется вместе с ботом, а этот нужно один раз обновить вручную: в Portainer — обновите стек с «Re-pull image»,
+            при запуске из консоли — в папке проекта
+            {' '}<Text sx={{ fontFamily: 'mono' }}>docker compose pull updater && docker compose up -d updater</Text>.
+          </Flash>
+        )}
         {v.error && <Flash variant="warning">Нет связи с GitHub: {v.error}</Flash>}
         {lastError && (
           <Flash variant="danger">Последнее переключение на {lastError.tag} ({fmtDayTime(lastError.at)}) не удалось: {lastError.message}</Flash>

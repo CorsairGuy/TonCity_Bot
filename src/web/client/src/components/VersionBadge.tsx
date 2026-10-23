@@ -132,6 +132,7 @@ export function VersionBadge() {
         )}
         {note && <Text sx={{ color: 'fg.subtle' }}>{note}</Text>}
         {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
+        {v.updater?.alive && v.updater.outdated && <Text sx={{ color: 'attention.fg' }}>Обновлятель устарел, обновите его один раз вручную (Настройки → Обновления)</Text>}
         {v.error && <Text sx={{ color: 'attention.fg' }}>Нет связи с GitHub: {v.error}</Text>}
       </Box>
       </div>
