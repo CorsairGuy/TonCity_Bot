@@ -1,13 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Box, Text, Link, Label, ConfirmationDialog, Spinner } from '@primer/react';
-import { SyncIcon, PinIcon, GitBranchIcon, TagIcon, DownloadIcon } from '@primer/octicons-react';
+import { Box, Text, Link, Button, CounterLabel, ConfirmationDialog, Spinner } from '@primer/react';
+import { SyncIcon, PinIcon, DownloadIcon, ArrowUpIcon, CheckIcon, ClockIcon, AlertIcon, GitCommitIcon, QuestionIcon } from '@primer/octicons-react';
 import { api, VersionInfo } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
 import { UpdateProgress } from './UpdateProgress';
 
-// Плашка версии внизу меню: канал обновлений, текущий коммит, есть ли новее и кнопка обновления
+// Плашка версии внизу меню (вид «уведомление»: при новой версии зелёная, с последним изменением
+// канала и кнопками «Обновить»/«Что нового»): канал обновлений, текущий коммит и кнопка обновления
 // (через обновлятель, см. docker-compose.yml). Выбор канала — Настройки → Обновления. Сервер
 // кэширует ответ GitHub на 30 минут (3 минуты, пока собирается образ) и проверяет его сразу при запуске.
 export function VersionBadge() {
@@ -51,72 +52,83 @@ export function VersionBadge() {
   const buildRunning = v.build && v.build.status !== 'completed';
   const buildFailed = v.build && v.build.status === 'completed' && v.build.conclusion !== 'success';
   const canClick = v.canUpdate && !pinned && (v.status === 'behind' || v.status === 'unknown') && !buildRunning && !buildFailed;
-  const ChIcon = pinned ? PinIcon : ch?.kind === 'stable' ? TagIcon : GitBranchIcon;
   const chText = !ch ? '' : ch.kind === 'stable' ? `stable${v.currentRelease ? ' ' + v.currentRelease : ''}` : ch.name;
 
   const hasUpdate = v.status === 'behind' || (!!pinned && !!v.newerReleases);
   const pinnedToBottom = updating || hasUpdate;
 
-  // одна строка состояния: цветная точка + текст
-  const state: { color: string; text: ReactNode } =
-    buildFailed && v.build ? { color: 'danger.fg', text: <Link href={v.build.url} target="_blank" rel="noreferrer" sx={{ color: 'danger.fg' }}>Сборка образа не удалась</Link> }
-    : buildRunning && v.build ? { color: 'attention.fg', text: <Link href={v.build.url} target="_blank" rel="noreferrer" muted>Образ собирается на GitHub…</Link> }
-    : v.status === 'behind' ? { color: 'success.fg', text: <Link href={newLink} target="_blank" rel="noreferrer" sx={{ color: 'success.fg' }}>Доступна новая{v.behindBy ? ` (+${v.behindBy})` : ''}</Link> }
-    : pinned && !!v.newerReleases ? { color: 'success.fg', text: <RouterLink to="/settings#updates" style={{ color: 'inherit' }}>Есть релизы новее: {v.newerReleases}</RouterLink> }
-    : v.status === 'current' ? { color: 'success.fg', text: 'Актуальная версия' }
-    : (v.status === 'ahead' || v.status === 'diverged' || v.status === 'unknown_local') ? { color: 'attention.fg', text: 'Локальные изменения' }
-    : { color: 'fg.subtle', text: 'Статус неизвестен' };
+  // вид карточки по состоянию: тон (фон/рамка/кружок), иконка в кружке, заголовок и подпись под ним
+  type Tone = 'success' | 'attention' | 'danger' | 'neutral';
+  const ext = (href: string, text: string) => <Link href={href} target="_blank" rel="noreferrer" muted>{text}</Link>;
+  const st: { tone: Tone; icon: ReactNode; title: ReactNode; sub?: ReactNode } =
+    updating ? { tone: 'neutral', icon: <Spinner size="small" sx={{ width: 14, height: 14, color: 'success.fg' }} />, title: 'Обновляюсь' }
+    : buildFailed && v.build ? { tone: 'danger', icon: <AlertIcon size={14} />, title: 'Сборка не удалась', sub: ext(v.build.url, 'открыть лог на GitHub') }
+    : buildRunning && v.build ? { tone: 'attention', icon: <ClockIcon size={14} />, title: 'Образ собирается', sub: ext(v.build.url, 'идёт на GitHub') }
+    : v.status === 'behind' ? { tone: 'success', icon: <ArrowUpIcon size={14} />, title: <>Новая версия{v.behindBy ? <CounterLabel sx={{ ml: 1, bg: 'success.muted', color: 'success.fg' }}>+{v.behindBy}</CounterLabel> : null}</> }
+    : pinned && !!v.newerReleases ? { tone: 'success', icon: <ArrowUpIcon size={14} />, title: <>Есть релизы новее<CounterLabel sx={{ ml: 1, bg: 'success.muted', color: 'success.fg' }}>{v.newerReleases}</CounterLabel></> }
+    : v.status === 'current' ? { tone: 'neutral', icon: <CheckIcon size={14} />, title: 'Актуальная версия' }
+    : (v.status === 'ahead' || v.status === 'diverged' || v.status === 'unknown_local') ? { tone: 'attention', icon: <GitCommitIcon size={14} />, title: 'Локальные изменения' }
+    : { tone: 'neutral', icon: <QuestionIcon size={14} />, title: 'Статус неизвестен' };
+  const tones: Record<Tone, { bg: string; border: string; dot: string; dotFg: string }> = {
+    success: { bg: 'success.subtle', border: 'success.muted', dot: 'success.emphasis', dotFg: 'fg.onEmphasis' },
+    attention: { bg: 'attention.subtle', border: 'attention.muted', dot: 'attention.emphasis', dotFg: 'fg.onEmphasis' },
+    danger: { bg: 'danger.subtle', border: 'danger.muted', dot: 'danger.emphasis', dotFg: 'fg.onEmphasis' },
+    neutral: { bg: 'canvas.subtle', border: 'border.muted', dot: 'neutral.muted', dotFg: v.status === 'current' ? 'success.fg' : 'fg.muted' },
+  };
+  const t = tones[st.tone];
+  // подпись по умолчанию: канал · коммит (+ «авто», если включено автообновление)
+  const sub = st.sub ?? (
+    <>
+      {ch && <RouterLink to="/settings#updates" title="Канал обновлений — Настройки" style={{ color: 'inherit', textDecoration: 'none' }}>
+        {pinned && <PinIcon size={10} />} {chText}
+      </RouterLink>}
+      {ch && ' · '}
+      {v.local
+        ? <Link href={`${v.repoUrl}/commit/${v.local.sha}`} target="_blank" rel="noreferrer" muted sx={{ fontFamily: 'mono' }}>{short(v.local.sha)}</Link>
+        : 'версия неизвестна'}
+      {!pinned && v.auto && <span title="Автообновление включено"> · авто</span>}
+    </>
+  );
+  // последнее изменение канала — первая строка сообщения коммита головы
+  const headMsg = v.status === 'behind' ? (v.remote?.message || '').split('\n')[0].trim() : '';
 
   return (
     <>
-      {/* карточка ровно по ширине пунктов меню (nav-item): те же края, радиус 9px и внутренний
-          отступ 8px с рамкой (7+1), поэтому текст и иконки стоят на одной вертикали с «Логи»/«Настройки» */}
+      {/* карточка ровно по ширине пунктов меню (nav-item): те же края и радиус 9px */}
       {/* есть что ставить (или уже ставится) — карточка прилипает к низу меню и видна при любой
           прокрутке; иначе стоит на своём месте после «Настроек» */}
       <div className={pinnedToBottom ? 'version-dock' : undefined} style={pinnedToBottom ? undefined : { marginTop: 8 }}>
-      <Box sx={{ px: '7px', py: '8px', borderRadius: '9px', border: '1px solid', borderColor: 'border.muted', bg: 'canvas.subtle',
-        fontSize: '12px', lineHeight: '18px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', height: 20 }}>
-          <Text sx={{ fontSize: '14px', fontWeight: 'semibold', color: 'fg.default' }}>Версия</Text>
-          <Box as="button" type="button" title={`Проверить обновления (проверено в ${checked})`} aria-label="Проверить обновления"
-            disabled={busy || updating} onClick={() => load(true)}
-            sx={{ ml: 'auto', width: 20, height: 20, p: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              border: 0, borderRadius: '6px', bg: 'transparent', color: 'fg.muted', cursor: 'pointer',
-              ':hover:not(:disabled)': { color: 'fg.default', bg: 'neutral.muted' }, ':disabled': { opacity: 0.5, cursor: 'default' } }}>
-            {busy ? <Spinner size="small" sx={{ width: 14, height: 14 }} /> : <SyncIcon size={14} />}
+      <Box sx={{ p: '9px', borderRadius: '9px', border: '1px solid', borderColor: t.border, bg: t.bg,
+        fontSize: '12px', lineHeight: '16px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+          <Box sx={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            bg: t.dot, color: t.dotFg }}>{st.icon}</Box>
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Text as="div" sx={{ fontSize: '13px', lineHeight: '18px', fontWeight: 'semibold', color: 'fg.default', display: 'flex', alignItems: 'center' }}>{st.title}</Text>
+            <Box sx={{ color: 'fg.subtle', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</Box>
           </Box>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
-          {ch && (
-            <RouterLink to="/settings#updates" style={{ textDecoration: 'none', display: 'inline-flex', minWidth: 0 }} title="Канал обновлений — Настройки">
-              <Label variant={pinned ? 'attention' : 'accent'} sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, maxWidth: '100%' }}>
-                <ChIcon size={12} /><Box as="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chText}</Box>
-              </Label>
-            </RouterLink>
+          {!updating && (
+            <Box as="button" type="button" title={`Проверить обновления (проверено в ${checked})`} aria-label="Проверить обновления"
+              disabled={busy} onClick={() => load(true)}
+              sx={{ alignSelf: 'flex-start', width: 22, height: 22, p: 0, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                border: 0, borderRadius: '6px', bg: 'transparent', color: 'fg.muted', cursor: 'pointer',
+                ':hover:not(:disabled)': { color: 'fg.default', bg: 'neutral.muted' }, ':disabled': { opacity: 0.5, cursor: 'default' } }}>
+              {busy ? <Spinner size="small" sx={{ width: 14, height: 14 }} /> : <SyncIcon size={14} />}
+            </Box>
           )}
-          {v.local
-            ? <Link href={`${v.repoUrl}/commit/${v.local.sha}`} target="_blank" rel="noreferrer" muted sx={{ fontFamily: 'mono', ml: 'auto' }}>{short(v.local.sha)}</Link>
-            : <Text sx={{ ml: 'auto' }}>версия неизвестна</Text>}
         </Box>
-        {updating ? <UpdateProgress stage={build.update} /> : (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box sx={{ width: 8, height: 8, mx: '2px', borderRadius: '50%', bg: state.color, flexShrink: 0 }} />
-            <Text sx={{ color: 'fg.default' }}>{state.text}</Text>
+        {updating && <UpdateProgress stage={build.update} />}
+        {!updating && headMsg && (
+          <Box title={headMsg} sx={{ borderLeft: '2px solid', borderColor: st.tone === 'neutral' ? 'border.default' : t.border, pl: 2, color: 'fg.default', overflow: 'hidden' }}
+            style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{headMsg}</Box>
+        )}
+        {!updating && hasUpdate && (
+          <Box sx={{ display: 'flex', gap: '6px' }}>
+            {canClick && <Button size="small" variant="primary" leadingVisual={DownloadIcon} onClick={() => setConfirm(true)} sx={{ flex: 1 }}>Обновить</Button>}
+            {pinned
+              ? <Button as={RouterLink} to="/settings#updates" size="small" sx={{ flex: canClick ? undefined : 1 }}>Выбрать версию</Button>
+              : <Button as="a" href={newLink} target="_blank" rel="noreferrer" size="small" sx={{ flex: canClick ? undefined : 1 }}>Что нового</Button>}
           </Box>
-        )}
-        {!updating && (
-          <RouterLink to="/settings#updates" style={{ color: 'inherit', textDecoration: 'none' }} title="Канал и автообновление — Настройки">
-            <Text sx={{ color: 'fg.subtle', ':hover': { color: 'fg.muted' } }}>
-              {pinned ? 'Версия закреплена' : v.auto ? 'Автообновление включено' : 'Обновление вручную'}
-            </Text>
-          </RouterLink>
-        )}
-        {!updating && canClick && (
-          // как пункты меню (nav-item); отрицательные поля — чтобы подсветка доходила до краёв карточки
-          <button type="button" className="nav-item" style={{ margin: '0 -4px', width: 'calc(100% + 8px)', padding: '6px 4px', color: 'var(--fg)' }}
-            onClick={() => setConfirm(true)}>
-            <DownloadIcon /><span>Обновить</span>
-          </button>
         )}
         {note && <Text sx={{ color: 'fg.subtle' }}>{note}</Text>}
         {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
