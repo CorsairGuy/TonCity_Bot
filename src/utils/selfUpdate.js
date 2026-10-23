@@ -18,7 +18,7 @@ const ALIVE_MS=90*1000;          // обновлятель пишет heartbeat 
 const BUSY_MS=20*60*1000;         // дольше заявка не идёт: скачивание + ожидание деплоя Portainer
 const WAIT_MS=10*60*1000;        // скачивание образа на медленном канале
 // версия updater/updater.sh в этом образе бота: обновлятель старше — панель просит обновить его вручную
-const UPDATER_VERSION=7;
+const UPDATER_VERSION=8;
 const TAG_RE=/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 let running=false;
 
