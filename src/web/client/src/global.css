@@ -120,9 +120,13 @@ body {
 .nav-separator { height: 1px; background: rgb(208 181 255 / 20%); margin: 8px 8px 8px; }
 /* блок версии, прилипший к низу меню (есть обновление): непрозрачная подложка на всю ширину меню,
    чтобы пункты не просвечивали под карточкой при прокрутке (см. VersionBadge) */
-.version-dock { position: sticky; bottom: -8px; z-index: 1; margin: 0 -8px -8px; padding: 8px 8px 8px; background: rgb(255 255 255); }
+.version-dock { --dock-bg: color-mix(in srgb, rgb(255 255 255) 85%, var(--bg));  /* непрозрачный цвет меню поверх фона страницы */
+  position: sticky; bottom: -8px; z-index: 1; margin: 0 -8px -8px; padding: 8px 8px 8px; background: var(--dock-bg); }
 .version-dock > div { margin-bottom: 0 !important; }
-html[data-theme="dark"] .version-dock { background: rgb(22 27 34); }
+/* прилипший блок: вместо разделителя пункты меню плавно растворяются над ним (место линии сохраняем) */
+.version-dock > div:first-child { visibility: hidden; }
+.version-dock::before { content: ''; position: absolute; left: 0; right: 0; top: -24px; height: 24px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--dock-bg)); }
+html[data-theme="dark"] .version-dock { --dock-bg: color-mix(in srgb, rgb(22 27 34) 82%, var(--bg)); }
 html[data-theme="dark"] { --version-line: rgb(46 160 67 / 40%); }
 html[data-theme="dark"] .nav-separator { background: rgb(48 54 61 / 80%); }
 
