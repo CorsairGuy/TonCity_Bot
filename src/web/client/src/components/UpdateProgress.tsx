@@ -40,3 +40,36 @@ export function UpdateProgress({ stage, fallback = 'Обновляюсь, бот
     </Box>
   );
 }
+
+// Этап обновления для блока «Версия» в меню: заголовок — сам этап, подпись — подробность, stage —
+// ход этапа для полосы (null — полосы нет, 'run' — бегущая), overall — общий ход для кольца
+// (скачивание 0–80%, распаковка 80–95%, перезапуск 95%; null — крутится спиннером).
+export interface StageView { title: string; sub: string | null; stage: number | 'run' | null; overall: number | null }
+export function updateStageView(stage: UpdateStage | null): StageView {
+  const p = stage?.progress;
+  if (stage?.state === 'restarting')
+    return { title: cap(stage.message || 'перезапускаю бота'), sub: 'обычно меньше минуты', stage: 'run', overall: 95 };
+  if (stage?.state === 'pulling' && p && p.layers > 0) {
+    if (p.downloaded < p.layers) {
+      const dl = p.estTotal > 0 ? Math.min(1, p.cur / p.estTotal) : p.downloaded / p.layers;
+      return { title: 'Скачиваю', sub: `${mb(p.cur)} из ${p.estTotal > p.total ? '~' : ''}${mb(p.estTotal)} МБ`, stage: dl * 100, overall: dl * 80 };
+    }
+    const ex = p.extracted / p.layers;
+    return { title: 'Распаковываю', sub: `слой ${Math.min(p.extracted + 1, p.layers)} из ${p.layers}`, stage: ex * 100, overall: 80 + ex * 15 };
+  }
+  // слоёв нет — всё скачано раньше; прогресса нет — обновлятель старой версии
+  if (stage?.state === 'pulling') return { title: p ? 'Проверяю образ' : cap(stage.message || 'скачиваю образ'), sub: null, stage: null, overall: null };
+  return { title: 'Обновляюсь', sub: null, stage: null, overall: null };
+}
+
+// кольцо общего хода обновления 16×16 — по размеру иконок меню
+export function ProgressRing({ pct }: { pct: number }) {
+  const r = 6.25, c = 2 * Math.PI * r;
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" aria-label={`${Math.round(pct)}%`} style={{ display: 'block', transform: 'rotate(-90deg)' }}>
+      <circle cx={8} cy={8} r={r} fill="none" stroke="currentColor" strokeOpacity={0.25} strokeWidth={2.5} />
+      <circle cx={8} cy={8} r={r} fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+        strokeDasharray={`${(c * Math.max(0, Math.min(100, pct))) / 100} ${c}`} style={{ transition: 'stroke-dasharray .4s' }} />
+    </svg>
+  );
+}

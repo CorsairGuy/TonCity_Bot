@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
-import { CheckIcon, ChevronLeftIcon, SyncIcon, XIcon } from '@primer/octicons-react';
-import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
+import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon, XIcon } from '@primer/octicons-react';
+import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActiveBooster, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
+import { MapLoader, DATA_SHARE, allCounted } from '../components/MapLoader';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { useMapDayNight } from '../hooks/useMapDayNight';
@@ -11,7 +12,10 @@ import { DayNightMenu } from '../components/DayNightMenu';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, MapBrushLevel, PanelShell, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
+import { useAsk } from '../hooks/useAsk';
+import { useNarrow } from '../hooks/useNarrow';
+import { LoadError } from '../components/LoadError';
 
 // ключ карты эффектов политики: та же схема, что cw(stat,scopeKind,target) в бандле игры —
 // scope_kind==="global" (или без target) — суффикса нет, иначе "scopeKind:target"
@@ -222,6 +226,9 @@ function logLabel(r: CityActionLogRow, labelFor: (id: string) => string, booster
 }
 
 export function CityMapCity() {
+  const ask = useAsk();
+  const narrow = useNarrow();
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { flash, showFlash } = useFlash();
@@ -232,6 +239,7 @@ export function CityMapCity() {
 
   const [rows, setRows] = useState<CityRow[] | CapitalRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dataDone, setDataDone] = useState(0); // сколько запросов загрузки страницы уже ответило
   const [buildingsCatalog, setBuildingsCatalog] = useState<BuildingDef[]>([]);
   const [targets, setTargets] = useState<CityStrategyTarget[]>([]);
   const [manualQueue, setManualQueue] = useState<CityStrategyQueueItem[]>([]);
@@ -247,9 +255,14 @@ export function CityMapCity() {
   // смене аккаунта, обновляем после каждой реконструкции/реновации (они тратят/дают эти предметы)
   const [components, setComponents] = useState(0);
   const [masterplans, setMasterplans] = useState(0);
+  // accountRef — ответ за прошлый аккаунт (быстрый переход назад/вперёд) не затирает текущий
+  const accountRef = useRef(account);
+  accountRef.current = account;
   const loadResources = useCallback(() => {
     if (!account) return;
-    api.cityResources(account).then(d => { if (d.ok) { setComponents(d.components); setMasterplans(d.masterplans); } });
+    api.cityResources(account).then(d => {
+      if (d.ok && accountRef.current === account) { setComponents(d.components); setMasterplans(d.masterplans); }
+    });
   }, [account]);
   useEffect(() => { loadResources(); }, [loadResources]);
   // общий план по семействам — нужен только для показателей "после всех запланированных" (вкладка
@@ -280,10 +293,10 @@ export function CityMapCity() {
   // ── Ускорители/Лог/Прогноз — каждая вкладка подгружает своё при активации, не на общей загрузке
   // страницы (ускорители/лог — из БД, прогноз — единственный живой запрос всего раздела) ──────────
   const [boosters, setBoosters] = useState<CityBoosterRow[]>([]);
+  const [boosterActive, setBoosterActive] = useState<CityActiveBooster[]>([]);
   // очередь активации: порядок = приоритет, цикл идёт по ней сверху вниз
   const [boosterQueue, setBoosterQueue] = useState<{ name: string; label: string }[]>([]);
   const [boostersLoading, setBoostersLoading] = useState(false);
-  const [boosterActivating, setBoosterActivating] = useState<Set<string>>(new Set());
   const [boostersChecking, setBoostersChecking] = useResumableRefresh(`boostersCheck:${account}`, () => loadBoosters());
   const [actionLog, setActionLog] = useState<CityActionLogRow[]>([]);
   const [actionLogLoading, setActionLogLoading] = useState(false);
@@ -312,22 +325,31 @@ export function CityMapCity() {
   const [buildFamily, setBuildFamily] = useState('');
   const [moveFrom, setMoveFrom] = useState<{ x: number; y: number } | null>(null);
   const [search, setSearch] = useState('');
-  const [catFilter, setCatFilter] = useState('');
+  // вкладки категорий без «ВСЕ»: по умолчанию COM
+  const [catFilter, setCatFilter] = useState('COM');
 
+  const [loadErr, setLoadErr] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   useEffect(() => {
+    let stale = false;
     setLoading(true);
-    Promise.all([
-      api.city(),
+    setDataDone(0);
+    setLoadErr('');
+    // только этот аккаунт: раньше карта тянула снимки, политики и балансы всего флота
+    allCounted([
+      account ? api.city(account) : Promise.resolve({ ok: true, rows: [] as CityRow[] }),
       api.buildingsList('city'),
       account ? api.cityStrategy(account) : Promise.resolve({ ok: true, targets: [] as CityStrategyTarget[], queue: [] as CityStrategyQueueItem[], reconstructPlan: [] as CityStrategyQueueItem[] }),
       fetch('/api/coords?type=').then(r => r.json()).catch(() => ({ coords: [] })),
-      api.policies().catch(() => ({ ok: false as const, byAccount: {} })),
+      (account ? api.policies(account) : Promise.resolve({ ok: false as const, byAccount: {} })).catch(() => ({ ok: false as const, byAccount: {} })),
       account ? api.cityGuildBenefits(account).catch(() => ({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 })) : Promise.resolve({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 }),
-      api.accounts().catch(() => ({ ok: false as const, accounts: [] })),
+      (account ? api.accounts(account) : Promise.resolve({ ok: false as const, accounts: [] })).catch(() => ({ ok: false as const, accounts: [] })),
       account ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
       account ? api.cityDiversity(account).catch(() => ({ ok: false as const, income_bonus: 0 })) : Promise.resolve({ ok: false as const, income_bonus: 0 }),
-    ]).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
+    ], () => { if (!stale) setDataDone(n => n + 1); }).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
+      if (stale) return;
       if (c.ok) setRows(c.rows);
+      else setLoadErr((c as { error?: string }).error || 'снимок города не загрузился');
       if (b.ok) setBuildingsCatalog(b.buildings);
       if (t.ok) { setTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); }
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
@@ -348,8 +370,10 @@ export function CityMapCity() {
       setPolicyCabinet(pol.ok ? pol.byAccount[account]?.cabinet : undefined);
       setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
       setDiversityIncomeBoost(diversity.ok ? diversity.income_bonus : 0);
-    }).finally(() => setLoading(false));
-  }, [account]);
+    }).catch(e => { if (!stale) setLoadErr(String(e)); })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
+  }, [account, reloadTick]);
 
   // смена аккаунта — сбросить режим, очередь и все незавершённые выборы
   useEffect(() => {
@@ -370,8 +394,9 @@ export function CityMapCity() {
   };
 
   const refreshMap = useCallback(() => {
-    api.city().then(d => { if (d.ok) setRows(d.rows); });
-  }, []);
+    if (!account) return;
+    api.city(account).then(d => { if (d.ok && accountRef.current === account) setRows(d.rows); });
+  }, [account]);
 
   // "Обновить" — в отличие от refreshMap (читает кэш CitySnapshot из БД), реально дёргает /progress/
   // прямо сейчас, чтобы получить самые свежие постройки с живой игры
@@ -461,6 +486,7 @@ export function CityMapCity() {
   const boosterLabelFor = (id: string) => { const b = boosters.find(x => x.name === id); return b ? b.label : `#${id}`; };
 
   function switchMode(m: CityActionMode) {
+    setPanelCollapsed(false); // выбор режима на телефоне раскрывает свёрнутую панель
     setMode(m); setMoveFrom(null);
     if (m !== 'build') { setBuildFamily(''); setSearch(''); setCatFilter(''); }
   }
@@ -564,7 +590,10 @@ export function CityMapCity() {
     } else if (mode === 'reconstruct') {
       toggleReconRef.current(gx, gy);
     } else if (mode === 'renovate') {
-      setQueue(prev => [...prev, { id: nextIdRef.current++, kind: 'renovate', x: gx, y: gy }]);
+      // повторный клик снимает отметку, как крестик в списке
+      setQueue(prev => prev.some(a => a.kind === 'renovate' && a.x === gx && a.y === gy)
+        ? prev.filter(a => !(a.kind === 'renovate' && a.x === gx && a.y === gy))
+        : [...prev, { id: nextIdRef.current++, kind: 'renovate', x: gx, y: gy }]);
     }
   }, [mode, addLevel, buildFamily, moveFrom, displayBuildings, buildingsCatalog, manualQueue]);
 
@@ -578,41 +607,56 @@ export function CityMapCity() {
     if (sec?.unlockCost.coins) costParts.push(`${fmt(sec.unlockCost.coins)} монет`);
     if (sec?.unlockCost.crystals) costParts.push(`${fmt(sec.unlockCost.crystals)} кристаллов`);
     const costText = costParts.length ? costParts.join(' + ') : 'бесплатно';
-    if (!window.confirm(`Разблокировать эту секцию карты за ${costText}?`)) return;
+    if (!await ask('Открыть секцию карты?', `Разблокировать эту секцию за ${costText}?`, { ok: 'Открыть' })) return;
     setUnlockingSection(true);
     try {
       const r = await api.cityActionUnlockSection(account, sectionId);
       if (r.ok) { showFlash('Секция разблокирована', true); refreshMap(); }
       else showFlash(r.error ?? 'Не удалось разблокировать секцию', false);
     } catch (e) { showFlash(String(e), false); } finally { setUnlockingSection(false); }
-  }, [account, sections, unlockingSection, refreshMap, showFlash]);
+  }, [account, sections, unlockingSection, refreshMap, showFlash, ask]);
 
   const removeQueued = (id: number) => setQueue(prev => prev.filter(a => a.id !== id));
   // Реконструкция одним кликом: клетка в плане — убрать из плана; уже отмечена сейчас — снять отметку;
   // готова (уровень набран, стройки нет) — отметить к выполнению кнопкой внизу; иначе — в план,
   // бот сам отправит её, когда здание дорастёт (modules/progress.js runPendingReconstructions).
   // План сохраняется сразу, без отдельной кнопки.
-  const saveReconstructPlanNow = async (next: CityStrategyQueueItem[]) => {
-    const prev = reconstructPlan;
+  // Кисть (выделение прямоугольником) зовёт onPick для каждой клетки подряд в одном обработчике:
+  // раньше каждый вызов брал устаревший reconstructPlan из замыкания и слал свой POST — параллельные
+  // транзакции replaceAll сталкивались на UNIQUE(account,x,y) и падали с ошибкой, а в плане оставалась
+  // только последняя клетка. Теперь клики копятся в reconPendingRef и уходят одним запросом, а
+  // сохранения идут строго по очереди.
+  const reconPendingRef = useRef<{ base: CityStrategyQueueItem[]; next: CityStrategyQueueItem[] } | null>(null);
+  const reconSaveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const saveReconstructPlanNow = (next: CityStrategyQueueItem[]) => {
+    const pend = reconPendingRef.current;
+    if (pend) { pend.next = next; setReconstructPlan(next); return; }
+    reconPendingRef.current = { base: reconstructPlan, next };
     setReconstructPlan(next);
-    try {
-      const r = await api.saveReconstructPlan(account, next);
-      if (!r.ok) { showFlash(r.error ?? 'Ошибка', false); setReconstructPlan(prev); }
-    } catch (e) { showFlash(String(e), false); setReconstructPlan(prev); }
+    reconSaveChainRef.current = reconSaveChainRef.current.then(async () => {
+      const batch = reconPendingRef.current;
+      reconPendingRef.current = null;
+      if (!batch) return;
+      try {
+        const r = await api.saveReconstructPlan(account, batch.next);
+        if (!r.ok) { showFlash(r.error ?? 'Ошибка', false); setReconstructPlan(batch.base); }
+      } catch (e) { showFlash(String(e), false); setReconstructPlan(batch.base); }
+    });
   };
   const toggleReconstruct = (x: number, y: number) => {
-    if (reconstructPlan.some(p => p.x === x && p.y === y)) { saveReconstructPlanNow(reconstructPlan.filter(p => !(p.x === x && p.y === y))); return; }
+    const plan = reconPendingRef.current?.next ?? reconstructPlan;
+    if (plan.some(p => p.x === x && p.y === y)) { saveReconstructPlanNow(plan.filter(p => !(p.x === x && p.y === y))); return; }
     const q = queue.find(a => a.kind === 'reconstruct' && a.x === x && a.y === y);
     if (q) { setQueue(prev => prev.filter(a => a.id !== q.id)); return; }
     if (reconstructableSet.has(`${x}_${y}`)) setQueue(prev => [...prev, { id: nextIdRef.current++, kind: 'reconstruct', x, y }]);
-    else saveReconstructPlanNow([...reconstructPlan, { x, y }]);
+    else saveReconstructPlanNow([...plan, { x, y }]);
   };
   toggleReconRef.current = toggleReconstruct;
 
   const loadBoosters = useCallback(() => {
     if (!account) return;
     setBoostersLoading(true);
-    api.cityBoosters(account).then(d => { if (d.ok) { setBoosters(d.boosters); setBoosterQueue(d.queue ?? []); } else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setBoostersLoading(false));
+    api.cityBoosters(account).then(d => { if (d.ok) { setBoosters(d.boosters); setBoosterActive(d.active ?? []); setBoosterQueue(d.queue ?? []); } else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setBoostersLoading(false));
   }, [account]);
   const loadActionLog = useCallback(() => {
     if (!account) return;
@@ -658,15 +702,6 @@ export function CityMapCity() {
     const next = boosterQueue.map(q => q.name);
     const [x] = next.splice(from, 1); next.splice(to, 0, x);
     saveQueue(next);
-  };
-  const activateBooster = async (name: string) => {
-    setBoosterActivating(prev => new Set(prev).add(name));
-    try {
-      const r = await api.activateBooster(account, name);
-      showFlash(r.ok ? `${boosterLabelFor(name)} активирован` : (r.error ?? 'Ошибка'), !!r.ok);
-      if (r.ok) loadBoosters();
-    } catch (e) { showFlash(String(e), false); }
-    finally { setBoosterActivating(prev => { const next = new Set(prev); next.delete(name); return next; }); }
   };
   const checkBoosters = async () => {
     setBoostersChecking(true);
@@ -758,13 +793,7 @@ export function CityMapCity() {
   // явно говорит "не выполнено" (напр. не хватает населения — конкретный порог не храним у себя,
   // это отдаёт сама игра); либо не хватает монет на цену со всеми скидками. Дальнейшая постройка
   // вернёт ошибку от игры, поэтому просто не даём выбрать такое здание, но оставляем в списке
-  // видимым (в конце, неактивным).
-  const isUnavailable = (b: BuildingDef) => {
-    const k = familyCounts.get(familyId(b.id)) ?? 0;
-    if (b.limit != null && k >= b.limit) return true;
-    if (isCriteriaUnmet(buildCriteria, b.id)) return true;
-    return buildPriceAt(b, k, buildCostMultiplier) > balance;
-  };
+  // видимым (на своём месте в сортировке, неактивным).
 
   // палитра построимых зданий (Строительство) — поиск+категории, как в MapEditor.tsx
   const purchasable = useMemo(
@@ -772,21 +801,16 @@ export function CityMapCity() {
     [buildingsCatalog],
   );
   const paletteFiltered = purchasable.filter(b => {
-    if (catFilter && buildingCat(b.id) !== catFilter) return false;
+    if (buildingCat(b.id) !== catFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!buildingName(b).toLowerCase().includes(q) && !b.id.toLowerCase().includes(q)) return false;
     }
     return true;
   }).sort((a, b) => {
-    // недоступные к покупке (лимит семьи исчерпан) — всегда в конец списка, вне зависимости от
-    // остальной сортировки по категории
-    const ua = isUnavailable(a), ub = isUnavailable(b);
-    if (ua !== ub) return ua ? 1 : -1;
     // сортировка по показателю, релевантному именно этой категории — коммерческие по прибыли,
-    // жилые по населению, служебные по покрытию (всё по убыванию — лучшее сверху); без выбранной
-    // категории (ВСЕ) или для остального (SPE) — просто по алфавиту, смешивать разные метрики
-    // в одном списке не имеет смысла
+    // жилые по населению, служебные по покрытию (всё по убыванию — лучшее сверху); остальное (SPE) —
+    // по алфавиту. Недоступные и те, на которые не хватает монет, — на своём месте, а не в конце
     if (catFilter === 'COM') return (b.base_profit ?? 0) - (a.base_profit ?? 0);
     if (catFilter === 'RES') return (b.base_population ?? 0) - (a.base_population ?? 0);
     if (catFilter === 'SER') return (b.service_coverage ?? 0) - (a.service_coverage ?? 0);
@@ -796,6 +820,19 @@ export function CityMapCity() {
   const CAT_ORDER = ['COM', 'RES'];
   const catRank = (c: string) => { const i = CAT_ORDER.indexOf(c); return i === -1 ? 999 : i; };
   const paletteCats = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean).sort((a, b) => catRank(a) - catRank(b));
+  // выбранной категории в каталоге нет (COM у столицы без торговых зданий) — первая из имеющихся
+  const paletteCatsKey = paletteCats.join(',');
+  useEffect(() => { if (paletteCats.length && !paletteCats.includes(catFilter)) setCatFilter(paletteCats[0]); }, [paletteCatsKey, catFilter]);
+  // порядок зданий в «Плане» — как в «Строительстве»: категории в порядке вкладок, внутри — по показателю
+  // категории (звёздные тиры — по базовому зданию, чтобы стояли рядом), затем по названию
+  const planSortKey = useMemo(() => {
+    const byId = new Map(buildingsCatalog.map(b => [b.id, b]));
+    return (id: string): (string | number)[] => {
+      const cat = buildingCat(id), b = byId.get(familyId(id)), i = paletteCats.indexOf(cat);
+      const v = !b ? 0 : cat === 'COM' ? b.base_profit ?? 0 : cat === 'RES' ? b.base_population ?? 0 : cat === 'SER' ? b.service_coverage ?? 0 : 0;
+      return [i === -1 ? 999 : i, -v, labelFor(familyId(id)), id];
+    };
+  }, [buildingsCatalog, paletteCatsKey, labelFor]);
 
   // ── данные страниц сайдбара ─────────────────────────────────────────────────
   const nameWithStar = (id: string) => { const m = id.match(/_(\d+)_star\.png$/i); return m ? `${labelFor(id)} ★${m[1]}` : labelFor(id); };
@@ -868,7 +905,7 @@ export function CityMapCity() {
   const moveRows = queue.flatMap(a => a.kind === 'move' ? [{ id: a.id, from: a.from, to: a.to, sprite: ownedAt(a.from.x, a.from.y)?.id }] : []);
   const moveQueued = (from: number, to: number) => setManualQueue(prev => { const n = [...prev]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; });
 
-  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
+  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><MapLoader pct={DATA_SHARE * dataDone / 9} text={`Данные города ${dataDone} / 9`} /></Box>;
 
   const panelMode = mode as PanelMode;
   const HINT: Partial<Record<PanelMode, string>> = {
@@ -879,8 +916,8 @@ export function CityMapCity() {
     build: 'Выберите здание в списке, затем кликайте пустые клетки или проведите кистью. Каждая клетка добавляется в действия, которые выполнит кнопка «Выполнить».',
     move: 'Кликните здание, затем пустую клетку. Можно переместить несколько подряд. Цели и очередь переедут вместе со зданием, на экономику это не влияет.',
     demolish: 'Кликайте здания или проведите кистью. Монеты за снос не возвращаются. Нажмите на плитку, чтобы снять отметку.',
-    reconstruct: 'Тратит компоненты, сбрасывает здание на 1 уровень и даёт мастерпланы. Клик по готовому зданию отмечает его к выполнению кнопкой внизу, по неготовому — ставит в план: бот сам сделает, когда здание дойдёт до нужного уровня. Повторный клик снимает.',
-    renovate: 'Тратит мастерпланы и переводит здание в следующий звёздный тир. Отметьте здания и нажмите «Выполнить».',
+    reconstruct: 'Тратит компоненты, сбрасывает здание на 1 уровень и даёт мастерпланы. Кликните или проведите кистью по зданиям на карте: готовое отмечается к выполнению кнопкой внизу, неготовое ставится в план — бот сам сделает, когда здание дойдёт до нужного уровня. В списке — только выбранное, снимает выбор повторный клик или кисть.',
+    renovate: 'Тратит мастерпланы и переводит здание в следующий звёздный тир. Кликните по подсвеченным зданиям на карте и нажмите «Выполнить». В списке — только выбранное, снимает отметку повторный клик по зданию.',
     boosters: 'Бот активирует ускорители из очереди по порядку, как только освобождается слот. Молния рядом с ускорителем включает его сразу.',
     log: 'Последние действия по этому городу, и бота, и ручные.',
   };
@@ -911,6 +948,12 @@ export function CityMapCity() {
         ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Обновить лог" disabled={actionLogLoading} onClick={loadActionLog} />
         : undefined;
   const pendingNoDemolish = pendingRows.filter(r => r.kind !== 'demolish');
+  const summary = `Зданий: ${owned.length}${row?.updated_at ? ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}` : ''}`;
+  // телефон: сайдбар снизу сворачивается до шапки, чтобы карте доставался почти весь экран
+  const panelToggle = narrow
+    ? <IconButton size="small" variant="invisible" icon={panelCollapsed ? ChevronUpIcon : ChevronDownIcon}
+        aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
+    : null;
 
   return (
     <Box sx={{
@@ -925,19 +968,21 @@ export function CityMapCity() {
           borderBottom: '1px solid', borderColor: 'border.default',
           display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0,
         }}>
-          <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate('/city')}>
-            Назад
-          </Button>
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Heading as="h3" sx={{ fontSize: 2, m: 0 }}>{rowName}</Heading>
-            <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
-              {noSnapshot
-                ? 'Снимка города ещё нет — нажмите «Обновить»'
-                : <>Зданий: {owned.length}{row?.updated_at && ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}`}</>}
-            </Text>
+          {/* телефон: шапка в одну строку — кнопки иконками, сводка уходит в подсказку заголовка */}
+          {narrow
+            ? <IconButton icon={ChevronLeftIcon} aria-label="Назад" onClick={() => navigate('/city')} />
+            : <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate('/city')}>Назад</Button>}
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }}
+            title={noSnapshot ? undefined : summary}>
+            <Heading as="h3" sx={{ fontSize: 2, m: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rowName}</Heading>
+            {(noSnapshot || !narrow) && <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
+              {noSnapshot ? (narrow ? 'Нет снимка' : 'Снимка города ещё нет — нажмите «Обновить»') : summary}
+            </Text>}
           </Box>
           <DayNightMenu value={dayNight} onChange={setDayNight} />
-          <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>
+          {narrow
+            ? <IconButton icon={SyncIcon} aria-label="Обновить" disabled={liveRefreshing} onClick={doLiveRefresh} />
+            : <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>}
         </Box>
 
         {flash && (
@@ -948,7 +993,9 @@ export function CityMapCity() {
 
         {/* canvas + палитра инструментов поверх него, по центру снизу */}
         <Box sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
-          {owned.length === 0 && mode === 'view'
+          {loadErr
+            ? <Box sx={{ flex: 1, p: 3 }}><LoadError error={loadErr} onRetry={() => setReloadTick(n => n + 1)} /></Box>
+            : owned.length === 0 && mode === 'view'
             ? <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Text sx={{ color: 'fg.muted' }}>Нет данных о зданиях</Text>
               </Box>
@@ -987,15 +1034,15 @@ export function CityMapCity() {
         // ширина как у левого меню навигации — как было у прежнего сайдбара карты
         width: 'var(--sidebar-w)', flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
         borderLeft: '1px solid', borderColor: 'border.default',
-        '@media (max-width: 768px)': { width: '100%', height: '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default' },
+        '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },
       }}>
-        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={headActions} footer={footer} gap={mode === 'build' ? 3 : 2}
+        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
           count={mode === 'queue' ? manualQueue.length : mode === 'boosters' ? boosterQueue.length : undefined}>
 
           {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
 
           {mode === 'upgrade' && (
-            <PlanPanel targets={targets} owned={owned} labelFor={labelFor}
+            <PlanPanel targets={targets} owned={owned} labelFor={labelFor} sortKey={planSortKey}
               upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
           )}
 
@@ -1011,13 +1058,13 @@ export function CityMapCity() {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
                 <div id="map-cat-tabs">
-                  {['', ...paletteCats].map(cat => (
-                    <span key={cat || '__all'} className={'map-cat-tab' + (catFilter === cat ? ' active' : '')} onClick={() => setCatFilter(cat)}>
-                      {cat || 'ВСЕ'}
+                  {paletteCats.map(cat => (
+                    <span key={cat} className={'map-cat-tab' + (catFilter === cat ? ' active' : '')} onClick={() => setCatFilter(cat)}>
+                      {cat}
                     </span>
                   ))}
                 </div>
-                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {paletteFiltered.map(b => {
                     const k = familyCounts.get(familyId(b.id)) ?? 0;
                     const limitReached = b.limit != null && k >= b.limit;
@@ -1026,53 +1073,48 @@ export function CityMapCity() {
                     const unaffordable = !limitReached && !criteriaUnmet && price > balance;
                     const unavailable = limitReached || criteriaUnmet || unaffordable;
                     return (
-                      <div key={b.id}
-                        className={'map-bitem' + (buildFamily === b.id ? ' active' : '') + (unavailable ? ' disabled' : '')}
-                        onClick={() => { if (!unavailable) setBuildFamily(b.id); }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildingName(b)}</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: unavailable ? 'var(--fg-muted)' : 'var(--fg)', flexShrink: 0 }}>
-                          {limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : <CoinValue value={fmt(price)} />}
-                        </span>
-                      </div>
+                      <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
+                        sub={limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : undefined}
+                        trail={limitReached || criteriaUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmtUp(price)} /></Val>} />
                     );
                   })}
                 </Box>
               </Box>
-              <PendingList rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'move' && (
             <>
               <MovePanel from={moveFromInfo} moves={moveRows} labelFor={labelFor} disabled={executing} onCancel={() => setMoveFrom(null)} onRemove={removeQueued} />
-              <PendingList rows={pendingRows.filter(r => r.kind !== 'move')} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'move')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'demolish' && (
             <>
               <DemolishPanel tiles={demolishTiles} lossPerHour={demolish.loss} popLoss={demolish.pop} income={currentStats.profitFinal} disabled={executing} onRemove={removeQueued} />
-              <PendingList rows={pendingNoDemolish} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingNoDemolish} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'reconstruct' && (
             <>
               <ReconstructPanel groups={reconGroups} components={components} disabled={executing} onToggle={toggleReconstruct} />
-              <PendingList rows={pendingRows.filter(r => r.kind !== 'reconstruct')} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'reconstruct')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'renovate' && (
             <>
               <RenovatePanel masterplans={masterplans} items={renovateItems} incomeGain={renovateGain} onToggle={toggleRenovate} disabled={executing} />
-              <PendingList rows={pendingRows.filter(r => r.kind !== 'renovate')} disabled={executing} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'renovate')} disabled={executing} onRemove={removeQueued} />
             </>
           )}
 
           {mode === 'boosters' && (
-            <BoostersPanel boosters={boosters} loading={boostersLoading} queue={boosterQueue} activating={boosterActivating}
-              onAdd={queueAdd} onReorder={queueReorder} onRemoveAt={queueRemoveAt} onActivate={activateBooster} />
+            <BoostersPanel boosters={boosters} active={boosterActive} loading={boostersLoading} queue={boosterQueue}
+              onAdd={queueAdd} onReorder={queueReorder} onRemoveAt={queueRemoveAt} />
           )}
 
           {mode === 'log' && <LogPanel rows={actionLog} loading={actionLogLoading} label={r => logLabel(r, labelFor, boosterLabelFor)} labelFor={labelFor} />}

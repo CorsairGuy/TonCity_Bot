@@ -357,6 +357,8 @@ export function setPhase(ph: Phase) {
 }
 
 export function shownPhase(): Phase | null { return shown && !shown.ph.isDay ? shown.ph : null; }
+// ночные слои (разметка окон и подсветка) уже пришли или не пришли совсем — для шкалы загрузки карты
+export function nightMetaSettled(): boolean { return metaState === 'ready' || metaState === 'failed'; }
 export function nightBusy(): boolean { return metaState === 'loading' || queue.length > 0 || pumping; }
 
 // карта собирается рисовать спрайт id шириной tw — заранее перекрасить его под текущую ступень

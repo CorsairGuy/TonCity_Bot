@@ -1,24 +1,24 @@
 // Правый сайдбар карты города: палитра инструментов внизу карты переключает его содержимое,
 // сам сайдбар всегда открыт. Здесь — оформление страниц сайдбара, данные и действия приходят из
 // CityMapCity.tsx (там же остались Строительство/Перемещение/Реконструкция в прежнем виде).
-import { useEffect, useMemo, useState, type ReactNode, type DragEvent } from 'react';
-import { Box, Button, Checkbox, CounterLabel, IconButton, Label, Octicon, ProgressBar, Spinner, Text, TextInput, Timeline } from '@primer/react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type DragEvent } from 'react';
+import { Box, Button, CounterLabel, IconButton, Octicon, ProgressBar, Spinner, Text, TextInput, Timeline } from '@primer/react';
 import { Tooltip } from '@primer/react/experimental';
 import {
   GraphIcon, GoalIcon, StackIcon, ClockIcon, PlusIcon, ArrowBothIcon, TrashIcon, IterationsIcon, StarIcon, ZapIcon, LogIcon,
-  QuestionIcon, SearchIcon, XIcon, DashIcon, ChevronDownIcon, ChevronRightIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
-  GrabberIcon, PlusCircleIcon, UnlockIcon, CheckIcon, UndoIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon,
+  QuestionIcon, SearchIcon, XIcon, DashIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
+  PlusCircleIcon, UnlockIcon, CheckIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
-import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActionLogRow, ForecastEvent } from '../api';
+import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActiveBooster, CityActionLogRow, ForecastEvent } from '../api';
 import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
 import { Scrollable } from '../components/Scrollable';
-import { CoinValue } from '../components/Icons';
-import { fmt } from '../utils';
+import { CoinValue, CrystalValue } from '../components/Icons';
+import { fmt, ITEMS_BY_ID } from '../utils';
 import { catalogItemImg } from '../hooks/useItemCatalog';
 
-export type PanelMode = Exclude<CityActionMode, 'skip'>;
+export type PanelMode = CityActionMode;
 
 // ── палитра ──────────────────────────────────────────────────────────────────
 interface Tool { mode: PanelMode; icon: React.ElementType; title: string; danger?: boolean }
@@ -29,17 +29,43 @@ export const CITY_TOOLS: Tool[][] = [
   [{ mode: 'reconstruct', icon: IterationsIcon, title: 'Реконструкция' }, { mode: 'renovate', icon: StarIcon, title: 'Реновация' }, { mode: 'boosters', icon: ZapIcon, title: 'Ускорители' }],
   [{ mode: 'log', icon: LogIcon, title: 'Лог' }],
 ];
-export const toolFor = (m: PanelMode): Tool => CITY_TOOLS.flat().find(t => t.mode === m) ?? CITY_TOOLS[0][0];
+// у столицы нет реконструкции/реновации/ускорителей, зато есть ускорение стройки за алмазы
+export const CAPITAL_TOOLS: Tool[][] = [
+  [{ mode: 'view', icon: GraphIcon, title: 'Показатели' }],
+  [{ mode: 'upgrade', icon: GoalIcon, title: 'План' }, { mode: 'queue', icon: StackIcon, title: 'Очередь' }, { mode: 'forecast', icon: ClockIcon, title: 'Прогноз' }],
+  [{ mode: 'build', icon: PlusIcon, title: 'Строительство' }, { mode: 'move', icon: ArrowBothIcon, title: 'Перемещение' }, { mode: 'demolish', icon: TrashIcon, title: 'Снос', danger: true }],
+  [{ mode: 'skip', icon: RocketIcon, title: 'Ускорить' }],
+  [{ mode: 'log', icon: LogIcon, title: 'Лог' }],
+];
+export const toolFor = (m: PanelMode): Tool => [...CITY_TOOLS, ...CAPITAL_TOOLS].flat().find(t => t.mode === m) ?? CITY_TOOLS[0][0];
+
+// стекло дока и плашки кисти — общее: обе висят на карте, непрозрачный overlay её закрывал бы
+const DOCK_GLASS = {
+  display: 'flex', alignItems: 'center', p: 2, flexShrink: 0,
+  bg: 'rgba(22,27,34,.5)', border: '1px solid', borderColor: 'rgba(255,255,255,.1)',
+  borderRadius: '19px', boxShadow: 'shadow.large',
+  backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+} as const;
+// кнопка дока 36×36, радиус 10: капсула 19 = 10 + поле 8 + рамка 1 (углы концентричны)
+const dockBtn = (on = false) => ({
+  width: 36, height: 36, minWidth: 36, p: 0, borderRadius: '10px',
+  '& svg': { width: 18, height: 18, color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)' },
+});
+
+// на сенсорном экране фокус после тапа остаётся на кнопке, и её подсказка висит, пока не тапнешь в другое место
+export function blurOnTouch(el: HTMLElement) {
+  if (window.matchMedia('(hover: none)').matches) el.blur();
+}
 
 function PaletteTool({ t, on, dot, onSelect }: { t: Tool; on: boolean; dot: boolean; onSelect: (m: PanelMode) => void }) {
   const onBg = 'accent.emphasis';
   return (
     <Box sx={{ display: 'flex', lineHeight: 0, position: 'relative', flexShrink: 0, '& > span': { display: 'flex', lineHeight: 0 } }}>
       <Tooltip text={t.title} direction="n">
-        <IconButton icon={t.icon} aria-label={t.title} variant="invisible" size="medium" onClick={() => onSelect(t.mode)}
+        <IconButton icon={t.icon} aria-label={t.title} variant="invisible" size="medium"
+          onClick={e => { onSelect(t.mode); blurOnTouch(e.currentTarget); }}
           sx={{
-            width: 36, height: 36, minWidth: 36, p: 0, borderRadius: 2,
-            '& svg': { width: 18, height: 18, color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)' },
+            ...dockBtn(on),
             ...(on
               ? { bg: onBg, '&:hover:not([disabled])': { bg: onBg } }
               : t.danger
@@ -52,21 +78,20 @@ function PaletteTool({ t, on, dot, onSelect }: { t: Tool; on: boolean; dot: bool
   );
 }
 
-export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect: (m: PanelMode) => void; dots: Partial<Record<PanelMode, boolean>> }) {
-  // стекло оставляем: док висит на карте, непрозрачный overlay её закрывал бы. Геометрия — Primer:
-  // поле 8px со всех сторон (p:2), радиус 12 (токен 3, как у overlay/плашки кисти), кнопки medium 36,
-  // скругление кнопки 6 (токен 2). Tooltip — inline-span, без flex/lineHeight:0 снизу появляется strut
+export function MapPalette({ mode, onSelect, dots, tools = CITY_TOOLS }: { mode: PanelMode; onSelect: (m: PanelMode) => void; dots: Partial<Record<PanelMode, boolean>>; tools?: Tool[][] }) {
+  // в стиле дока macOS: без линий-разделителей, кнопки внутри группы через 4px, группы — через 20px
+  // (4 + пустой зазор 12 + 4). Tooltip — inline-span, без flex/lineHeight:0 снизу появляется strut
   // и нижнее поле перестаёт быть 8px.
   return (
     <Box sx={{
-      display: 'flex', alignItems: 'center', gap: 2, p: 2, maxWidth: '100%', overflowX: 'auto',
+      ...DOCK_GLASS, gap: 1, maxWidth: '100%', overflowX: 'auto',
       scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' },
-      bg: 'rgba(22,27,34,.5)', border: '1px solid', borderColor: 'rgba(255,255,255,.18)',
-      borderRadius: '16px', boxShadow: 'shadow.large',
-      backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+      // телефон: 12 кнопок в ширину не влезают — переносим во второй ряд, а не листаем со скрытой
+      // полосой (часть режимов и даже активная кнопка оказывались за краем)
+      '@media (max-width: 768px)': { flexWrap: 'wrap', justifyContent: 'center', overflowX: 'visible', rowGap: 1 },
     }}>
-      {CITY_TOOLS.flatMap((grp, gi) => [
-        gi > 0 ? <Box key={`sep-${gi}`} aria-hidden sx={{ width: 1, alignSelf: 'stretch', bg: 'rgba(255,255,255,.18)', flexShrink: 0 }} /> : null,
+      {tools.flatMap((grp, gi) => [
+        gi > 0 ? <Box key={`gap-${gi}`} aria-hidden sx={{ width: 12, flexShrink: 0 }} /> : null,
         ...grp.map(t => (
           <PaletteTool key={t.mode} t={t} on={mode === t.mode} dot={!!dots[t.mode]} onSelect={onSelect} />
         )),
@@ -75,17 +100,15 @@ export function MapPalette({ mode, onSelect, dots }: { mode: PanelMode; onSelect
   );
 }
 
-// уровень кисти «Плана» — отдельная плашка справа от дока, в его же стиле
+// уровень кисти «Плана» — отдельная плашка справа от дока, из того же стекла и той же высоты
 export function MapBrushLevel({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const btn = { ...dockBtn(), '&:hover:not([disabled])': { bg: 'rgba(255,255,255,.14)' }, '&[disabled] svg': { color: 'rgba(255,255,255,.35)' } };
   return (
     <Tooltip text="Уровень кисти: клик и мазок ставят цель до этого уровня" direction="n">
-      <Box role="group" aria-label="Уровень кисти" sx={{
-        display: 'flex', alignItems: 'center', gap: 1, p: 1, flexShrink: 0,
-        bg: 'canvas.overlay', border: '1px solid', borderColor: 'border.default', borderRadius: '12px', boxShadow: 'shadow.large',
-      }}>
-        <IconButton icon={DashIcon} aria-label="Ниже" variant="invisible" disabled={value <= 1} onClick={() => onChange(Math.max(1, value - 1))} />
-        <Text sx={{ minWidth: 24, textAlign: 'center', fontWeight: 'semibold', ...num }}>{value}</Text>
-        <IconButton icon={PlusIcon} aria-label="Выше" variant="invisible" onClick={() => onChange(value + 1)} />
+      <Box role="group" aria-label="Уровень кисти" sx={{ ...DOCK_GLASS, gap: 1 }}>
+        <IconButton icon={DashIcon} aria-label="Ниже" variant="invisible" size="medium" disabled={value <= 1} onClick={() => onChange(Math.max(1, value - 1))} sx={btn} />
+        <Text sx={{ minWidth: 24, textAlign: 'center', fontWeight: 'semibold', color: 'rgba(255,255,255,.9)', ...num }}>{value}</Text>
+        <IconButton icon={PlusIcon} aria-label="Выше" variant="invisible" size="medium" onClick={() => onChange(value + 1)} sx={btn} />
       </Box>
     </Tooltip>
   );
@@ -108,9 +131,10 @@ export function PanelShell({ mode, count, hint, actions, footer, gap = 2, childr
       {/* полоса прокрутки поверх содержимого (как в прежнем сайдбаре) — отступ ровно 8px со всех сторон */}
       <Scrollable>
         {/* подпись группы при ритме 8px идёт вплотную к своему блоку, при 16px — с прежним отступом */}
-        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap, '& > *': { flexShrink: 0 }, '& .panel-caption': { pb: gap > 2 ? 2 : 0 } }}>
+        {/* подсказка всегда в 8px от содержимого, даже когда блоки идут через 16px (Строительство) */}
+        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
           {help && <Text as="p" sx={{ m: 0, fontSize: 0, color: 'fg.muted', bg: 'canvas.subtle', p: 2, borderRadius: 2 }}>{hint}</Text>}
-          {children}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap, '& > *': { flexShrink: 0 }, '& .panel-caption': { pb: gap > 2 ? 2 : 0 } }}>{children}</Box>
         </Box>
       </Scrollable>
       {footer && <Box sx={{ flexShrink: 0, p: 2, display: 'flex', alignItems: 'center', gap: 2, borderTop: '1px solid', borderColor: 'border.default' }}>{footer}</Box>}
@@ -119,6 +143,8 @@ export function PanelShell({ mode, count, hint, actions, footer, gap = 2, childr
 }
 
 const muted = { fontSize: 0, color: 'fg.muted' } as const;
+// вторая строка карточки: светлее серой подписи, но не белая (--fg-sub в global.css, своя для каждой темы)
+const sub2 = { fontSize: 0, color: 'var(--fg-sub)', lineHeight: '16px' } as const;
 const num = { fontVariantNumeric: 'tabular-nums' } as const;
 export function Caption({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
@@ -129,18 +155,11 @@ export function Caption({ children, right }: { children: ReactNode; right?: Reac
   );
 }
 export function Empty({ children }: { children: ReactNode }) { return <Text sx={muted}>{children}</Text>; }
-function Thumb({ id, size = 40, bg = 'canvas.subtle', dim }: { id: string; size?: number; bg?: string; dim?: boolean }) {
+export function Thumb({ id, size = 40, bg = 'canvas.subtle', dim }: { id: string; size?: number; bg?: string; dim?: boolean }) {
   return <Box sx={{ width: size, height: size, borderRadius: '8px', bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}><BuildingSprite id={id} size={size - 8} dim={dim} /></Box>;
 }
-// как в игре — 2 знака после запятой
-export function fmtStat(n: number): string {
-  const abs = Math.abs(n), sign = n < 0 ? '-' : '';
-  if (abs >= 1e12) return sign + (abs / 1e12).toFixed(2) + 'T';
-  if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
-  if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
-  if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + 'K';
-  return String(Math.round(n));
-}
+// тот же формат, что во всей панели (fmt, 1 знак): раньше карта писала 55.27M, а таблицы — 55.3M
+export const fmtStat = (n: number): string => fmt(n);
 export function fmtTimeLeft(ms: number): string {
   if (ms <= 0) return '0м';
   const totalMin = Math.ceil(ms / 60000);
@@ -152,8 +171,9 @@ const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
 // ── общие кирпичики страниц в стиле «Плана» ─────────────────────────────────
 // Ритм 8 px: карточки со скруглением 12, белые плитки внутри цветной сводки — 8.
 // Заливки по состоянию — те же приглушённые цвета, что у шапок карточек «Плана».
-const FILL_DANGER = 'var(--bgColor-danger-muted, rgba(255,129,130,.4))';
-const FILL_ATTENTION = 'var(--bgColor-attention-muted, rgba(212,167,44,.4))';
+const FILL_DANGER = 'rgba(255,129,130,.4)';
+const FILL_ATTENTION = 'rgba(212,167,44,.4)';
+const FILL_RENOVATE = 'rgba(171,125,248,.35)'; // здание отмечено к реновации
 const ell = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const;
 // градиент из сегментов [цвет, процент], как прогресс в шапке карточки здания
 function fillOf(parts: [string, number][]): string {
@@ -177,23 +197,86 @@ function Tile({ value, label, color, size = 3 }: { value: ReactNode; label: Reac
 function SumLine({ left, right }: { left: ReactNode; right?: ReactNode }) {
   return <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, ...muted, ...num }}><Text>{left}</Text>{right != null && <Text>{right}</Text>}</Box>;
 }
-// карточка-строка, как у здания в «Плане»: миниатюра, название, серая строка, справа — действие
-function Row({ lead, title, sub, trail, fill, bg = 'canvas.subtle', onClick, sx, children }: {
-  lead?: ReactNode; title: ReactNode; sub?: ReactNode; trail?: ReactNode; fill?: string; bg?: string; onClick?: () => void; sx?: object; children?: ReactNode;
+// карточка-строка, как у здания в «Плане»: миниатюра 36px и две строки 20+16px — карточка 52px,
+// картинка ровно в 8px от краёв со всех сторон; справа — действие, стрелка раскрытия (chevron) в 16px от края
+// название карточки: не влезающее бежит влево до конца и обратно, пока курсор на карточке ([data-mq-host]),
+// без курсора сразу встаёт на место. Слушатели — на самой карточке, поэтому работает и в шапках внутри map
+function MarqueeTitle({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
+  const [run, setRun] = useState<{ d: number; t: number } | null>(null);
+  useEffect(() => {
+    const el = ref.current, host = el?.closest('[data-mq-host]');
+    if (!el || !host) return;
+    const enter = () => {
+      // ширину меряем дробной: scrollWidth округляется, и при переполнении меньше пикселя
+      // многоточие уже есть, а scrollWidth === clientWidth — строка не бежала
+      const inner = el.firstElementChild;
+      const d = inner ? Math.ceil(inner.getBoundingClientRect().width - el.getBoundingClientRect().width) : 0;
+      if (d > 0) setRun({ d, t: 2 * d / 40 + 2.4 });
+    };
+    const leave = () => setRun(null);
+    host.addEventListener('mouseenter', enter); host.addEventListener('mouseleave', leave);
+    return () => { host.removeEventListener('mouseenter', enter); host.removeEventListener('mouseleave', leave); };
+  }, []);
+  return (
+    <Text ref={ref} sx={{ fontWeight: 'semibold', lineHeight: '20px', ...ell, ...(run ? { textOverflow: 'clip' } : null) }}>
+      <span className={run ? 'tc-marquee' : undefined} style={run ? { ['--mq' as string]: `-${run.d}px`, animationDuration: `${run.t}s` } : undefined}>{children}</span>
+    </Text>
+  );
+}
+export function Row({ lead, title, sub, trail, fill, bg = 'canvas.subtle', onClick, chevron, sx, children }: {
+  lead?: ReactNode; title: ReactNode; sub?: ReactNode; trail?: ReactNode; fill?: string; bg?: string; onClick?: () => void; chevron?: boolean; sx?: object; children?: ReactNode;
 }) {
   return (
     <Box sx={{ borderRadius: '12px', bg, display: 'flex', flexDirection: 'column', ...sx }}>
-      <Box onClick={onClick} sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, borderRadius: '12px', backgroundImage: fill, cursor: onClick ? 'pointer' : undefined }}>
+      <Box onClick={onClick} data-mq-host=""
+        sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, pr: chevron ? 3 : 2, borderRadius: '12px', backgroundImage: fill, cursor: onClick ? 'pointer' : undefined }}>
         {lead}
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <Text sx={{ fontWeight: 'semibold', ...ell }}>{title}</Text>
-          {sub != null && <Text sx={{ ...muted, ...num, ...ell }}>{sub}</Text>}
+          <MarqueeTitle>{title}</MarqueeTitle>
+          {sub != null && <Text sx={{ ...sub2, ...num, ...ell }}>{sub}</Text>}
         </Box>
         {trail}
       </Box>
       {children}
     </Box>
   );
+}
+// цена на карточке здания: вверх до 1 знака в своей единице (2.13B → 2.2B) — короче, и денег точно хватит
+export function fmtUp(n: number): string {
+  for (const [k, u] of [[1e15, 'Q'], [1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']] as const) {
+    if (n < k) continue;
+    const v = Math.ceil(n / k * 10 - 1e-6) / 10;
+    // 999.95K округлилось бы в 1000K — тогда следующая единица
+    return v >= 1000 && k < 1e15 ? fmtUp(1000 * k) : String(v) + u;
+  }
+  return String(Math.ceil(n));
+}
+// мини-карточка предмета, как на странице «Предметы»: цвет редкости, количество в синем ярлыке (не хватает — в красном)
+function ItemCard({ tag, count, short, className, src, dim }: { tag: string; count?: ReactNode; short?: boolean; className?: string; src?: string | null; dim?: boolean }) {
+  return (
+    // непрозрачная подложка: фон редкости полупрозрачный и иначе окрашивался бы заливкой карточки
+    <Box className={className} sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', flexShrink: 0 }}>
+      <Box className={`item-card__box ic-${tag}`} style={{ width: 36, height: 36, borderRadius: 8 }}>
+        {(src !== null) && <img src={src ?? itemSrc(tag)} alt="" style={{ width: 28, height: 28, objectFit: 'contain', opacity: dim ? 0.5 : 1 }} />}
+        {count != null && <span className="item-card__count" style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', borderRadius: 7, right: -4, bottom: -4, fontVariantNumeric: 'tabular-nums', ...(short ? { background: '#e5534b' } : null) }}>{count}</span>}
+      </Box>
+    </Box>
+  );
+}
+// значение справа в карточке: одно, по центру по вертикали, 14px
+export function Val({ children, color = 'fg.default', mono, className }: { children: ReactNode; color?: string; mono?: boolean; className?: string }) {
+  return <Text className={className} sx={{ fontSize: 1, fontWeight: 'semibold', color, flexShrink: 0, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 1, ...num, ...(mono ? { fontFamily: 'mono', fontSize: '13px' } : null) }}>{children}</Text>;
+}
+// число справа, под курсором на его месте крестик (на сенсорных экранах крестик всегда рядом с числом)
+const SWAP = {
+  '& .sw-x': { display: 'none' }, '&:hover .sw-x, &:focus-within .sw-x': { display: 'inline-flex' }, '&:hover .sw-v, &:focus-within .sw-v': { display: 'none' },
+  '@media (hover: none)': { '& .sw-x': { display: 'inline-flex' }, '&:hover .sw-v, &:focus-within .sw-v': { display: 'inline-flex' } },
+} as const;
+// здание в списке «Строительства»: цена справа, выбранное залито синим, недоступное бледнее, причина — второй строкой
+export function BuildItem({ id, name, sub, trail, active, unavailable, onClick }: { id: string; name: string; sub?: ReactNode; trail?: ReactNode; active: boolean; unavailable: boolean; onClick: () => void }) {
+  return <Row lead={<Thumb id={id} size={36} bg="canvas.default" dim={unavailable} />} title={name} sub={sub} trail={trail} fill={active ? fillOf([[FILL_WIP, 100]]) : undefined}
+    onClick={unavailable ? undefined : onClick} sx={unavailable ? { opacity: 0.6 } : undefined} />;
 }
 // плоская строка «как в Строительстве»
 function Line({ lead, left, right, sx }: { lead?: ReactNode; left: ReactNode; right?: ReactNode; sx?: object }) {
@@ -211,13 +294,6 @@ function Dashed({ children, h = 48 }: { children: ReactNode; h?: number }) {
 function IconThumb({ icon, color = 'fg.muted', size = 36 }: { icon: React.ElementType; color?: string; size?: number }) {
   return <Box sx={{ width: size, height: size, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0, color }}><Octicon icon={icon} /></Box>;
 }
-function ImgThumb({ src, size = 36, dim }: { src: string | null; size?: number; dim?: boolean }) {
-  return (
-    <Box sx={{ width: size, height: size, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-      {src && <img src={src} alt="" style={{ width: size - 8, height: size - 8, objectFit: 'contain', opacity: dim ? 0.5 : 1 }} />}
-    </Box>
-  );
-}
 // миниатюра здания с бейджем (номер в очереди, значок типа в логе)
 function BadgeThumb({ id, badge, badgeBg = 'accent.emphasis', corner = 'tl', dim }: { id: string; badge: ReactNode; badgeBg?: string; corner?: 'tl' | 'br'; dim?: boolean }) {
   return (
@@ -233,7 +309,7 @@ function BadgeThumb({ id, badge, badgeBg = 'accent.emphasis', corner = 'tl', dim
 }
 const itemSrc = (tag: string) => `/items/${tag}.png`;
 const ItemIcon = ({ tag, size = 14 }: { tag: string; size?: number }) => <img src={itemSrc(tag)} alt="" style={{ width: size, height: size, objectFit: 'contain', verticalAlign: 'middle' }} />;
-const Glyph = ({ tag, v }: { tag: string; v: ReactNode }) => <Box as="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}><ItemIcon tag={tag} />{v}</Box>;
+const Glyph = ({ tag, v }: { tag: string; v: ReactNode }) => <Box as="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', height: 16, verticalAlign: 'top' }}><ItemIcon tag={tag} />{v}</Box>;
 
 // кнопка внизу на всю ширину с белым каунтером (как «Сохранить 45» у Плана)
 const COUNT_FG: Record<string, string> = { primary: '#116329', danger: '#a40e26', accent: '#0a3069' };
@@ -301,7 +377,7 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
       </Summary>
       {people.map(([ic, c, v, k, after]) => (
         <Row key={k} lead={<IconThumb icon={ic} color={c} />} title={v} sub={k}
-          trail={after !== v ? <Text sx={{ ...muted, ...num, flexShrink: 0 }}>→ {after}</Text> : undefined} />
+          trail={after !== v ? <Val color="fg.muted">→ {after}</Val> : undefined} />
       ))}
       {(Object.keys(SERVICE_LABEL) as ServiceCat[]).map(k => {
         const v = Math.round(s.serviceRatios[k] * 100);
@@ -309,13 +385,33 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
         return (
           <Row key={k} lead={<Thumb id={SERVICE_SPRITE[k]} size={36} bg="canvas.default" />} title={SERVICE_LABEL[k]}
             sub={v >= 100 ? 'с запасом' : ok ? 'почти хватает' : 'не хватает'} fill={fillOf([[ok ? FILL_DONE : FILL_ATTENTION, Math.min(100, v)]])}
-            trail={<Text title={`Покрытие: ${fmtStat(s.coverageByCat[k])}`} sx={{ fontWeight: 'semibold', color: ok ? 'success.fg' : 'attention.fg', ...num }}>{v}%</Text>} />
+            trail={<Val color={ok ? 'success.fg' : 'attention.fg'}><span title={`Покрытие: ${fmtStat(s.coverageByCat[k])}`}>{v}%</span></Val>} />
         );
       })}
     </>
   );
 }
 
+
+// ── Показатели столицы: монеты и кристаллы, доход, сила экономики и штаб-квартира ──
+export function CapitalStatsPanel({ coins, crystals, profitCoins, profitCrystals, econStrength, hallLevel, hallId }: {
+  coins: number; crystals: number; profitCoins: number; profitCrystals: number; econStrength: number; hallLevel: number; hallId?: string;
+}) {
+  return (
+    <>
+      <Summary tone="accent">
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Tile value={<CoinValue value={fmt(coins)} />} label="монет" />
+          <Tile value={<CrystalValue value={fmt(crystals)} />} label="кристаллов" />
+        </Box>
+        <SumLine left="доход монет в час" right={<CoinValue value={fmt(profitCoins)} />} />
+        <SumLine left="доход кристаллов в час" right={<CrystalValue value={fmt(profitCrystals)} />} />
+      </Summary>
+      <Row lead={<IconThumb icon={GraphIcon} color="success.fg" />} title={econStrength.toFixed(2)} sub="сила экономики" />
+      <Row lead={hallId ? <Thumb id={hallId} size={36} bg="canvas.default" /> : <IconThumb icon={StackIcon} />} title={`ур. ${hallLevel}`} sub="штаб-квартира" />
+    </>
+  );
+}
 
 // ── План: сводка, карточки зданий и полоса прогресса на каждую клетку ──────
 // Шкала клетки — от 1-го уровня до цели: (уровень−1)/(цель−1), уровень выше цели = 100%.
@@ -329,9 +425,11 @@ function planSum(cells: PlanCell[]): PlanSum {
   return r;
 }
 const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
-// заливка шапки здания: те же цвета, что у полос, приглушённые (переменные Primer с запасным значением)
-const FILL_DONE = 'var(--bgColor-success-muted, rgba(74,194,107,.4))';
-const FILL_WIP = 'var(--bgColor-accent-muted, rgba(84,174,255,.4))';
+// заливка шапки здания и плашек клеток: те же цвета, что у полос, приглушённые
+const FILL_DONE = 'rgba(74,194,107,.4)';
+const FILL_WIP = 'rgba(84,174,255,.4)';
+const FILL_OFF = 'rgba(248,81,73,.4)'; // клетка помечена к удалению
+const DONE_FG = '#7ee787'; // «готово» в шапке поверх зелёной заливки — светлее success.fg
 function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
@@ -341,16 +439,24 @@ function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: n
   );
 }
 const cellsWord = (n: number) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'клетка' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'клетки' : 'клеток'; };
-export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, removed, onMarkRemoved }: {
+// сравнение ключей сортировки по элементам: числа — по величине, строки — по алфавиту
+function cmpKeys(a: (string | number)[], b: (string | number)[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? '', y = b[i] ?? '';
+    const d = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'ru');
+    if (d) return d;
+  }
+  return 0;
+}
+export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, removed, onMarkRemoved, sortKey }: {
   targets: CityStrategyTarget[]; owned: MapBuilding[]; labelFor: (id: string) => string;
+  sortKey?: (id: string) => (string | number)[]; // порядок зданий — как в «Строительстве»; без него — по алфавиту
   upgradeCost: (id: string, fromLvl: number, toLvl: number) => number; // монет на улучшения fromLvl → toLvl
   onHover: (cells: string[] | null) => void; // "x_y" — на карте остаются видны только эти клетки
   // клетки ("x,y"), помеченные к удалению: остаются в списке бледными, из плана уходят при «Сохранить»
   removed: Set<string>; onMarkRemoved: (keys: string[], on: boolean) => void;
 }) {
   const [q, setQ] = useState('');
-  const [open, setOpen] = useState<string | null>(null);
-  const [hot, setHot] = useState<string | null>(null); // клетка под курсором: вместо полосы — уровни и цена
   useEffect(() => () => onHover(null), [onHover]); // ушли со вкладки — карта снова целиком
   const groups = useMemo(() => {
     const now = Date.now();
@@ -373,12 +479,15 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
       g.cells.sort((a, b) => a.x - b.x || a.y - b.y);
       const kept = g.cells.filter(c => !removed.has(c.key));
       return { ...g, sum: planSum(kept), marked: g.cells.length - kept.length };
-    }).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  }, [targets, owned, labelFor, upgradeCost, removed]);
+    }).sort((a, b) => !a.id !== !b.id ? (a.id ? -1 : 1) : sortKey ? cmpKeys(sortKey(a.id), sortKey(b.id)) : a.name.localeCompare(b.name, 'ru'));
+  }, [targets, owned, labelFor, upgradeCost, removed, sortKey]);
   const all = useMemo(() => planSum(groups.flatMap(g => g.cells.filter(c => !removed.has(c.key)))), [groups, removed]);
   const keptCount = targets.length - groups.reduce((n, g) => n + g.marked, 0);
   const ql = q.trim().toLowerCase();
-  const shown = ql ? groups.filter(g => g.name.toLowerCase().includes(ql) || g.cells.some(c => c.key.startsWith(ql))) : groups;
+  // карточка на клетку, как в «Реконструкции»: здания подряд в порядке «Строительства», внутри — по клетке
+  const cells = groups.flatMap(g => g.cells.map(c => ({ ...c, id: g.id, name: g.name })));
+  const shown = ql ? cells.filter(c => c.name.toLowerCase().includes(ql) || c.key.startsWith(ql)) : cells;
+  const marked = groups.reduce((n, g) => n + g.marked, 0);
   const hover = (keys: string[]) => ({ onMouseEnter: () => onHover(keys.map(k => k.replace(',', '_'))), onMouseLeave: () => onHover(null) });
   const allPct = pctOf(all.done, all.span);
   return (
@@ -404,66 +513,20 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
             </Box>
           </Box>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {shown.map(g => {
-              const o = open === g.id;
-              const toggle = () => setOpen(o ? null : g.id);
-              // прогресс здания — заливка шапки карточки; шапка скруглена и в раскрытом виде
-              const a = pctOf(g.sum.done, g.sum.span), b = pctOf(g.sum.done + g.sum.wip, g.sum.span);
+            {shown.map(c => {
+              const off = removed.has(c.key);
+              const ca = pctOf(c.done, c.span), cb = pctOf(c.done + c.wip, c.span);
+              // клик помечает клетку к удалению (карточка бледнеет, заливка красная), повторный — возвращает
               return (
-                <Box key={g.id} sx={{ borderRadius: '12px', bg: 'canvas.subtle', display: 'flex', flexDirection: 'column' }}>
-                  <Box role="button" tabIndex={0} aria-expanded={o} onClick={toggle} {...hover(g.cells.map(c => c.key))}
-                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
-                    sx={{
-                      display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, p: 2, borderRadius: '12px', cursor: 'pointer',
-                      backgroundImage: `linear-gradient(90deg, ${FILL_DONE} 0 ${a}%, ${FILL_WIP} ${a}% ${b}%, transparent ${b}%)`,
-                    }}>
-                    {g.id ? <Thumb id={g.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />}
-                    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                      <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</Text>
-                      <Text sx={{ ...muted, ...num, whiteSpace: 'nowrap' }}>{g.cells.length - g.marked} кл. · {g.sum.cost > 0 ? <CoinValue value={fmt(g.sum.cost)} /> : <Text sx={{ color: 'success.fg' }}>готово</Text>}</Text>
-                    </Box>
-                    <Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />
-                  </Box>
-                  {o && (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2 }}>
-                      {/* строки 22 px вплотную: полоса 16 px + бывший зазор входят в саму строку, щелей для мыши нет */}
-                      <Box sx={{ display: 'flex', flexDirection: 'column', my: '-3px' }}>
-                        {g.cells.map(c => {
-                          const off = removed.has(c.key);
-                          const levels = c.done >= c.span ? `готово, ур. ${c.level}` : `${c.level} → ${c.target}`;
-                          const k = c.key.replace(',', '_');
-                          // под курсором полоса сменяется строкой «уровень → цель · цена»; клик помечает клетку к удалению
-                          // (полоса бледнеет и перечёркнута), повторный — возвращает
-                          return (
-                            <Box key={c.key} as="button" type="button" aria-label={`${c.key} · ${levels}`} aria-pressed={off} onClick={() => onMarkRemoved([c.key], !off)}
-                              onMouseEnter={() => { setHot(c.key); onHover([k]); }} onMouseLeave={() => { setHot(h => h === c.key ? null : h); onHover(null); }}
-                              sx={{ position: 'relative', display: 'flex', alignItems: 'center', height: 22, p: 0, border: 0, bg: 'transparent', cursor: 'pointer', fontFamily: 'inherit', color: 'fg.default' }}>
-                              {hot === c.key && !off
-                                ? <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, height: 20, px: 2, borderRadius: '4px', bg: 'canvas.default', fontSize: '11px', ...num }}>
-                                    <Text sx={{ color: 'fg.muted', whiteSpace: 'nowrap' }}>{levels}</Text>
-                                    {c.cost > 0 && <Text sx={{ fontWeight: 'semibold', whiteSpace: 'nowrap' }}><CoinValue value={fmt(c.cost)} /></Text>}
-                                  </Box>
-                                : <>
-                                    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', opacity: off ? 0.35 : 1, '& .pb-fill': off ? { bg: 'danger.emphasis' } : undefined }}>
-                                      <PlanBar done={c.done} wip={c.wip} span={c.span} />
-                                    </Box>
-                                    {off && <Box sx={{ position: 'absolute', left: 0, right: 0, top: '50%', height: '1px', bg: 'danger.fg' }} />}
-                                  </>}
-                            </Box>
-                          );
-                        })}
-                      </Box>
-                      {g.marked > 0 && <Text sx={{ fontSize: 0, color: 'danger.fg', textAlign: 'center' }}>{g.marked} {cellsWord(g.marked)} {g.marked === 1 ? 'уйдёт' : 'уйдут'} из плана при сохранении</Text>}
-                      {g.marked < g.cells.length
-                        ? <Button size="small" block variant="invisible" leadingVisual={TrashIcon} onClick={() => onMarkRemoved(g.cells.map(c => c.key), true)}
-                            sx={{ color: 'danger.fg', bg: 'canvas.default', '& svg': { color: 'danger.fg' }, '&:hover:not([disabled])': { bg: 'danger.subtle' }, '&:active:not([disabled])': { bg: 'danger.muted' } }}>Убрать все клетки</Button>
-                        : <Button size="small" block variant="invisible" leadingVisual={UndoIcon} onClick={() => onMarkRemoved(g.cells.map(c => c.key), false)}
-                            sx={{ bg: 'canvas.default', '&:hover:not([disabled])': { bg: 'neutral.muted' }, '&:active:not([disabled])': { bg: 'neutral.muted' } }}>Вернуть все клетки</Button>}
-                    </Box>
-                  )}
+                <Box key={c.key} {...hover([c.key])} sx={{ opacity: off ? 0.35 : 1 }}>
+                  <Row lead={c.id ? <Thumb id={c.id} size={36} bg="canvas.default" /> : <Box sx={{ width: 36, height: 36 }} />} title={c.name}
+                    sub={`${c.done >= c.span ? `ур. ${c.level}` : `${c.level} → ${c.target}`} · ${c.key}`}
+                    fill={fillOf(off ? [[FILL_OFF, cb]] : [[FILL_DONE, ca], [FILL_WIP, cb - ca]])} onClick={() => onMarkRemoved([c.key], !off)}
+                    trail={c.cost > 0 ? <Val><CoinValue value={fmtUp(c.cost)} /></Val> : c.done >= c.span ? <Val><Octicon icon={CheckIcon} /></Val> : undefined} />
                 </Box>
               );
             })}
+            {marked > 0 && <Text sx={{ fontSize: 0, color: 'danger.fg', textAlign: 'center' }}>{marked} {cellsWord(marked)} {marked === 1 ? 'уйдёт' : 'уйдут'} из плана при сохранении</Text>}
             {shown.length === 0 && <Empty>Ничего не нашлось</Empty>}
           </Box>
         </>
@@ -516,14 +579,17 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
             onDragOver={e => { e.preventDefault(); if (over !== i) setOver(i); }} onDrop={e => onDrop(e, i)}
             sx={{
               borderRadius: '12px', opacity: drag === i ? 0.5 : 1, cursor: 'grab',
-              boxShadow: over === i && drag !== i ? '0 0 0 2px var(--borderColor-accent-emphasis, #0969da)' : undefined,
+              boxShadow: over === i && drag !== i ? '0 0 0 2px var(--cyan)' : undefined,
               // крестик виден под курсором; на сенсорных экранах — всегда
-              '& .q-rm': { opacity: 0 }, '&:hover .q-rm, & .q-rm:focus-visible': { opacity: 1 }, '@media (hover: none)': { '& .q-rm': { opacity: 1 } },
+              ...SWAP,
             }}>
             <Row lead={b ? <BadgeThumb id={b.id} badge={i + 1} badgeBg={i === 0 ? 'accent.emphasis' : 'neutral.emphasis'} /> : <Box sx={{ width: 36 }} />}
               title={b ? labelFor(b.id) : '—'} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
-              sub={<>{from != null ? `${from} → ${from + 1}` : `${q.x},${q.y}`}{prices[i] != null && <> · {fits[i] ? <CoinValue value={fmt(prices[i]!)} /> : <Text sx={{ color: 'attention.fg' }}>не хватит</Text>}</>}</>}
-              trail={<IconButton className="q-rm" size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemove(i)} />} />
+              sub={<>{from != null ? `${from} → ${from + 1}` : `${q.x},${q.y}`}{prices[i] != null && !fits[i] && <Text sx={{ color: 'attention.fg' }}> · не хватит</Text>}</>}
+              trail={<>
+                {prices[i] != null && <Val className="sw-v" color={fits[i] ? 'fg.default' : 'fg.muted'}><CoinValue value={fmtUp(prices[i]!)} /></Val>}
+                <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemove(i)} /></Box>
+              </>} />
           </Box>
         );
       })}
@@ -534,17 +600,28 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
 
 // ── отложенные действия (строительство/перемещение/снос/реконструкция/реновация) ─────────────
 export interface PendingRow { id: number; kind: string; label: string; sprite?: string }
-const PENDING_ICON: Record<string, React.ElementType> = { build: PlusIcon, move: ArrowBothIcon, demolish: TrashIcon, reconstruct: IterationsIcon, renovate: StarIcon };
-export function PendingList({ rows, disabled, onRemove }: { rows: PendingRow[]; disabled: boolean; onRemove: (id: number) => void }) {
+const PENDING_ICON: Record<string, React.ElementType> = { build: PlusIcon, move: ArrowBothIcon, demolish: TrashIcon, reconstruct: IterationsIcon, renovate: StarIcon, skip: RocketIcon };
+const PENDING_BADGE: Record<string, string> = { build: 'accent.emphasis', move: 'accent.emphasis', demolish: 'danger.emphasis', reconstruct: 'done.emphasis', renovate: 'done.emphasis', skip: 'attention.emphasis' };
+// как у остальных карточек: сверху здание, второй строкой «действие · клетка», значок действия — бейджем на картинке
+export function PendingList({ rows, labelFor, disabled, onRemove }: { rows: PendingRow[]; labelFor: (id: string) => string; disabled: boolean; onRemove: (id: number) => void }) {
   if (!rows.length) return null;
   return (
     <>
       <Caption right={`всего ${rows.length}`}>Ждут выполнения</Caption>
-      {rows.map(r => (
-        <Row key={r.id} lead={r.sprite ? <Thumb id={r.sprite} size={36} bg="canvas.default" dim={r.kind === 'demolish'} /> : <IconThumb icon={PENDING_ICON[r.kind] ?? PlusIcon} />}
-          title={r.label.split(': ')[0]} sub={r.label.split(': ').slice(1).join(': ')}
+      {rows.map(r => {
+        const cut = r.label.indexOf(': ');
+        const action = cut > 0 ? r.label.slice(0, cut) : r.label;
+        const name = r.sprite ? labelFor(r.sprite) : '';
+        let rest = cut > 0 ? r.label.slice(cut + 2) : '';
+        if (name && rest.startsWith(name)) rest = rest.slice(name.length).trim();
+        rest = rest.replace(/\((\d+,\d+)\)/g, '$1');
+        const icon = PENDING_ICON[r.kind] ?? PlusIcon;
+        return (
+        <Row key={r.id} lead={r.sprite ? <BadgeThumb id={r.sprite} badge={<Octicon icon={icon} size={10} />} badgeBg={PENDING_BADGE[r.kind] ?? 'accent.emphasis'} corner="br" dim={r.kind === 'demolish'} /> : <IconThumb icon={icon} />}
+          title={name || action} sub={name ? (rest ? `${action} · ${rest}` : action) : rest}
           trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onRemove(r.id)} />} />
-      ))}
+        );
+      })}
     </>
   );
 }
@@ -595,9 +672,11 @@ export function DemolishPanel({ tiles, lossPerHour, popLoss, income, disabled, o
       )}
       {[...tiles].sort((a, b) => b.loss - a.loss).map(t => (
         <Row key={t.id} lead={<Thumb id={t.sprite} size={36} bg="canvas.default" dim />} title={t.name}
-          sub={<>ур. {t.level} · {t.loss > 0 ? <Text sx={{ color: 'danger.fg' }}>−{fmt(t.loss)}/ч</Text> : `${t.x},${t.y}`}</>}
-          fill={fillOf([[FILL_DANGER, t.loss / max * 100]])}
-          trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Снять отметку" disabled={disabled} onClick={() => onRemove(t.id)} />} />
+          sub={`ур. ${t.level} · ${t.x},${t.y}`} fill={fillOf([[FILL_DANGER, t.loss / max * 100]])} sx={SWAP}
+          trail={<>
+            {t.loss > 0 && <Val className="sw-v" color="danger.fg">−{fmt(t.loss)}/ч</Val>}
+            <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Снять отметку" disabled={disabled} onClick={() => onRemove(t.id)} /></Box>
+          </>} />
       ))}
       <Dashed>Кликните или проведите кистью по зданиям</Dashed>
     </>
@@ -610,13 +689,14 @@ export function DemolishPanel({ tiles, lossPerHour, popLoss, income, disabled, o
 export interface ReconCell { x: number; y: number; level: number; req: number; building: boolean; ready: boolean; queued: boolean; planned: boolean }
 export interface ReconGroup { id: string; name: string; comp: number | null; gain: number | null; cells: ReconCell[] }
 export function ReconstructPanel({ groups, components, disabled, onToggle }: { groups: ReconGroup[]; components: number; disabled: boolean; onToggle: (x: number, y: number) => void }) {
-  const [open, setOpen] = useState<string | null>(null);
   const cells = groups.flatMap(g => g.cells.map(c => ({ ...c, g })));
   const ready = cells.filter(c => c.ready).length;
   const queued = cells.filter(c => c.queued);
   const spend = queued.reduce((s, c) => s + (c.g.comp ?? 0), 0), gain = queued.reduce((s, c) => s + (c.g.gain ?? 0), 0);
   if (groups.length === 0) return <Empty>В городе нет зданий, которые умеют реконструироваться.</Empty>;
-  const shownOpen = open ?? groups[0].id;
+  // в списке только выбранное кистью: отмеченное к выполнению сейчас и ждущее в плане нужного уровня
+  const picked = cells.filter(c => c.queued || c.planned).sort((a, b) => Number(b.queued) - Number(a.queued) || b.level / b.req - a.level / a.req);
+  let left = components;
   return (
     <>
       <Summary>
@@ -628,35 +708,19 @@ export function ReconstructPanel({ groups, components, disabled, onToggle }: { g
         <SumLine left={queued.length ? <>отмечено {queued.length}: <Glyph tag="component" v={`−${spend}`} /> <Glyph tag="masterplan" v={`+${gain}`} /></> : 'отметьте готовые здания'}
           right={cells.some(c => c.planned) ? `в плане ${cells.filter(c => c.planned).length}` : undefined} />
       </Summary>
-      {groups.map(g => {
-        const ok = g.cells.filter(c => c.ready).length; const o = shownOpen === g.id;
+      {picked.map(c => {
+        const span = Math.max(1, c.req - 1), done = Math.max(0, Math.min(c.level, c.req) - 1);
+        const ca = pctOf(done, span), cb = pctOf(done + (c.building && c.level < c.req ? 1 : 0), span);
+        // компонентов хватает по порядку списка: отмеченные к выполнению тратят первыми
+        const short = c.g.comp != null && (left -= c.g.comp) < 0;
         return (
-          <Row key={g.id} lead={<Thumb id={g.id} size={36} bg="canvas.default" />} title={g.name} onClick={() => setOpen(o ? '' : g.id)}
-            sub={<>{ok}/{g.cells.length} готовы{g.comp != null && <> · <Glyph tag="component" v={`−${g.comp}`} /></>}{g.gain != null && <> <Glyph tag="masterplan" v={`+${g.gain}`} /></>}</>}
-            fill={fillOf([[FILL_DONE, ok / g.cells.length * 100]])} trail={<Octicon icon={o ? ChevronDownIcon : ChevronRightIcon} sx={{ color: 'fg.muted', flexShrink: 0 }} />}>
-            {o && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', p: 1 }}>
-                {g.cells.map(c => {
-                  const span = Math.max(1, c.req - 1);
-                  const done = Math.max(0, Math.min(c.level, c.req) - 1);
-                  const state = c.queued ? <Octicon icon={CheckCircleFillIcon} size={14} sx={{ color: 'success.fg' }} />
-                    : c.planned ? <Octicon icon={ClockIcon} size={14} sx={{ color: 'accent.fg' }} />
-                      : <Box sx={{ width: 14, height: 14, borderRadius: '50%', border: '1px solid', borderColor: 'border.default' }} />;
-                  return (
-                    <Box key={`${c.x},${c.y}`} as="button" type="button" disabled={disabled} onClick={() => onToggle(c.x, c.y)}
-                      title={c.queued ? 'Отмечено: выполнится кнопкой внизу' : c.planned ? 'В плане: бот сделает сам. Клик — убрать' : c.ready ? 'Отметить к реконструкции' : 'Поставить в план'}
-                      sx={{ display: 'flex', alignItems: 'center', gap: 2, height: 28, px: 1, border: 0, borderRadius: '6px', bg: 'transparent', font: 'inherit', color: 'fg.default', cursor: 'pointer', '&:hover': { bg: 'canvas.default' } }}>
-                      {state}
-                      <PlanBar done={done} wip={c.building && c.level < c.req ? 1 : 0} span={span} />
-                      <Text sx={{ fontSize: 0, width: 40, textAlign: 'right', color: c.ready ? 'success.fg' : 'fg.muted', ...num }}>{c.level}/{c.req}</Text>
-                    </Box>
-                  );
-                })}
-              </Box>
-            )}
-          </Row>
+          <Row key={`${c.x},${c.y}`} lead={<Thumb id={c.g.id} size={36} bg="canvas.default" />} title={c.g.name}
+            sub={c.queued ? `готово · ${c.x},${c.y}` : `ур. ${c.level} из ${c.req} · ${c.x},${c.y}`}
+            fill={c.queued ? fillOf([[FILL_RENOVATE, 100]]) : fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]])}
+            trail={c.g.comp != null ? <ItemCard tag="component" count={c.g.comp} short={short} /> : undefined} />
         );
       })}
+      <Dashed>Кликните или проведите кистью по зданиям</Dashed>
     </>
   );
 }
@@ -683,19 +747,18 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
           : <ProgressBar barSize="small" progress={masterplans ? Math.min(100, used / masterplans * 100) : 0} bg="done.emphasis" aria-label="Мастерпланы" />}
       </Box>
       {items.length === 0 ? <Empty>Нет зданий, подходящих под реновацию</Empty> : (
-        <Box>
-          {items.map(it => {
-            const can = it.marked || (it.cost ?? 0) <= left;
+        <>
+          {/* в списке только отмеченное на карте; мастерпланов не хватает — ярлык красный с того здания, где кончились */}
+          {(() => { let rest = masterplans; return items.filter(it => it.marked).map(it => {
+            const short = (rest -= it.cost ?? 0) < 0;
             return (
-              <Box key={`${it.x},${it.y}`} as="label" sx={{ display: 'flex', alignItems: 'center', gap: 2, minHeight: 36, px: 2, borderRadius: '6px', cursor: can && !disabled ? 'pointer' : 'default', bg: it.marked ? 'done.subtle' : undefined }}
-                title={`${it.name} (${it.x},${it.y}) → ${it.nextName}`}>
-                <Checkbox checked={it.marked} disabled={disabled || !can} onChange={() => onToggle(it.x, it.y)} />
-                <Text sx={{ flex: 1, minWidth: 0, fontSize: 1, color: can ? 'fg.default' : 'fg.muted', ...ell }}>{it.nextName}</Text>
-                {can ? <Text sx={{ fontSize: 0, fontWeight: 'semibold', flexShrink: 0, ...num }}><Glyph tag="masterplan" v={it.cost ?? '?'} /></Text> : <Label variant="secondary">мало</Label>}
-              </Box>
+              <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" />} title={it.nextName}
+                fill={fillOf([[FILL_RENOVATE, 100]])}
+                trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={short} />} />
             );
-          })}
-        </Box>
+          }); })()}
+          <Dashed>Кликните по зданиям на карте</Dashed>
+        </>
       )}
       {incomeGain > 0 && <SumLine left="доход после реновации" right={<Text sx={{ color: 'success.fg' }}>+{fmt(incomeGain)}/ч</Text>} />}
     </>
@@ -703,49 +766,45 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
 }
 
 // ── Ускорители: активный жёлтой карточкой, очередь и склад карточками ───────
-export function BoostersPanel({ boosters, loading, queue, activating, onAdd, onReorder, onRemoveAt, onActivate }: {
-  boosters: CityBoosterRow[]; loading: boolean; queue: { name: string; label: string }[]; activating: Set<string>;
-  onAdd: (name: string) => void; onReorder: (from: number, to: number) => void; onRemoveAt: (i: number) => void; onActivate: (name: string) => void;
+export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReorder, onRemoveAt }: {
+  boosters: CityBoosterRow[]; active: CityActiveBooster[]; loading: boolean; queue: { name: string; label: string }[];
+  onAdd: (name: string) => void; onReorder: (from: number, to: number) => void; onRemoveAt: (i: number) => void;
 }) {
   const [drag, setDrag] = useState<number | null>(null);
   if (loading && boosters.length === 0) return <Spinner size="small" />;
-  const active = boosters.filter(b => b.currently_active > 0);
   const queued = (name: string) => queue.filter(q => q.name === name).length;
   const img = (name: string) => catalogItemImg(Number(name));
+  // ускоритель — карточкой предмета, как мастерплан и компонент: рамка цвета редкости (тег = редкость, у вечного — eternal)
+  const card = (name: string, count?: number, dim?: boolean) => {
+    const tag = ITEMS_BY_ID[Number(name)]?.tag?.replace(/_booster$/, '') ?? 'common';
+    return <ItemCard tag={tag} src={img(name)} count={count} dim={dim} />;
+  };
   const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   return (
     <>
       {active.map(b => (
-        <Row key={b.name} lead={<ImgThumb src={img(b.name)} />} title={b.label} bg="attention.subtle"
-          sub={<>{b.ends_at != null ? `активен · ещё ${fmtTimeLeft(b.ends_at - Date.now())}` : 'активен'}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</>}
-          trail={b.ends_at != null ? <Text sx={{ fontFamily: 'mono', fontWeight: 'semibold', fontSize: 1, color: 'attention.fg', flexShrink: 0 }}>{hhmm(b.ends_at)}</Text> : undefined} />
+        <Row key={b.name} lead={card(b.name)} title={b.label} bg="attention.subtle"
+          sub={<>{`активен · ещё ${fmtTimeLeft(b.ends_at - Date.now())}`}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</>}
+          trail={<Val mono color="attention.fg">{hhmm(b.ends_at)}</Val>} />
       ))}
       <Caption right={queue.length ? `${queue.length}` : undefined}>Очередь</Caption>
       {queue.length === 0 ? <Dashed>Пусто. Бот включает ускорители отсюда по порядку, как только освобождается слот.</Dashed> : queue.map((q, i) => (
         <Box key={`${q.name}:${i}`} draggable onDragStart={e => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => setDrag(null)}
           onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (drag != null && drag !== i) onReorder(drag, i); setDrag(null); }}
-          sx={{ opacity: drag === i ? 0.5 : 1 }}>
-          <Row lead={<ImgThumb src={img(q.name)} />} title={q.label} sub={i === 0 ? '#1 · следующий' : `#${i + 1}`} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
-            trail={<>
-              <IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemoveAt(i)} />
-              <Box sx={{ color: 'fg.subtle', display: 'flex', cursor: 'grab' }}><Octicon icon={GrabberIcon} /></Box>
-            </>} />
+          sx={{ opacity: drag === i ? 0.5 : 1, cursor: 'grab' }}>
+          <Row lead={card(q.name)} title={q.label} sub={i === 0 ? '#1 · следующий' : `#${i + 1}`} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
+            trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemoveAt(i)} />} />
         </Box>
       ))}
       <Caption>На складе</Caption>
       {boosters.length === 0 ? <Empty>Ускорителей в инвентаре нет</Empty> : boosters.map(b => {
         const k = queued(b.name);
-        const canActivate = b.available > 0 && b.currently_active < b.active_limit && !b.blocked_by_other;
         return (
-          <Row key={b.name} lead={<ImgThumb src={img(b.name)} dim={!b.available} />} title={b.label}
-            sub={<Text sx={{ color: b.blocked_by_other && b.available ? 'attention.fg' : 'fg.muted' }}>
-              {b.available ? `${b.available} шт.` : 'нет на складе'}{k > 0 && ` · в очереди ${k}`}{b.blocked_by_other && b.available > 0 && ' · ждёт другой'}
+          <Row key={b.name} lead={card(b.name, b.available || undefined, !b.available)} title={b.label}
+            sub={<Text sx={{ color: b.blocked_by_other && b.available ? 'attention.fg' : 'inherit' }}>
+              {[!b.available && 'нет на складе', k > 0 && `в очереди ${k}`, b.blocked_by_other && b.available > 0 && 'ждёт другой'].filter(Boolean).join(' · ') || 'на складе'}
             </Text>}
-            trail={<>
-              {/* у IconButton своя подсказка из aria-label; Tooltip вокруг выключенной кнопки Primer не принимает */}
-              <IconButton size="small" variant="invisible" icon={ZapIcon} aria-label="Активировать сейчас" disabled={!canActivate || activating.has(b.name)} onClick={() => onActivate(b.name)} />
-              <IconButton size="small" variant="invisible" icon={PlusIcon} aria-label="В очередь" disabled={k >= b.available} onClick={() => onAdd(b.name)} />
-            </>} />
+            trail={<IconButton size="small" variant="invisible" icon={PlusIcon} aria-label="В очередь" disabled={k >= b.available} onClick={() => onAdd(b.name)} />} />
         );
       })}
     </>
@@ -768,11 +827,7 @@ function byDay<T>(rows: T[], at: (r: T) => number): [string, T[]][] {
   return [...m.entries()];
 }
 const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-const Time = ({ ms, sub }: { ms: number; sub?: ReactNode }) => (
-  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px', alignSelf: 'flex-start', flexShrink: 0 }}>
-    <Text sx={{ fontFamily: 'mono', fontSize: 0, fontWeight: 'semibold', color: 'fg.muted' }}>{hhmm(ms)}</Text>{sub}
-  </Box>
-);
+const Time = ({ ms, title }: { ms: number; title?: string }) => <Val mono><span title={title}>{hhmm(ms)}</span></Val>;
 // тип действия: название, значок и цвет бейджа на миниатюре
 const LOG_TYPE: Record<string, [string, React.ElementType, string]> = {
   upgrade: ['Улучшение', ArrowUpIcon, 'success.emphasis'], build: ['Постройка', PlusCircleIcon, 'accent.emphasis'],
@@ -780,8 +835,11 @@ const LOG_TYPE: Record<string, [string, React.ElementType, string]> = {
   reconstruct: ['Реконструкция', IterationsIcon, 'done.emphasis'], renovate: ['Реновация', StarIcon, 'done.emphasis'],
   booster_activate: ['Ускоритель', ZapIcon, 'attention.emphasis'], booster_combine: ['Комбинирование', ZapIcon, 'attention.emphasis'],
   unlock_section: ['Секция', UnlockIcon, 'neutral.emphasis'],
+  'skip-upgrade': ['Ускорение', RocketIcon, 'attention.emphasis'],
 };
-export function LogPanel({ rows, loading, label, labelFor }: { rows: CityActionLogRow[]; loading: boolean; label: (r: CityActionLogRow) => string; labelFor: (id: string) => string }) {
+// общее у лога города и столицы (у столицы guild_id вместо account)
+type LogRow = Pick<CityActionLogRow, 'id' | 'type' | 'building_id' | 'level_from' | 'level_to' | 'duration_ms' | 'created_at'>;
+export function LogPanel<R extends LogRow>({ rows, loading, label, labelFor }: { rows: R[]; loading: boolean; label: (r: R) => string; labelFor: (id: string) => string }) {
   if (loading && rows.length === 0) return <Spinner size="small" />;
   if (rows.length === 0) return <Empty>Лог пуст</Empty>;
   return (
@@ -821,7 +879,7 @@ export function ForecastPanel({ events, loading, labelFor }: { events: ForecastE
             return (
               <Row key={i} lead={<Thumb id={e.building_id} size={36} bg="canvas.default" />} title={labelFor(e.building_id)} fill={boost ? fillOf([[FILL_ATTENTION, 100]]) : undefined}
                 sub={`${e.level_from} → ${e.level_to} · ${fmtTimeLeft(e.duration_ms)}`}
-                trail={<Time ms={e.start} sub={boost ? <Text title={e.boost_name ?? undefined} sx={{ fontSize: 0, fontWeight: 'semibold', color: 'attention.fg' }}>×{boost}</Text> : undefined} />} />
+                trail={<Time ms={e.start} title={boost ? `${e.boost_name ?? 'ускоритель'} ×${boost}` : undefined} />} />
             );
           })}
         </Box>

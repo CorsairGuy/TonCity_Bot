@@ -119,7 +119,9 @@ module.exports=function(app,ctx){
     try{
       const{Account,PolicySnapshot,Inventory}=require('../../db/index');
       const{Op}=require('sequelize');
-      const accs=await Account.findAll({attributes:['id','name','population_final']});
+      // ?account= — политики одного аккаунта (карта города считает по ним показатели)
+      const where=req.query.account?{name:String(req.query.account)}:undefined;
+      const accs=await Account.findAll({where,attributes:['id','name','population_final']});
       const accIdByName=Object.fromEntries(accs.map(a=>[a.name,a.id]));
       const accNames=accs.map(a=>a.name);
 

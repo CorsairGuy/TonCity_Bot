@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Heading, Text, FormControl, Select, SegmentedControl, ToggleSwitch } from '@primer/react';
+import { Box, Button, Flash, Heading, Text, FormControl, Select, TextInput, SegmentedControl, ToggleSwitch } from '@primer/react';
 import { SunIcon, MoonIcon } from '@primer/octicons-react';
 import { api } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useAppTheme } from '../components/AppThemeProvider';
 import { UpdatesCard } from '../components/UpdatesCard';
+import { useAsk } from '../hooks/useAsk';
 
 export function Settings() {
+  const ask = useAsk();
   const { theme, setTheme } = useAppTheme();
   const [logLevel, setLogLevel] = useState('info');
   const [botToken, setBotToken] = useState('');
@@ -96,7 +98,7 @@ export function Settings() {
   };
 
   const restart = async () => {
-    if (!confirm('Перезапустить бот?')) return;
+    if (!await ask('Перезапустить бот?', 'Бот и панель будут недоступны несколько секунд.', { ok: 'Перезапустить', danger: true })) return;
     setRestarting(true);
     try {
       await api.restart();
@@ -165,8 +167,7 @@ export function Settings() {
           <Box sx={{ maxWidth: 480 }}>
             <FormControl>
               <FormControl.Label>Токен бота</FormControl.Label>
-              <input value={botToken} onChange={e => setBotToken(e.target.value)} placeholder="1234567890:AAAA..."
-                style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }} />
+              <TextInput block value={botToken} onChange={e => setBotToken(e.target.value)} placeholder="1234567890:AAAA..." />
               <FormControl.Caption>
                 Токен, полученный от @BotFather. Общий для всех уведомлений ниже. Если оставить
                 пустым — никакие Telegram-уведомления отправляться не будут.
@@ -196,15 +197,13 @@ export function Settings() {
               <Box sx={{ minWidth: 200, flex: 1 }}>
                 <FormControl>
                   <FormControl.Label>Chat ID</FormControl.Label>
-                  <input value={chat} onChange={e => setChat(e.target.value)} placeholder="-1001234567890"
-                    style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }} />
+                  <TextInput block value={chat} onChange={e => setChat(e.target.value)} placeholder="-1001234567890" />
                 </FormControl>
               </Box>
               <Box sx={{ minWidth: 160, flex: 1 }}>
                 <FormControl>
                   <FormControl.Label>Тред (топик)</FormControl.Label>
-                  <input value={thread} onChange={e => setThread(e.target.value)} placeholder="не обязательно"
-                    style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }} />
+                  <TextInput block value={thread} onChange={e => setThread(e.target.value)} placeholder="не обязательно" />
                 </FormControl>
               </Box>
             </Box>
@@ -234,14 +233,12 @@ export function Settings() {
           <Box sx={{ maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <FormControl>
               <FormControl.Label>{pwSet ? 'Новый пароль' : 'Пароль'}</FormControl.Label>
-              <input type="password" value={pw1} onChange={e => setPw1(e.target.value)} placeholder="мин. 4 символа"
-                style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }} />
+              <TextInput type="password" block value={pw1} onChange={e => setPw1(e.target.value)} placeholder="мин. 4 символа" />
             </FormControl>
             <FormControl>
               <FormControl.Label>Повторите пароль</FormControl.Label>
-              <input type="password" value={pw2} onChange={e => setPw2(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') savePassword(); }}
-                style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }} />
+              <TextInput type="password" block value={pw2} onChange={e => setPw2(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') savePassword(); }} />
             </FormControl>
             <Box>
               <Button variant="primary" onClick={savePassword} disabled={savingPw || !pw1} loading={savingPw}>
@@ -263,7 +260,7 @@ export function Settings() {
           <Box>
             <Text sx={{ fontSize: 1, fontWeight: 'bold', display: 'block' }}>Перезапуск бота</Text>
             <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 1 }}>
-              Прерывает текущие операции. Docker/pm2 автоматически перезапустит процесс.
+              Прерывает текущие операции. Docker автоматически перезапустит процесс.
             </Text>
           </Box>
           <Button variant="danger" onClick={restart} disabled={restarting} loading={restarting}>

@@ -92,6 +92,7 @@ function startWebServer(port){
   require('./routes/capitalStrategy')(app,ctx); // Действия по столице: та же система, что и у города
   require('./routes/anniversary')(app,ctx); // Годовщина: Летний карнавал/Дорога наград/Предложение дня (событие 10-23.08)
   require('./routes/midway')(app,ctx);      // Карнавальная аллея: балаганы по дням, «Четыре в ряд» на билеты (19-24.08)
+  require('./routes/leaderboard')(app,ctx); // рейтинги игры: «Величайшие мэры» и лиги мэров/гильдий
   require('./routes/refresh')(app,ctx);     // ручной прогон модулей /api/refresh/:module
 
   app.post('/api/restart',(req,res)=>{

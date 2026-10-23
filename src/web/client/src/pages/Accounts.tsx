@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Flash, Label, Text, TextInput } from '@primer/react';
+import { Box, Button, Flash, FormControl, IconButton, Label, Text, TextInput } from '@primer/react';
 import { DataTable, Dialog, Table } from '@primer/react/experimental';
 import { PlusIcon, SyncIcon, TrashIcon } from '@primer/octicons-react';
 import { PageHeader } from '../components/PageHeader';
 import { api, type Account } from '../api';
 import { sortByName } from '../utils';
+import { useAsk } from '../hooks/useAsk';
+import { useNarrow } from '../hooks/useNarrow';
+import { LoadError, errText } from '../components/LoadError';
 
 export function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -15,6 +18,10 @@ export function Accounts() {
   const [adding, setAdding] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [flash, setFlash] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [loadErr, setLoadErr] = useState('');
+  const [addErr, setAddErr] = useState('');
+  const ask = useAsk();
+  const narrow = useNarrow();
 
   const showFlash = (msg: string, ok: boolean) => {
     setFlash({ msg, ok });
@@ -25,14 +32,15 @@ export function Accounts() {
     setLoading(true);
     try {
       const [d, dup] = await Promise.all([api.accounts(), api.accountDuplicates()]);
-      if (d.ok) setAccounts(sortByName(d.accounts, 'name'));
+      if (d.ok) { setAccounts(sortByName(d.accounts, 'name')); setLoadErr(''); }
+      else setLoadErr(errText(d));
       if (dup.ok) setDuplicateGroups(dup.groups);
-    } finally { setLoading(false); }
+    } catch (e) { setLoadErr(String(e)); } finally { setLoading(false); }
   };
 
   const addAccount = async () => {
     if (!addUrl.trim()) return;
-    setAdding(true);
+    setAdding(true); setAddErr('');
     try {
       const d = await api.addAccount(addUrl.trim());
       if (d.ok) {
@@ -40,17 +48,18 @@ export function Accounts() {
         setAddUrl('');
         setAddOpen(false);
         await load();
-      } else showFlash(d.error ?? 'Ошибка', false);
-    } finally { setAdding(false); }
+      } else setAddErr(d.error ?? 'Ошибка'); // в окне: флэш на странице прячется под его затемнением
+    } catch (e) { setAddErr(String(e)); } finally { setAdding(false); }
   };
 
   const removeAccount = async (id: number, name: string) => {
-    if (!confirm(`Удалить аккаунт «${name}»?`)) return;
+    if (!await ask('Удалить аккаунт?', `Аккаунт «${name}» и его токены будут удалены из бота.`, { ok: 'Удалить', danger: true })) return;
     setRemoving(prev => new Set(prev).add(id));
     try {
       const d = await api.deleteAccount(id);
-      if (d.ok) await load();
-    } finally {
+      if (d.ok) { showFlash(`Аккаунт ${name} удалён`, true); await load(); }
+      else showFlash(`Не удалось удалить ${name}: ${d.error ?? 'ошибка'}`, false);
+    } catch (e) { showFlash(`Не удалось удалить ${name}: ${e}`, false); } finally {
       setRemoving(prev => { const s = new Set(prev); s.delete(id); return s; });
     }
   };
@@ -82,27 +91,31 @@ export function Accounts() {
       {addOpen && (
         <Dialog
           title="Добавить аккаунт"
-          onClose={() => setAddOpen(false)}
+          onClose={() => { setAddOpen(false); setAddErr(''); }}
           position={{ narrow: 'bottom', regular: 'center' }}
           footerButtons={[
-            { content: 'Отмена', onClick: () => setAddOpen(false) },
+            { content: 'Отмена', onClick: () => { setAddOpen(false); setAddErr(''); } },
             { content: 'Добавить', buttonType: 'primary', loading: adding, disabled: adding || !addUrl.trim(), onClick: addAccount },
           ]}
         >
-          <Text sx={{ fontSize: 1, color: 'fg.muted', display: 'block', mb: 2 }}>
-            Вставьте ссылку из игры вида https://game.toncity.io/auth?t=...
-          </Text>
-          <TextInput
-            autoFocus
-            block
-            value={addUrl}
-            onChange={e => setAddUrl(e.target.value)}
-            placeholder="https://game.toncity.io/auth?t=..."
-            onKeyDown={e => e.key === 'Enter' && addAccount()}
-          />
+          <FormControl>
+            <FormControl.Label>Ссылка из игры</FormControl.Label>
+            <FormControl.Caption>Вида https://game.toncity.io/auth?t=...</FormControl.Caption>
+            <TextInput
+              autoFocus
+              block
+              value={addUrl}
+              validationStatus={addErr ? 'error' : undefined}
+              onChange={e => { setAddUrl(e.target.value); setAddErr(''); }}
+              placeholder="https://game.toncity.io/auth?t=..."
+              onKeyDown={e => e.key === 'Enter' && addAccount()}
+            />
+            {addErr && <FormControl.Validation variant="error">{addErr}</FormControl.Validation>}
+          </FormControl>
         </Dialog>
       )}
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+      <LoadError error={loadErr} onRetry={load} />
 
       {duplicateGroups.length > 0 && (
         <Box sx={{ border: '1px solid', borderColor: 'danger.emphasis', borderRadius: 2, mb: 3, p: 3, bg: 'danger.subtle' }}>
@@ -146,8 +159,9 @@ export function Accounts() {
               header: 'Аккаунт',
               field: 'name',
               rowHeader: true,
+              width: narrow ? 'growCollapse' : 'grow',
               sortBy: 'alphanumeric',
-              renderCell: row => <strong>{row.name}</strong>,
+              renderCell: row => <strong style={{ overflowWrap: 'anywhere' }}>{row.name}</strong>,
             },
             {
               header: 'Статус',
@@ -170,14 +184,24 @@ export function Accounts() {
               align: 'end',
               renderCell: row => (
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <Button
-                    variant="danger"
-                    leadingVisual={TrashIcon}
-                    loading={removing.has(row.id)}
-                    onClick={() => removeAccount(row.id, row.name)}
-                  >
-                    Удалить
-                  </Button>
+                  {narrow ? (
+                    <IconButton
+                      variant="danger"
+                      icon={TrashIcon}
+                      aria-label={`Удалить ${row.name}`}
+                      disabled={removing.has(row.id)}
+                      onClick={() => removeAccount(row.id, row.name)}
+                    />
+                  ) : (
+                    <Button
+                      variant="danger"
+                      leadingVisual={TrashIcon}
+                      loading={removing.has(row.id)}
+                      onClick={() => removeAccount(row.id, row.name)}
+                    >
+                      Удалить
+                    </Button>
+                  )}
                 </Box>
               ),
             },

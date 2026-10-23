@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mdi/font": "^7.4.47",
     "@primer/react": "^36.27.0",
     "lightweight-charts": "^5.2.0",
     "overlayscrollbars": "^2.16.0",

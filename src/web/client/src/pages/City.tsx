@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Button, Flash, Heading, Spinner, Text } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
 import { api, type Account, type CityRow } from '../api';
@@ -9,11 +9,16 @@ import { StatCard } from '../components/StatCard';
 import { CoinValue, CrystalValue } from '../components/Icons';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
+import { PageHeader } from '../components/PageHeader';
+import { LoadError, errText } from '../components/LoadError';
 
 export function City() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [cityRows, setCityRows] = useState<CityRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState('');
+  const narrow = useNarrow();
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:city', () => load());
   const { flash, showFlash } = useFlash();
   const navigate = useNavigate();
@@ -22,6 +27,7 @@ export function City() {
     const [a, c] = await Promise.all([api.accounts(), api.city()]);
     if (a.ok) setAccounts(a.accounts);
     if (c.ok) setCityRows(c.rows);
+    setLoadErr(a.ok ? (c.ok ? '' : errText(c)) : errText(a));
   }, []);
 
   useEffect(() => { load().finally(() => setLoading(false)); }, [load]);
@@ -79,18 +85,16 @@ export function City() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Heading as="h2" sx={{ fontSize: 3, m: 0 }}>Города</Heading>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
-            Обновить
-          </Button>
-          <Button onClick={() => navigate('/global-upgrade-plan')}>Общий план улучшений</Button>
-        </Box>
-      </Box>
+      <PageHeader title="Города" actions={<>
+        <Button onClick={() => navigate('/global-upgrade-plan')}>Общий план улучшений</Button>
+        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
+          Обновить
+        </Button>
+      </>} />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+      <LoadError error={loadErr} onRetry={load} />
 
-      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+      <div className="stat-grid stat-grid--reserve">
         <StatCard label="Монеты" color="cyan">
           <Text sx={{ fontSize: 2, fontWeight: 'bold', display: 'block' }}><CoinValue value={fmt(totalCoins)} /></Text>
         </StatCard>
@@ -116,7 +120,8 @@ export function City() {
           data={data}
           initialSortColumn="name"
           initialSortDirection="ASC"
-          columns={[
+          // на телефоне только главное: иначе кнопка «Карта» уезжала за правый край таблицы
+          columns={narrowCols<typeof data[number]>(narrow, ['name', 'profit', 'profit_diff', 'hasMap'], [
             {
               header: 'Аккаунт',
               field: 'name',
@@ -143,7 +148,7 @@ export function City() {
               renderCell: row => <span className="mono"><CoinValue value={fmt(row.profit ?? 0)} /></span>,
             },
             {
-              header: 'После',
+              header: 'Прибыль после',
               field: 'profit_diff',
               sortBy: 'basic',
               renderCell: row => { const d = diff(row.profit ?? 0, row.profit_final ?? 0); return <span className="mono" style={{ color: d.color }}>{d.text}</span>; },
@@ -155,7 +160,7 @@ export function City() {
               renderCell: row => <span className="mono">{fmt(row.population ?? 0)}</span>,
             },
             {
-              header: 'После',
+              header: 'Население после',
               field: 'population_diff',
               sortBy: 'basic',
               renderCell: row => { const d = diff(row.population ?? 0, row.population_final ?? 0); return <span className="mono" style={{ color: d.color }}>{d.text}</span>; },
@@ -167,7 +172,7 @@ export function City() {
               renderCell: row => <span className="mono">{row.happiness ?? 0}%</span>,
             },
             {
-              header: 'После',
+              header: 'Счастье после',
               field: 'happiness_diff',
               sortBy: 'basic',
               renderCell: row => { const d = diffPct(row.happiness ?? 0, row.happiness_final ?? 0); return <span className="mono" style={{ color: d.color }}>{d.text}</span>; },
@@ -187,7 +192,7 @@ export function City() {
                 )
               ),
             },
-          ]}
+          ])}
         />
       </Table.Container>
     </Box>

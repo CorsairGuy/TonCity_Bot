@@ -27,7 +27,7 @@ const DEFAULTS={
   // очищаться после ~недели простоя (ITP), см. App.tsx SidebarNav. navOpenGroups — какие группы
   // бокового меню развёрнуты. mapDayNight — время суток на карте города: auto (по часам устройства),
   // day, night.
-  ui:{navOpenGroups:[],mapDayNight:'auto'},
+  ui:{navOpenGroups:[],mapDayNight:'auto',theme:null}, // theme: 'light'|'dark', null — ещё не выбирали
   // обновления бота (Настройки → Обновления, utils/autoUpdate.js). Сам канал (тег образа) живёт в
   // BOT_TAG в .env — его меняет обновлятель; здесь только «ставить новое само» для плавающих каналов
   // (ветка, stable). Закреплённая версия не обновляется никогда.

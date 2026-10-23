@@ -6,8 +6,10 @@ import { api, type TownhallAccount } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { PageHeader } from '../components/PageHeader';
+import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 export function ThDiversity() {
+  const narrow = useNarrow();
   const [accounts, setAccounts] = useState<TownhallAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:townhall', () => load());
@@ -62,7 +64,7 @@ export function ThDiversity() {
           data={data}
           initialSortColumn="name"
           initialSortDirection="ASC"
-          columns={[
+          columns={narrowCols<typeof data[number]>(narrow, ['name', '_score', '_incomeBonus'], [
             {
               header: 'Аккаунт',
               field: 'name',
@@ -123,7 +125,7 @@ export function ThDiversity() {
                   </span>
                 : <span className="text-muted">—</span>,
             },
-          ]}
+          ])}
         />
       </Table.Container>
     </Box>

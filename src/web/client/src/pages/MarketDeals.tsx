@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { Box, Button, Flash, Spinner, Text, Label, Select, Checkbox } from '@primer/react';
+import { Box, Button, Flash, Spinner, Text, Label, Select, Checkbox, TextInput } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon, PlusIcon } from '@primer/octicons-react';
@@ -12,6 +12,7 @@ import { Scrollable } from '../components/Scrollable';
 import { PolicyCardModal } from '../components/PolicyCardModal';
 import { useItemCatalog, knownItemName } from '../hooks/useItemCatalog';
 import { PageHeader } from '../components/PageHeader';
+import { useAsk } from '../hooks/useAsk';
 
 type DealType = 'listings' | 'purchases' | 'sales';
 
@@ -101,7 +102,10 @@ function PriceCell({ row }: { row: MarketDealRow }) {
 // ── диалог выставления предмета ─────────────────────────────────────────────
 // mode='items' — обычные предметы (как на странице "Предметы"), mode='special' — политики+осколки
 // (отдельная кнопка, всегда живой запрос к /policies/, см. web/routes/market.js SPECIAL_CATEGORIES)
-function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 'special'; onClose: () => void; onListed: () => void; showFlash: (m: string, ok: boolean) => void }) {
+function SellDialog({ mode, onClose, onListed, showFlash: showPageFlash }: { mode: 'items' | 'special'; onClose: () => void; onListed: () => void; showFlash: (m: string, ok: boolean) => void }) {
+  // ошибки — внутри окна: флэш на странице прятался под затемнением открытого диалога
+  const [note, setNote] = useState<{ msg: string; ok: boolean } | null>(null);
+  const showFlash = (msg: string, ok: boolean) => { if (ok) showPageFlash(msg, ok); else setNote({ msg, ok }); };
   const [items, setItems] = useState<MarketSellableItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [sel, setSel] = useState<MarketSellableItem | null>(null);
@@ -192,7 +196,7 @@ function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 's
     } catch (e) { showFlash(String(e), false); } finally { setBusy(false); }
   };
 
-  const inputStyle = { padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, width: 140 };
+  const inputSx = { width: 140 } as const;
   const meta = sel ? ITEMS_BY_ID[sel.item_id] : null;
 
   return (
@@ -211,6 +215,7 @@ function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 's
       }] : undefined}
     >
       <Box>
+        {note && <Flash variant="danger" sx={{ mb: 2 }}>{note.msg}</Flash>}
         {!sel ? (
           // ── ШАГ 1: список продаваемых предметов ──
           loadingItems ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><Spinner /></Box>
@@ -262,15 +267,15 @@ function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 's
             {needsPrice ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <Text sx={{ fontSize: 1 }}>{selType === 'auction' ? 'Стартовая ставка' : 'Цена'} ({curIcon(sel.currency)} {fmt(sel.floor_price ?? 0)}–{sel.ceiling_price != null ? fmt(sel.ceiling_price) : '∞'}):</Text>
-                <input type="number" value={price} onChange={e => setPrice(e.target.value)} style={inputStyle} />
+                <TextInput type="number" aria-label="Цена" value={price} onChange={e => setPrice(e.target.value)} sx={inputSx} />
               </Box>
             ) : (
               <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Цена не задаётся: покупатели сами присылают предложения, вы их принимаете или отклоняете.</Text>
             )}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Text sx={{ fontSize: 1 }}>Количество:</Text>
-              <input type="number" min={1} max={maxQty} value={qty}
-                onChange={e => setQty(Math.max(1, Math.min(maxQty, Math.floor(Number(e.target.value)) || 1)))} style={inputStyle} />
+              <TextInput type="number" aria-label="Количество" min={1} max={maxQty} value={qty}
+                onChange={e => setQty(Math.max(1, Math.min(maxQty, Math.floor(Number(e.target.value)) || 1)))} sx={inputSx} />
               <Button onClick={() => setQty(maxQty)}>Макс {maxQty}</Button>
             </Box>
             {needsPrice && (
@@ -299,7 +304,7 @@ function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 's
                         <label key={a.id} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, padding: '2px 4px', cursor: 'pointer' }}>
                           <Checkbox checked={selAccounts.has(a.id)} onChange={e => toggleAcc(a.id, e.target.checked)} />
                           <span style={{ flex: 1 }}>{a.name}</span>
-                          <span style={{ color: 'var(--fgColor-muted, #848d97)' }}>×{a.owned}</span>
+                          <span style={{ color: 'var(--fg-muted)' }}>×{a.owned}</span>
                         </label>
                       ))}
                     </Scrollable>
@@ -321,6 +326,7 @@ function SellDialog({ mode, onClose, onListed, showFlash }: { mode: 'items' | 's
 }
 
 export function MarketDeals({ type }: { type: DealType }) {
+  const ask = useAsk();
   useItemCatalog(); // перерисовать таблицу, когда подгрузятся названия предметов из каталога игры
   const [rows, setRows] = useState<MarketDealRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -380,7 +386,7 @@ export function MarketDeals({ type }: { type: DealType }) {
 
   const cancelAll = async () => {
     const scope = account === 'all' ? 'ВСЕХ аккаунтов' : account;
-    if (!confirm(`Отменить все лоты ${scope}? (${sorted.length} шт)`)) return;
+    if (!await ask('Отменить все лоты?', `Будут сняты все лоты ${scope}: ${sorted.length} шт.`, { ok: 'Снять лоты', danger: true })) return;
     setCancelingAll(true);
     try {
       const d = await api.marketCancelAllListings(account);

@@ -29,7 +29,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   try { await seq.authenticate(); } catch (e) { console.error(`Не удалось подключиться к БД ${DBH}:${DBP} — ${e.message}`); process.exit(1); }
 
   const accs = await seq.query(
-    "SELECT id, name, refresh_token, init_token FROM accs ORDER BY id ASC",
+    "SELECT id, name, refresh_token FROM accs ORDER BY id ASC",
     { type: QueryTypes.SELECT });
 
   const alive = [], dead = [], noToken = [], unknown = [];
@@ -75,7 +75,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log(`Неизвестно (сеть):${unknown.length}`);
   if (dead.length) {
     console.log('\n--- НУЖЕН ПЕРЕЛОГИН (мёртвые refresh_token) ---');
-    for (const a of dead) console.log(`  #${a.id}\t${a.name}\t${a.init_token ? '(есть init_token — возможен exchange)' : '(нет init_token — только ручной перелогин)'}`);
+    for (const a of dead) console.log(`  #${a.id}\t${a.name}\t(нужна новая ссылка из бота игры)`);
   }
   if (unknown.length) {
     console.log('\n--- ПЕРЕПРОВЕРИТЬ (сетевые ошибки) ---');

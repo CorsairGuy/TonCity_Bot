@@ -3,50 +3,10 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import { api } from './api';
 import { Box, IconButton, Spinner } from '@primer/react';
 import { ThreeBarsIcon, XIcon } from '@primer/octicons-react';
-import { PanelToggleProvider, usePanelToggleSlot } from './contexts/PanelToggleContext';
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { OverlayScrollbarsComponent } from 'overlayscrollbars-react';
 import { LoginGate } from './components/LoginGate';
 import { MaintenanceBanner } from './components/MaintenanceBanner';
+import { OfflineBanner } from './components/OfflineBanner';
 import { VersionBadge } from './components/VersionBadge';
 import { startBuildWatcher, check as checkBuild } from './hooks/useBuildWatcher';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
@@ -106,6 +66,9 @@ const AnniversaryRoad = lazy(() => import('./pages/AnniversaryRoad').then(m => (
 const AnniversaryVault = lazy(() => import('./pages/AnniversaryVault').then(m => ({ default: m.AnniversaryVault })));
 const AnniversaryMidway = lazy(() => import('./pages/AnniversaryMidway').then(m => ({ default: m.AnniversaryMidway })));
 const ShopTickets = lazy(() => import('./pages/ShopTickets').then(m => ({ default: m.ShopTickets })));
+const GreatestMayors = lazy(() => import('./pages/GreatestMayors').then(m => ({ default: m.GreatestMayors })));
+const PlayerCity = lazy(() => import('./pages/PlayerCity').then(m => ({ default: m.PlayerCity })));
+const Leagues = lazy(() => import('./pages/Leagues').then(m => ({ default: m.Leagues })));
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })));
 
@@ -165,14 +128,27 @@ const PAGE_GROUP: Record<string, string> = {
   'anniversary-offer': 'anniversary', 'anniversary-carnival': 'anniversary',
   'anniversary-road': 'anniversary', 'anniversary-vault': 'anniversary', 'shop-tickets': 'anniversary',
   'anniversary-midway': 'anniversary',
+  'greatest-mayors': 'rating', leagues: 'rating',
 };
 
 // ── sidebar nav component ─────────────────────────────────────────────────────
 
+// Страницы без своего пункта меню подсвечивают родителя: карта — «Города» или «Столицы»,
+// чужой город — раздел рейтинга, откуда пришли, общие планы — свой список.
+function navPage(pathname: string, search: string): string {
+  const p = pathname.replace('/', '');
+  const q = new URLSearchParams(search);
+  if (p === 'city-map') return q.get('type') === 'capital' ? 'capitals' : 'city';
+  if (p === 'player-city') return q.get('from') === 'leagues' ? 'leagues' : 'greatest-mayors';
+  if (p === 'global-upgrade-plan') return 'city';
+  if (p === 'global-capital-upgrade-plan') return 'capitals';
+  return p;
+}
+
 function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const current = location.pathname.replace('/', '');
+  const current = navPage(location.pathname, location.search);
 
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const saved = loadOpenGroups();
@@ -204,6 +180,12 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // переход на страницу из закрытой группы (например, в чужой город из рейтинга) раскрывает её
+  useEffect(() => {
+    const grp = PAGE_GROUP[current];
+    if (grp) setOpenGroups(prev => prev.has(grp) ? prev : new Set(prev).add(grp));
+  }, [current]);
 
   const toggleGroup = useCallback((id: string) => {
     setOpenGroups(prev => {
@@ -314,6 +296,13 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         {item('capitals',    'Столицы',            DiamondIcon)}
         {item('city',        'Города',             LocationIcon)}
+        {group('rating', 'Рейтинг', TrophyIcon,
+          <>
+            {item('greatest-mayors', 'Величайшие мэры', TrophyIcon)}
+            {item('leagues',         'Лиги',            StackIcon)}
+          </>
+        )}
+
         {item('auditorium',  'Аудиториум',         PeopleIcon)}
         {item('techfactory', 'Фабрика',            CpuIcon)}
 
@@ -357,19 +346,6 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 // ── app ───────────────────────────────────────────────────────────────────────
 
-// Кнопка правой панели текущей страницы (если та её зарегистрировала, см. PanelToggleContext) —
-// та же IconButton/variant="invisible", что и бургер слева, просто с другой иконкой. Рендерится
-// ВСЕГДА, пока страница что-то зарегистрировала (не только пока панель закрыта) — когда панель
-// открывается, она сама (position:fixed, z-index выше топбара) наезжает поверх и визуально
-// перекрывает эту кнопку, а закрывающий крестик внутри панели (см. global.css) стоит ровно на её
-// месте — тот же приём, что уже работает у бургера/крестика левого меню.
-function MobilePanelButton() {
-  const panel = usePanelToggleSlot();
-  if (!panel) return null;
-  const Icon = panel.icon;
-  return <IconButton icon={Icon} aria-label={panel.label} variant="invisible" onClick={panel.onOpen} />;
-}
-
 // последняя открытая страница (чтобы PWA при открытии возвращал туда же, а не всегда на "Аккаунты")
 const LAST_PAGE_KEY = 'tc-last-page';
 function loadLastPage(): string {
@@ -407,24 +383,20 @@ export default function App() {
 
   return (
     <LoginGate>
-      <PanelToggleProvider>
-      <MaintenanceBanner />
-      {/* мобильный топбар с бургером — виден только на узких экранах (CSS), на десктопе скрыт.
-          Слева — бургер+лого (группой, чтобы кнопка страницы справа не разъезжалась с justify-
-          content:space-between). Справа — кнопка правой панели текущей страницы, если она её
-          зарегистрировала (см. PanelToggleContext) — раньше это была отдельная кнопка "Панель"
-          внутри тулбара каждой страницы (CityMapCity/CityMapCapital), теперь общий хидер сам решает,
-          показывать её или нет, не зная о конкретных страницах. */}
+      {/* мобильный топбар с бургером — виден только на узких экранах (CSS), на десктопе скрыт */}
       <div className="mobile-topbar">
         <div className="mobile-topbar-left">
-          <IconButton icon={ThreeBarsIcon} aria-label="Меню" variant="invisible" onClick={() => setMenuOpen(true)} />
+          <IconButton icon={ThreeBarsIcon} aria-label="Меню" variant="invisible"
+            onClick={e => { setMenuOpen(true); e.currentTarget.blur(); /* иначе подсказка «Меню» висит после закрытия */ }} />
           <span className="header-logo">TON City</span>
         </div>
-        <MobilePanelButton />
       </div>
       <div className={'menu-overlay' + (menuOpen ? ' show' : '')} onClick={() => setMenuOpen(false)} />
       <SidebarNav open={menuOpen} onClose={() => setMenuOpen(false)} />
       <main className="main">
+        {/* баннеры в потоке страницы, а не поверх неё: фиксированный баннер закрывал бургер и шапку */}
+        <OfflineBanner />
+        <MaintenanceBanner />
         {/* ошибка страницы (в т.ч. протухший lazy-чанк после пересборки) не должна гасить всё
             приложение до чёрного экрана — см. PageErrorBoundary */}
         <PageErrorBoundary>
@@ -454,6 +426,9 @@ export default function App() {
           <Route path="/quests"          element={<Quests />} />
           <Route path="/questTiers"      element={<QuestTiers />} />
           <Route path="/capitals"        element={<Capitals />} />
+          <Route path="/greatest-mayors" element={<GreatestMayors />} />
+          <Route path="/leagues"         element={<Leagues />} />
+          <Route path="/player-city"     element={<PlayerCity />} />
           <Route path="/city"            element={<City />} />
           <Route path="/city-map"        element={<CityMap />} />
           <Route path="/global-upgrade-plan" element={<GlobalUpgradePlan />} />
@@ -486,7 +461,6 @@ export default function App() {
         </Suspense>
         </PageErrorBoundary>
       </main>
-      </PanelToggleProvider>
     </LoginGate>
   );
 }

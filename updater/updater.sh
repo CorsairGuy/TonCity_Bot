@@ -29,7 +29,7 @@ BOT="${BOT_CONTAINER:?нужен BOT_CONTAINER}"
 SERVICE="${BOT_SERVICE:-bot}"
 POLL="${POLL_SECONDS:-3}"
 HEARTBEAT="${HEARTBEAT_SECONDS:-20}"
-VERSION=6
+VERSION=8
 PORTAINER_URL="${PORTAINER_URL:-}"
 PORTAINER_TOKEN="${PORTAINER_TOKEN:-}"
 
@@ -49,8 +49,10 @@ status(){ # id state tag message [progress-json]
 # Скачивание образа с прогрессом. docker pull без терминала прогресс по байтам не печатает, поэтому
 # идём прямо в Docker Engine API (POST /images/create): он стримит JSON по каждому слою с
 # progressDetail {current,total}. Раз в секунду сводим поток в один объект progress и пишем его в
-# status.json — панель рисует полосу. Слой узнаёт свой размер только когда начал качаться (Docker
-# качает по 3 сразу), поэтому для ещё не начатых слоёв размер оценивается средним по известным.
+# status.json — панель рисует полосу. В потоке слой узнаёт свой размер только когда начал качаться
+# (Docker качает по 3 сразу), а оценка по среднему скакала (100 → 40 → 20 МБ: первым идёт крупный
+# слой). Поэтому размеры слоёв берём заранее из манифеста образа в реестре ($S: короткий id слоя →
+# байты), а оценка средним осталась запасной — когда реестр не ответил.
 PULL_LOG=/tmp/pull.log
 PULL_JQ='[inputs|fromjson?]
   | reduce (.[]|select(.id and ((.status//"")|IN("Pulling fs layer","Waiting","Downloading","Verifying Checksum","Download complete","Extracting","Pull complete","Already exists")))) as $e ({};
@@ -60,23 +62,40 @@ PULL_JQ='[inputs|fromjson?]
         elif $e.status=="Pull complete" then $l+{dl:true,ex:true}
         elif $e.status=="Already exists" then $l+{skip:true}
         else $l end))
-  | [.[]|select(.skip|not)] as $L
+  | [to_entries[]|.value+{total:($S[.key]//.value.total//0)}|select(.skip|not)] as $L
   | ($L|map(select((.total//0)>0))) as $K
   | ($K|map(.total)|add//0) as $kt
   | ($L|map(select((.total//0)==0 and (.dl|not)))|length) as $u
   | {layers:($L|length),downloaded:($L|map(select(.dl))|length),extracted:($L|map(select(.ex))|length),
      cur:($L|map(if .dl then (.total//0) else (.cur//0) end)|add//0),total:$kt,
      estTotal:($kt+(if ($K|length)>0 then $u*$kt/($K|length) else 0 end))}'
+# размеры слоёв образа из манифеста ghcr.io (анонимный токен, пакет публичный): {"<12 hex>":байты}.
+# Мульти-арх индекс → манифест под архитектуру Docker Engine. Любая ошибка → {} (оценка средним).
+layer_sizes(){ # ref
+  img="${1%:*}"; t="${1##*:}"; repo="${img#ghcr.io/}"
+  [ "$repo" != "$img" ] || { echo '{}'; return; }
+  acc='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
+  tok=$(curl -fsS --max-time 10 "https://ghcr.io/token?scope=repository:$repo:pull" 2>/dev/null | jq -r '.token//empty') &&
+  m=$(curl -fsS --max-time 10 -H "Authorization: Bearer $tok" -H "Accept: $acc" "https://ghcr.io/v2/$repo/manifests/$t" 2>/dev/null) || { echo '{}'; return; }
+  if printf '%s' "$m" | jq -e '.manifests' >/dev/null 2>&1; then
+    arch=$(docker version -f '{{.Server.Arch}}' 2>/dev/null | tr -d '[:space:]'); [ -n "$arch" ] || arch=amd64
+    d=$(printf '%s' "$m" | jq -r --arg a "$arch" '[.manifests[]|select(.platform.os=="linux" and .platform.architecture==$a)][0].digest//empty')
+    [ -n "$d" ] && m=$(curl -fsS --max-time 10 -H "Authorization: Bearer $tok" -H "Accept: $acc" "https://ghcr.io/v2/$repo/manifests/$d" 2>/dev/null) || { echo '{}'; return; }
+  fi
+  printf '%s' "$m" | jq -c '[.layers[]?|{key:.digest[7:19],value:.size}]|from_entries' 2>/dev/null || echo '{}'
+}
 pull_progress(){ # id tag ref → 0 скачан; иначе запасной путь (docker pull)
   ref="$3"; img="${ref%:*}"; t="${ref##*:}"
   [ -S /var/run/docker.sock ] && [ "$img" != "$ref" ] || return 1
+  sizes=$(layer_sizes "$ref"); [ -n "$sizes" ] || sizes='{}'
+  [ "$sizes" = '{}' ] && log "$1: размеры слоёв из реестра не получены, оцениваю по ходу скачивания"
   : > "$PULL_LOG"
   curl -sS -N --max-time 1800 --unix-socket /var/run/docker.sock -X POST \
     "http://localhost/images/create?fromImage=$img&tag=$t" > "$PULL_LOG" 2>&1 &
   pid=$!; last=
   while kill -0 "$pid" 2>/dev/null; do
     sleep 1
-    p=$(jq -ncR "$PULL_JQ" < "$PULL_LOG" 2>/dev/null) || continue
+    p=$(jq -ncR --argjson S "$sizes" "$PULL_JQ" < "$PULL_LOG" 2>/dev/null) || continue
     [ "$p" = "$last" ] || { status "$1" pulling "$2" "скачиваю образ" "$p"; last="$p"; }
   done
   wait "$pid" || return 1
@@ -214,7 +233,8 @@ process(){ # id tag
   case "$dir" in [A-Za-z]:[\\/]*|*\\*)
     wdir=$(printf '%s' "$dir" | tr '\\' / | sed 's|/*$||')
     edir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "'"$PROJECT_MNT"'"}}{{.Source}}{{end}}{{end}}' "$(hostname)" 2>/dev/null)
-    [ -n "$edir" ] || edir="/run/desktop/mnt/host/$(printf '%s' "${wdir%%:*}" | tr 'A-Z' 'a-z')${wdir#?:}"
+    # нужен путь в форме Linux; если движок отдал путь Windows (или ничего) — та же форма из буквы диска
+    case "$edir" in /*) ;; *) edir="/run/desktop/mnt/host/$(printf '%s' "${wdir%%:*}" | tr 'A-Z' 'a-z')${wdir#?:}";; esac
     nf=; old_ifs=$IFS; IFS=,
     for f in $files; do
       f=$(printf '%s' "$f" | tr '\\' /)
@@ -251,6 +271,42 @@ process(){ # id tag
   CUR_TAG="$tag"
   if [ -n "$before" ] && [ "$before" = "$after" ]; then status "$id" unchanged "$tag" "эта версия уже установлена"
   else status "$id" updated "$tag" "бот перезапущен"; docker image prune -f >/dev/null 2>&1; fi
+  self_update "$dir" "$@"
+}
+
+# Самообновление. «Обновить» в панели меняет только бота, а обновлятель так и оставался на образе,
+# с которым его когда-то запустили: исправления в нём (например, путей Docker Desktop) до сервера не
+# доезжали. После каждой удачной заявки качаем свежий образ :updater и, если он новее нашего,
+# пересоздаём себя. Сам себя компоуз пересоздать не может (остановит контейнер, в котором работает),
+# поэтому это делает одноразовый контейнер из нового образа с той же папкой проекта и сокетом.
+shq(){ printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+self_update(){ # dir compose-аргументы…
+  dir="$1"; shift
+  me=$(hostname)
+  ref=$(docker inspect -f '{{.Config.Image}}' "$me" 2>/dev/null) && [ -n "$ref" ] || return 0
+  cur=$(docker inspect -f '{{.Image}}' "$me" 2>/dev/null)
+  docker pull -q "$ref" >/dev/null 2>&1 || { log "самообновление: не удалось скачать $ref"; return 0; }
+  new=$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null)
+  [ -n "$new" ] && [ "$new" != "$cur" ] || return 0
+  svc=$(label "$me" com.docker.compose.service); svc="${svc:-updater}"
+  src=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "'"$PROJECT_MNT"'"}}{{.Source}}{{end}}{{end}}' "$me" 2>/dev/null)
+  [ -n "$src" ] || { log "самообновление: не найден том $PROJECT_MNT"; return 0; }
+  # скрипт для одноразового контейнера: та же папка проекта, симлинк по пути хоста, те же файлы compose
+  s="$Q/self-update.sh"
+  {
+    echo 'set -u; sleep 2'
+    echo "d=$(shq "$dir")"
+    echo '[ "$d" = /project ] || [ -e "$d" ] || { mkdir -p "$(dirname "$d")" && ln -s /project "$d"; }'
+    printf 'cd "$d" && exec docker compose'
+    for a in "$@"; do printf ' %s' "$(shq "$a")"; done
+    printf ' up -d --no-deps --pull never %s\n' "$(shq "$svc")"
+  } > "$s"
+  name="$(docker inspect -f '{{.Name}}' "$me" 2>/dev/null | sed 's|^/||')_self"
+  docker rm -f "$name" >/dev/null 2>&1
+  if out=$(docker run -d --rm --name "$name" -v /var/run/docker.sock:/var/run/docker.sock -v "$src:$PROJECT_MNT" \
+      --entrypoint sh "$ref" "$PROJECT_MNT/config/updater/self-update.sh" 2>&1); then
+    log "самообновление: вышел новый образ обновлятеля, перезапускаюсь"
+  else log "самообновление не запустилось: $(echo "$out" | tail -n 2 | tr '\n' ' ')"; fi
 }
 
 if [ -n "$PORTAINER_TOKEN" ]; then

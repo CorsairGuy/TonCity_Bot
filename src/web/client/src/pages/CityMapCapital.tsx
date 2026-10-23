@@ -1,17 +1,18 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Button, Flash, Heading, IconButton, Spinner, Text, TextInput } from '@primer/react';
-import { ChevronLeftIcon, SidebarExpandIcon, SyncIcon, XIcon } from '@primer/octicons-react';
-import { useRegisterPanelToggle } from '../contexts/PanelToggleContext';
+import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon, XIcon } from '@primer/octicons-react';
+import { useNarrow } from '../hooks/useNarrow';
 import { api, type CapitalRow, type MapBuilding, type CapitalStrategyTarget, type CapitalStrategyQueueItem, type CapitalActionLogRow, type ForecastEvent, type GlobalUpgradeRule } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
+import { MapLoader, DATA_SHARE, allCounted } from '../components/MapLoader';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import { DayNightMenu } from '../components/DayNightMenu';
-import { Scrollable } from '../components/Scrollable';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
 
 // Здания столицы (config/capital_buildings.txt) — принципиально другая форма, чем городской
 // BuildingDef (api.ts): нет category/star_lvl/is_reconstructible и т.п., зато есть type
@@ -85,12 +86,6 @@ function capSkipUpgradeCost(secondsLeft: number): number {
   return secondsLeft <= 0 ? 0 : Math.max(1, Math.round(0.394 * Math.pow(secondsLeft, 0.735)));
 }
 
-const MODE_TITLE: Record<Exclude<CityActionMode, 'view' | 'reconstruct' | 'renovate' | 'boosters'>, string> = {
-  queue: 'Улучшение', upgrade: 'План', build: 'Строительство', move: 'Перемещение',
-  demolish: 'Снос', skip: 'Ускорить', log: 'Лог', forecast: 'Прогноз',
-};
-const CAPITAL_TABS = ['queue', 'upgrade', 'build', 'move', 'demolish', 'skip', 'log', 'forecast'] as const;
-
 type PendingAction =
   | { id: number; kind: 'build'; family_id: string; x: number; y: number }
   | { id: number; kind: 'move'; from: { x: number; y: number }; to: { x: number; y: number } }
@@ -136,7 +131,8 @@ function logLabel(r: CapitalActionLogRow, labelFor: (id: string) => string): str
 
 interface Props { account: string }
 
-// Действия по столице — тот же каркас тулбара/сайдбара, что и у города (CityMapCity.tsx), но:
+// Действия по столице — тот же каркас, что и у города (CityMapCity.tsx): док инструментов на карте,
+// уровень кисти «Плана» справа от него, сайдбар PanelShell из cityMapPanels.tsx. Отличия:
 // - guildTitle вместо account (столица общая на гильдию, CapitalSnapshot ключуется по guild_id);
 // - нет Реконструкции/Реновации/Ускорителей (не подтверждены реверсом для столицы, см. план);
 // - формулы цены/лимита уровня — hall_lvl_required/levels_per_hall_lvl/rate/coefficient, а не
@@ -144,10 +140,13 @@ interface Props { account: string }
 export function CityMapCapital({ account: guildTitle }: Props) {
   const navigate = useNavigate();
   const { flash, showFlash } = useFlash();
+  const narrow = useNarrow();
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
 
   const [rows, setRows] = useState<CapitalRow[]>([]);
   const [dayNight, setDayNight] = useMapDayNight();
   const [loading, setLoading] = useState(true);
+  const [dataDone, setDataDone] = useState(0); // сколько запросов загрузки страницы уже ответило
   const [catalog, setCatalog] = useState<CapitalBuildingDef[]>([]);
   const [targets, setTargets] = useState<CapitalStrategyTarget[]>([]);
   const [manualQueue, setManualQueue] = useState<CapitalStrategyQueueItem[]>([]);
@@ -159,9 +158,13 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const [forecastLoading, setForecastLoading] = useState(false);
   const [mode, setMode] = useState<CityActionMode>('view');
   const [busy, setBusy] = useState(false);
-  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
-  const openMobilePanel = useCallback(() => setMobilePanelOpen(true), []);
-  useRegisterPanelToggle(useMemo(() => ({ onOpen: openMobilePanel, icon: SidebarExpandIcon, label: 'Открыть панель' }), [openMobilePanel]));
+  const [planHover, setPlanHover] = useState<string[] | null>(null); // "x_y" клеток под курсором в «Плане»
+  const planFocus = useMemo(() => planHover ? new Set(planHover) : null, [planHover]);
+  // клетки плана ("x,y"), помеченные к удалению — уходят из целей только при «Сохранить»
+  const [planRemoved, setPlanRemoved] = useState<Set<string>>(() => new Set());
+  const markPlanRemoved = useCallback((keys: string[], on: boolean) => setPlanRemoved(prev => {
+    const n = new Set(prev); for (const k of keys) { if (on) n.add(k); else n.delete(k); } return n;
+  }), []);
 
   const [queue, setQueue] = useState<PendingAction[]>([]);
   const nextIdRef = useRef(1);
@@ -172,20 +175,22 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const [buildFamily, setBuildFamily] = useState('');
   const [moveFrom, setMoveFrom] = useState<{ x: number; y: number } | null>(null);
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  // вкладки категорий без «ВСЕ»: по умолчанию COM
+  const [typeFilter, setTypeFilter] = useState('COM');
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
+    setDataDone(0);
+    allCounted([
       api.capitals(),
       api.buildingsList('capital') as unknown as Promise<{ ok: boolean; buildings: CapitalBuildingDef[] }>,
       guildTitle ? api.capitalStrategy(guildTitle) : Promise.resolve({ ok: true, targets: [] as CapitalStrategyTarget[], queue: [] as CapitalStrategyQueueItem[] }),
       fetch('/api/coords?type=capital').then(r => r.json()).catch(() => ({ coords: [] })),
       api.globalCapitalUpgradePlan().catch(() => ({ ok: false as const, plan: [] })),
-    ]).then(([c, b, t, co, gp]) => {
+    ], () => setDataDone(n => n + 1)).then(([c, b, t, co, gp]) => {
       if (c.ok) setRows(c.rows);
       if (b.ok) setCatalog(b.buildings);
-      if (t.ok) { setTargets(t.targets); setManualQueue(t.queue ?? []); }
+      if (t.ok) { setTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); }
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
       if (gp.ok) setGlobalPlan(gp.plan);
     }).finally(() => setLoading(false));
@@ -224,13 +229,13 @@ export function CityMapCapital({ account: guildTitle }: Props) {
 
   const displayBuildings = useMemo(() => applyQueue(owned, queue), [owned, queue]);
   const catalogMap = useMemo(() => new Map(catalog.map(b => [b.id, b])), [catalog]);
-  const labelFor = (id: string) => { const b = catalogMap.get(id); return b ? buildingName(b) : id; };
+  const labelFor = useCallback((id: string) => { const b = catalogMap.get(id); return b ? buildingName(b) : id; }, [catalogMap]);
   const hallLevel = useMemo(() => capHallLevel(owned, catalog), [owned, catalog]);
 
   function switchMode(m: CityActionMode) {
+    setPanelCollapsed(false); // выбор режима на телефоне раскрывает свёрнутую панель
     setMode(m); setMoveFrom(null);
     if (m !== 'build') { setBuildFamily(''); setSearch(''); setTypeFilter(''); }
-    if (window.innerWidth <= 768) setMobilePanelOpen(true);
   }
 
   const occupiedSet = useMemo(() => new Set(displayBuildings.map(b => `${b.x}_${b.y}`)), [displayBuildings]);
@@ -275,6 +280,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
       const lvl = Math.floor(Number(addLevel)) || 0;
       if (lvl <= 0) return;
       setTargets(prev => [...prev.filter(t => !(t.x === gx && t.y === gy)), { x: gx, y: gy, target_level: lvl }]);
+      markPlanRemoved([`${gx},${gy}`], false); // новая цель на помеченной клетке снимает пометку
     } else if (mode === 'queue') {
       setManualQueue(prev => [...prev, { x: gx, y: gy }]);
     } else if (mode === 'build') {
@@ -288,11 +294,10 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     } else if (mode === 'skip') {
       setQueue(prev => [...prev, { id: nextIdRef.current++, kind: 'skip', x: gx, y: gy }]);
     }
-  }, [mode, addLevel, buildFamily, moveFrom]);
+  }, [mode, addLevel, buildFamily, moveFrom, markPlanRemoved]);
 
   const removeQueued = (id: number) => setQueue(prev => prev.filter(a => a.id !== id));
   const removeQueuedManual = (index: number) => setManualQueue(prev => prev.filter((_, i) => i !== index));
-  const removeTarget = (x: number, y: number) => setTargets(prev => prev.filter(t => !(t.x === x && t.y === y)));
 
   const saveManualQueue = async () => {
     setBusy(true);
@@ -305,9 +310,10 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const saveTargets = async () => {
     setBusy(true);
     try {
-      const r = await api.saveCapitalStrategy(guildTitle, targets);
+      const keep = targets.filter(t => !planRemoved.has(`${t.x},${t.y}`));
+      const r = await api.saveCapitalStrategy(guildTitle, keep);
       showFlash(r.ok ? 'Сохранено' : (r.error ?? 'Ошибка'), !!r.ok);
-      if (r.ok) refreshMap();
+      if (r.ok) { setTargets(keep); setPlanRemoved(new Set()); refreshMap(); }
     } catch (e) { showFlash(String(e), false); } finally { setBusy(false); }
   };
 
@@ -345,7 +351,14 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     const fromLvl = (Number(b.level) || 0) + priorSame;
     return capUpgradePrice(b.id, info, fromLvl, econStrength);
   }), [manualQueue, owned, catalogMap, econStrength]);
-  const manualQueueTotal = manualQueuePrices.reduce((s: number, p) => s + (p ?? 0), 0);
+  // монет на улучшения fromLvl → toLvl (сумма шагов, как в очереди) — для сводки «Плана»
+  const planUpgradeCost = useCallback((id: string, fromLvl: number, toLvl: number) => {
+    const info = catalogMap.get(id);
+    if (!info) return 0;
+    let sum = 0;
+    for (let l = Math.max(1, fromLvl); l < toLvl; l++) sum += capUpgradePrice(id, info, l, econStrength);
+    return sum;
+  }, [catalogMap, econStrength]);
 
   // оценка цены ускорения для клетки — по факту оставшегося времени стройки СЕЙЧАС (в момент показа
   // очереди); окончательную цену считает сама игра при выполнении (могло чуть измениться, если
@@ -364,27 +377,28 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   }, [displayBuildings]);
 
   const purchasable = useMemo(() => catalog.filter(b => b.is_purchasable), [catalog]);
-  const isUnavailable = (b: CapitalBuildingDef) => {
-    const k = familyCounts.get(b.id) ?? 0;
-    if (b.limit != null && k >= b.limit) return true;
-    if (b.hall_lvl_required != null && hallLevel < b.hall_lvl_required) return true;
-    return capBuyPrice(b, k, econStrength) > (row?.coins ?? 0);
-  };
   const paletteFiltered = purchasable.filter(b => {
-    if (typeFilter && buildingCat(b.id) !== typeFilter) return false;
+    if (buildingCat(b.id) !== typeFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!buildingName(b).toLowerCase().includes(q) && !b.id.toLowerCase().includes(q)) return false;
     }
     return true;
   }).sort((a, b) => {
-    const ua = isUnavailable(a), ub = isUnavailable(b);
-    if (ua !== ub) return ua ? 1 : -1;
+    // недоступные и те, на которые не хватает монет, — на своём месте, а не в конце
     return buildingName(a).localeCompare(buildingName(b), 'ru');
   });
   // те же короткие коды категорий, что и на странице "Общий план улучшений" (COM/BEN/SPE/DEC —
   // префикс id, см. buildingCat выше), не человеческое название типа
   const paletteTypes = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean);
+  // порядок зданий в «Плане» — как в «Строительстве»: категории в порядке вкладок, внутри — по названию
+  const planSortKey = useMemo(() => (id: string): (string | number)[] => {
+    const i = paletteTypes.indexOf(buildingCat(id));
+    return [i === -1 ? 999 : i, labelFor(id), id];
+  }, [paletteTypes.join(','), labelFor]);
+  // выбранной категории в каталоге нет (COM у столицы без торговых зданий) — первая из имеющихся
+  const paletteTypesKey = paletteTypes.join(',');
+  useEffect(() => { if (paletteTypes.length && !paletteTypes.includes(typeFilter)) setTypeFilter(paletteTypes[0]); }, [paletteTypesKey, typeFilter]);
 
   const loadActionLog = useCallback(() => {
     if (!guildTitle) return;
@@ -401,27 +415,93 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     else if (mode === 'forecast') loadForecast();
   }, [mode, loadActionLog, loadForecast]);
 
-  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
+  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><MapLoader pct={DATA_SHARE * dataDone / 5} text={`Данные столицы ${dataDone} / 5`} /></Box>;
+
+  const panelMode = mode as PanelMode;
+  const ownedAt = (x: number, y: number) => owned.find(o => o.x === x && o.y === y);
+  const pendingRows = queue.map(a => {
+    const at = a.kind === 'move' ? a.from : a.kind === 'build' ? null : { x: a.x, y: a.y };
+    const sprite = a.kind === 'build' ? a.family_id : at ? ownedAt(at.x, at.y)?.id : undefined;
+    return { id: a.id, kind: a.kind, label: actionLabel(a, labelFor, skipCostFor), sprite };
+  });
+  const pendingKinds = new Set(queue.map(a => a.kind));
+  const dots: Partial<Record<PanelMode, boolean>> = {
+    upgrade: targets.length > 0, queue: manualQueue.length > 0, build: pendingKinds.has('build'), move: pendingKinds.has('move'),
+    demolish: pendingKinds.has('demolish'), skip: pendingKinds.has('skip'),
+  };
+  const moveFromB = moveFrom ? displayBuildings.find(b => b.x === moveFrom.x && b.y === moveFrom.y) : undefined;
+  const moveFromInfo = moveFrom ? { ...moveFrom, id: moveFromB?.id, level: Number(moveFromB?.level) || undefined } : null;
+  const moveRows = queue.flatMap(a => a.kind === 'move' ? [{ id: a.id, from: a.from, to: a.to, sprite: ownedAt(a.from.x, a.from.y)?.id }] : []);
+  const moveQueued = (from: number, to: number) => setManualQueue(prev => { const n = [...prev]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; });
+  const hallId = catalog.find(c => c.type === 'hall')?.id;
+
+  const HINT: Partial<Record<PanelMode, string>> = {
+    view: 'Казна и доход столицы. Улучшает и строит в столице только лидер гильдии.',
+    upgrade: 'Кликните здание или проведите кистью по нескольким — им выставится цель из плашки с уровнем справа от дока. Бот сам улучшает до цели, когда хватает монет.',
+    queue: 'Каждый клик по зданию добавляет один уровень в конец очереди, одно здание можно поставить несколько раз подряд. Бот сначала разбирает очередь, потом переходит к плану. Порядок меняется перетаскиванием.',
+    forecast: 'Что бот запустит в ближайшие трое суток: очередь, личный и общий план, с учётом накопления монет от прибыли столицы.',
+    build: 'Выберите здание в списке, затем кликайте пустые клетки или проведите кистью. Каждая клетка добавляется в действия, которые выполнит кнопка «Построить».',
+    move: 'Кликните здание, затем пустую клетку. Можно переместить несколько подряд. Цели и очередь переедут вместе со зданием.',
+    demolish: 'Кликайте здания или проведите кистью. Монеты за снос не возвращаются. Вживую на столице снос не проверен: если игра откажет, ошибка придёт как есть.',
+    skip: 'Кликайте здания, которые сейчас строятся: стройка завершится мгновенно за алмазы. Цена зависит только от оставшегося времени и списывается игрой при выполнении, показанная цифра — оценка.',
+    log: 'Последние действия по этой столице, и бота, и ручные.',
+  };
+  const RUN_LABEL: Partial<Record<PanelMode, [string, 'primary' | 'danger' | 'accent']>> = {
+    build: ['Построить', 'primary'], move: ['Переместить', 'accent'], demolish: ['Снести', 'danger'], skip: ['Ускорить', 'primary'],
+  };
+  const own = RUN_LABEL[panelMode];
+  const [runLabel, runTone] = own && queue.every(a => a.kind === mode) ? own : ['Выполнить', 'primary' as const];
+  const runFooter = queue.length > 0 && (
+    <>
+      <IconButton icon={XIcon} aria-label="Очистить" disabled={executing} onClick={() => setQueue([])} />
+      <FooterButton label={executing && progress ? `Выполняется ${progress.done} из ${progress.total}` : runLabel} tone={runTone}
+        icon={CheckIcon} count={queue.length} busy={executing} onClick={runQueue} />
+    </>
+  );
+  const footer = mode === 'upgrade'
+    ? <PlanSaveButton count={targets.filter(t => !planRemoved.has(`${t.x},${t.y}`)).length} busy={busy} onClick={saveTargets} />
+    : mode === 'queue'
+      ? <FooterButton label="Сохранить" icon={CheckIcon} count={manualQueue.length} busy={busy} onClick={saveManualQueue} />
+      : runFooter || undefined;
+  const headActions = mode === 'forecast'
+    ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Пересчитать прогноз" disabled={forecastLoading} onClick={loadForecast} />
+    : mode === 'log'
+      ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Обновить лог" disabled={actionLogLoading} onClick={loadActionLog} />
+      : undefined;
+  const summary = `Зданий: ${owned.length}${row?.updated_at ? ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}` : ''}`;
+  const panelToggle = narrow
+    ? <IconButton size="small" variant="invisible" icon={panelCollapsed ? ChevronUpIcon : ChevronDownIcon}
+        aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
+    : null;
+  const pendingOf = (kind: PendingAction['kind']) => pendingRows.filter(r => r.kind === kind);
+  const pendingNot = (kind: PendingAction['kind']) => pendingRows.filter(r => r.kind !== kind);
 
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - var(--header-h))' }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+    <Box sx={{
+      display: 'flex', height: 'calc(100vh - var(--header-h))',
+      // телефон: карта сверху, сайдбар снизу — он всегда на экране, как и на десктопе
+      '@media (max-width: 768px)': { flexDirection: 'column', height: 'calc(100dvh - 52px)' },
+    }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
         <Box sx={{ p: 2, bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-          <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate('/capitals')}>Назад</Button>
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Heading as="h3" sx={{ fontSize: 2, m: 0 }}>{rowName}</Heading>
-            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-              Зданий: {owned.length}
-              {row?.updated_at && ` · Обновлено: ${new Date(row.updated_at).toLocaleString('ru')}`}
-            </Text>
+          {/* телефон: шапка в одну строку — кнопки иконками, сводка уходит в подсказку заголовка */}
+          {narrow
+            ? <IconButton icon={ChevronLeftIcon} aria-label="Назад" onClick={() => navigate('/capitals')} />
+            : <Button leadingVisual={ChevronLeftIcon} onClick={() => navigate('/capitals')}>Назад</Button>}
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }} title={summary}>
+            <Heading as="h3" sx={{ fontSize: 2, m: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rowName}</Heading>
+            {!narrow && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{summary}</Text>}
           </Box>
           <DayNightMenu value={dayNight} onChange={setDayNight} />
-          <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>
+          {narrow
+            ? <IconButton icon={SyncIcon} aria-label="Обновить" disabled={liveRefreshing} onClick={doLiveRefresh} />
+            : <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>}
         </Box>
 
         {flash && <Box sx={{ px: 3, pt: 2, flexShrink: 0 }}><Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash></Box>}
 
-        <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        {/* canvas + док инструментов поверх него, по центру снизу */}
+        <Box sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
           {owned.length === 0 && mode === 'view'
             ? <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Text sx={{ color: 'fg.muted' }}>Нет данных о зданиях</Text></Box>
             : <CityActionsCanvas
@@ -436,232 +516,103 @@ export function CityMapCapital({ account: guildTitle }: Props) {
                 globalPlan={globalPlan}
                 catalog={[]}
                 onPick={handlePick}
+                focusSet={mode === 'upgrade' ? planFocus : null}
                 dayNight={dayNight}
               />
           }
+          {/* док по центру; в «Плане» справа от него — уровень кисти (док при этом не сдвигается) */}
+          <Box sx={{
+            position: 'absolute', left: 2, right: 2, bottom: 3, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', columnGap: 2,
+            pointerEvents: 'none', '& > *': { pointerEvents: 'auto' },
+            '@media (max-width: 768px)': { display: 'flex', flexDirection: 'column-reverse', alignItems: 'center', gap: 2 },
+          }}>
+            <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><MapPalette tools={CAPITAL_TOOLS} mode={panelMode} onSelect={switchMode} dots={dots} /></Box>
+            {mode === 'upgrade' && <Box sx={{ gridColumn: 3, justifySelf: 'start' }}><MapBrushLevel value={Math.max(1, Math.floor(Number(addLevel)) || 1)} onChange={v => setAddLevel(String(v))} /></Box>}
+          </Box>
         </Box>
       </Box>
 
-      <div className={`map-panel-overlay${mobilePanelOpen ? ' show' : ''}`} onClick={() => setMobilePanelOpen(false)} />
-      <div className={`map-panel${mobilePanelOpen ? ' open' : ''}`}>
-        <div className="map-panel-head">
-          <IconButton icon={XIcon} aria-label="Закрыть панель" variant="invisible" onClick={() => setMobilePanelOpen(false)} />
-        </div>
-        <div className="map-panel-tabs">
-          <Button variant={mode === 'view' ? 'primary' : 'default'} onClick={() => switchMode('view')}>Показатели</Button>
-          {CAPITAL_TABS.map(m => (
-            <Button key={m} variant={mode === m ? 'primary' : 'default'} onClick={() => switchMode(m)}>{MODE_TITLE[m]}</Button>
-          ))}
-        </div>
-        <Scrollable style={{ flex: 1 }}>
-          <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Box sx={{
+        width: 'var(--sidebar-w)', flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
+        borderLeft: '1px solid', borderColor: 'border.default',
+        '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },
+      }}>
+        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
+          count={mode === 'queue' ? manualQueue.length : undefined}>
 
-            {mode === 'view' && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                <Text sx={{ fontSize: 1, fontWeight: 'bold' }}>Показатели</Text>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Text sx={{ fontSize: 0, color: 'fg.muted' }}>Монеты</Text><CoinValue value={fmt(row?.coins ?? 0)} /></Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Text sx={{ fontSize: 0, color: 'fg.muted' }}>Кристаллы</Text><Text sx={{ fontSize: 0 }}>{fmt(row?.crystals ?? 0)}</Text></Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Text sx={{ fontSize: 0, color: 'fg.muted' }}>Прибыль монет/ч</Text><Text sx={{ fontSize: 0 }}>{fmt(row?.profit_coins_final ?? row?.profit_coins ?? 0)}</Text></Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Text sx={{ fontSize: 0, color: 'fg.muted' }}>Прибыль кристаллов/ч</Text><Text sx={{ fontSize: 0 }}>{fmt(row?.profit_crystals_final ?? row?.profit_crystals ?? 0)}</Text></Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Text sx={{ fontSize: 0, color: 'fg.muted' }}>Сила экономики</Text><Text sx={{ fontSize: 0 }}>{econStrength.toFixed(2)}</Text></Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Text sx={{ fontSize: 0, color: 'fg.muted' }}>Уровень штаб-квартиры</Text><Text sx={{ fontSize: 0 }}>{hallLevel}</Text></Box>
-              </Box>
-            )}
+          {mode === 'view' && (
+            <CapitalStatsPanel coins={row?.coins ?? 0} crystals={row?.crystals ?? 0}
+              profitCoins={row?.profit_coins_final ?? row?.profit_coins ?? 0} profitCrystals={row?.profit_crystals_final ?? row?.profit_crystals ?? 0}
+              econStrength={econStrength} hallLevel={hallLevel} hallId={hallId} />
+          )}
 
-            {mode === 'queue' && (
-              <>
-                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                  Кликните здание — оно встанет в конец очереди. Можно выбрать одно и то же здание
-                  несколько раз подряд — несколько последовательных апгрейдов.
-                </Text>
-                {manualQueue.length === 0
-                  ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Очередь пуста</Text>
-                  : <>
-                    {manualQueue.map((q, i) => {
-                      const b = owned.find(o => o.x === q.x && o.y === q.y);
-                      const priorSame = manualQueue.slice(0, i).filter(qq => qq.x === q.x && qq.y === q.y).length;
-                      const fromLvl = b ? (Number(b.level) || 0) + priorSame : null;
-                      const price = manualQueuePrices[i];
-                      return (
-                        <Box key={i} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                          <Text sx={{ fontSize: 1 }}>{i + 1}. {b ? labelFor(b.id) : '—'} ({q.x},{q.y}){fromLvl != null ? ` ${fromLvl}→${fromLvl + 1}` : ''}</Text>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            {price != null && <CoinValue value={fmt(price)} />}
-                            <Button variant="danger" onClick={() => removeQueuedManual(i)}>×</Button>
-                          </Box>
-                        </Box>
-                      );
-                    })}
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pt: 1, borderTop: '1px solid', borderColor: 'border.default' }}>
-                      <Text sx={{ fontSize: 1, fontWeight: 'bold' }}>Итого</Text>
-                      <Text sx={{ fontSize: 1, fontWeight: 'bold' }}><CoinValue value={fmt(manualQueueTotal)} /></Text>
-                    </Box>
-                  </>}
-                <Button variant="primary" block loading={busy} disabled={busy} onClick={saveManualQueue}>Сохранить</Button>
-              </>
-            )}
+          {mode === 'upgrade' && (
+            <PlanPanel targets={targets} owned={owned} labelFor={labelFor} sortKey={planSortKey}
+              upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
+          )}
 
-            {mode === 'upgrade' && (
-              <>
-                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                  Кликните по зданию — цель сохранится для этой клетки. Бот сам улучшает до нужного
-                  уровня, когда хватает монет.
-                </Text>
-                <Box>
-                  <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 1 }}>Целевой уровень</Text>
-                  <TextInput type="number" value={addLevel} onChange={e => setAddLevel(e.target.value)} block />
-                </Box>
-                {targets.length === 0
-                  ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Целей пока нет</Text>
-                  : targets.map(t => {
-                    const b = owned.find(o => o.x === t.x && o.y === t.y);
+          {mode === 'queue' && (
+            <QueuePanel queue={manualQueue} owned={owned} labelFor={labelFor} prices={manualQueuePrices} balance={row?.coins ?? 0}
+              onReorder={moveQueued} onRemove={removeQueuedManual} />
+          )}
+
+          {mode === 'forecast' && <ForecastPanel events={forecastEvents} loading={forecastLoading} labelFor={labelFor} />}
+
+          {mode === 'build' && (
+            <>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
+                <div id="map-cat-tabs">
+                  {paletteTypes.map(t => (
+                    <span key={t} className={'map-cat-tab' + (typeFilter === t ? ' active' : '')} onClick={() => setTypeFilter(t)}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {paletteFiltered.map(b => {
+                    const k = familyCounts.get(b.id) ?? 0;
+                    const limitReached = b.limit != null && k >= b.limit;
+                    const hallUnmet = !limitReached && b.hall_lvl_required != null && hallLevel < b.hall_lvl_required;
+                    const price = capBuyPrice(b, k, econStrength);
+                    const unaffordable = !limitReached && !hallUnmet && price > (row?.coins ?? 0);
+                    const unavailable = limitReached || hallUnmet || unaffordable;
                     return (
-                      <Box key={`${t.x},${t.y}`} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                        <Text sx={{ fontSize: 1 }}>{b ? labelFor(b.id) : '—'} ({t.x},{t.y}) → ур. {t.target_level}</Text>
-                        <Button variant="danger" onClick={() => removeTarget(t.x, t.y)}>×</Button>
-                      </Box>
+                      <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
+                        sub={limitReached ? 'Построено' : hallUnmet ? `Нужен холл ${b.hall_lvl_required}` : undefined}
+                        trail={limitReached || hallUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmtUp(price)} /></Val>} />
                     );
                   })}
-                <Button variant="primary" block loading={busy} disabled={busy} onClick={saveTargets}>Сохранить</Button>
-              </>
-            )}
-
-            {mode === 'build' && (
-              <>
-                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                  Выберите здание в списке, затем кликайте пустые клетки на карте. Каждая клетка
-                  добавляется в очередь ниже.
-                </Text>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
-                  <div id="map-cat-tabs">
-                    {['', ...paletteTypes].map(t => (
-                      <span key={t || '__all'} className={'map-cat-tab' + (typeFilter === t ? ' active' : '')} onClick={() => setTypeFilter(t)}>
-                        {t || 'ВСЕ'}
-                      </span>
-                    ))}
-                  </div>
-                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                    {paletteFiltered.map(b => {
-                      const k = familyCounts.get(b.id) ?? 0;
-                      const limitReached = b.limit != null && k >= b.limit;
-                      const hallUnmet = !limitReached && b.hall_lvl_required != null && hallLevel < b.hall_lvl_required;
-                      const price = capBuyPrice(b, k, econStrength);
-                      const unaffordable = !limitReached && !hallUnmet && price > (row?.coins ?? 0);
-                      const unavailable = limitReached || hallUnmet || unaffordable;
-                      return (
-                        <div key={b.id}
-                          className={'map-bitem' + (buildFamily === b.id ? ' active' : '') + (unavailable ? ' disabled' : '')}
-                          onClick={() => { if (!unavailable) setBuildFamily(b.id); }}>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildingName(b)}</span>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: unavailable ? 'var(--fg-muted)' : 'var(--fg)', flexShrink: 0 }}>
-                            {limitReached ? 'Построено' : hallUnmet ? `Нужен холл ${b.hall_lvl_required}` : <CoinValue value={fmt(price)} />}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </Box>
                 </Box>
-              </>
-            )}
-
-            {mode === 'move' && (
-              <>
-                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                  {!moveFrom ? 'Кликните здание, которое хотите переместить.' : 'Теперь кликните пустую клетку — куда переместить.'}
-                </Text>
-                {moveFrom && <Text sx={{ fontSize: 1 }}>Откуда: ({moveFrom.x},{moveFrom.y})</Text>}
-                {moveFrom && <Button onClick={() => setMoveFrom(null)}>Отменить выбор</Button>}
-              </>
-            )}
-
-            {mode === 'demolish' && (
-              <Text sx={{ fontSize: 0, color: 'danger.fg' }}>
-                Кликайте здания для сноса. Без возврата монет. Не проверено вживую на столице — если
-                игра откажет, ошибка придёт как есть.
-              </Text>
-            )}
-
-            {mode === 'skip' && (
-              <>
-                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                  Кликайте здания, которые прямо сейчас строятся — стройка завершится мгновенно за
-                  алмазы. Цена зависит только от оставшегося времени (чем меньше осталось — тем
-                  дешевле) и списывается самой игрой в момент выполнения, показанная цифра — оценка.
-                </Text>
-                {skippableSet.size === 0 && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Сейчас ничего не строится</Text>}
-              </>
-            )}
-
-            {mode === 'log' && (
-              <>
-                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Последние действия по этой столице — и бота, и ручные.</Text>
-                {actionLogLoading ? <Spinner />
-                  : actionLog.length === 0 ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Лог пуст</Text>
-                  : actionLog.map(r => (
-                    <Box key={r.id} sx={{ p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                      <Text sx={{ fontSize: 1, display: 'block' }}>{logLabel(r, labelFor)}</Text>
-                      <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{new Date(r.created_at).toLocaleString('ru')}</Text>
-                    </Box>
-                  ))}
-              </>
-            )}
-
-            {mode === 'forecast' && (
-              <>
-                <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                  Реальные предполагаемые действия бота на ближайшие ~3 суток — очередь, личный и
-                  общий планы, с учётом накопления монет от прибыли столицы.
-                </Text>
-                <Button loading={forecastLoading} disabled={forecastLoading} onClick={loadForecast}>Обновить прогноз</Button>
-                {forecastLoading ? null : forecastEvents.length === 0
-                  ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Прогноз пуст — нечего запускать в ближайшие 3 суток</Text>
-                  : (() => {
-                    const groups = new Map<string, ForecastEvent[]>();
-                    for (const e of forecastEvents) {
-                      const day = new Date(e.start).toLocaleDateString('ru');
-                      if (!groups.has(day)) groups.set(day, []);
-                      groups.get(day)!.push(e);
-                    }
-                    return [...groups.entries()].map(([day, evs]) => (
-                      <Box key={day} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <Text sx={{ fontSize: 0, fontWeight: 'bold', color: 'fg.muted' }}>{day}</Text>
-                        {evs.map((e, i) => (
-                          <Box key={i} sx={{ p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                            <Text sx={{ fontSize: 1, display: 'block' }}>{labelFor(e.building_id)} ({e.x},{e.y}) {e.level_from}→{e.level_to}</Text>
-                            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
-                              {new Date(e.start).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })} — займёт {fmtTimeLeft(e.duration_ms)}
-                            </Text>
-                          </Box>
-                        ))}
-                      </Box>
-                    ));
-                  })()}
-              </>
-            )}
-
-            {queue.length > 0 && (
-              <Box sx={{ borderTop: '1px solid', borderColor: 'border.default', pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Text sx={{ fontSize: 0, fontWeight: 'bold', color: 'fg.muted' }}>Очередь ({queue.length})</Text>
-                {queue.map(a => (
-                  <Box key={a.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, border: '1px solid', borderColor: 'border.muted', borderRadius: 2 }}>
-                    <Text sx={{ fontSize: 1 }}>{actionLabel(a, labelFor, skipCostFor)}</Text>
-                    <Button variant="danger" disabled={executing} onClick={() => removeQueued(a.id)}>×</Button>
-                  </Box>
-                ))}
               </Box>
-            )}
-          </Box>
-        </Scrollable>
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
 
-        {queue.length > 0 && (
-          <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default' }}>
-            <Button variant="primary" block loading={executing} disabled={executing} onClick={runQueue}>
-              {executing && progress ? `Выполняется ${progress.done}/${progress.total}…` : `Выполнить очередь (${queue.length})`}
-            </Button>
-          </Box>
-        )}
-      </div>
+          {mode === 'move' && (
+            <>
+              <MovePanel from={moveFromInfo} moves={moveRows} labelFor={labelFor} disabled={executing} onCancel={() => setMoveFrom(null)} onRemove={removeQueued} />
+              <PendingList labelFor={labelFor} rows={pendingNot('move')} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
+
+          {mode === 'demolish' && (
+            <>
+              {pendingOf('demolish').length === 0 && <Empty>Кликните или проведите кистью по зданиям.</Empty>}
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
+
+          {mode === 'skip' && (
+            <>
+              {skippableSet.size === 0 && pendingOf('skip').length === 0 && <Empty>Сейчас ничего не строится.</Empty>}
+              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+            </>
+          )}
+
+          {mode === 'log' && <LogPanel rows={actionLog} loading={actionLogLoading} label={r => logLabel(r, labelFor)} labelFor={labelFor} />}
+        </PanelShell>
+      </Box>
     </Box>
   );
 }

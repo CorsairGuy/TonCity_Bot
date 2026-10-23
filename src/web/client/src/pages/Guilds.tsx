@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Checkbox, Flash, Label, Text, Spinner } from '@primer/react';
+import { Box, Button, Checkbox, Flash, Label, Select, Text, TextInput, Spinner } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
 import { api, type GuildMembership, type GuildApplication, type GuildMember, type GuildSettings } from '../api';
@@ -7,6 +7,7 @@ import { fmt } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { PageHeader } from '../components/PageHeader';
+import { useAsk } from '../hooks/useAsk';
 
 // ── бафы гильдии (GET /guilds/benefits) ──────────────────────────────────────
 type GuildBenefits = {
@@ -43,9 +44,12 @@ function extractGuildType(raw: unknown): string | null {
 }
 
 // ── модалка заявок на вступление ────────────────────────────────────────────
-function ApplicationsModal({ guildId, title, onClose, showFlash }: {
+function ApplicationsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
   guildId: string; title: string; onClose: () => void; showFlash: (m: string, ok: boolean) => void;
 }) {
+  // сообщения — внутри окна: флэш на странице прятался под затемнением открытого диалога
+  const [note, setNote] = useState<{ msg: string; ok: boolean } | null>(null);
+  const showFlash = (msg: string, ok: boolean) => { setNote({ msg, ok }); showPageFlash(msg, ok); };
   const [apps, setApps] = useState<GuildApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
@@ -69,6 +73,7 @@ function ApplicationsModal({ guildId, title, onClose, showFlash }: {
   return (
     <Dialog title={`Заявки · ${title}`} onClose={onClose} width="xlarge" position={{ narrow: 'bottom', regular: 'center' }}>
       <Box>
+        {note && <Flash variant={note.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{note.msg}</Flash>}
         <Box sx={{ mb: 2 }}>
           <Button onClick={load} disabled={loading}>↻ Обновить</Button>
         </Box>
@@ -94,13 +99,17 @@ function ApplicationsModal({ guildId, title, onClose, showFlash }: {
 const ONLINE_COLOR: Record<string, string> = { green: 'var(--green)', yellow: '#d4a23c', red: 'var(--red)', gray: 'var(--fg-subtle)' };
 const ROLE_NAME: Record<string, string> = { Leader: 'Лидер', Officer: 'Офицер', Member: 'Участник' };
 
-function MembersModal({ guildId, title, myRole, onClose, showFlash }: {
+function MembersModal({ guildId, title, myRole, onClose, showFlash: showPageFlash }: {
   guildId: string; title: string; myRole: string; onClose: () => void; showFlash: (m: string, ok: boolean) => void;
 }) {
+  // сообщения — внутри окна: флэш на странице прятался под затемнением открытого диалога
+  const [note, setNote] = useState<{ msg: string; ok: boolean } | null>(null);
+  const showFlash = (msg: string, ok: boolean) => { setNote({ msg, ok }); showPageFlash(msg, ok); };
   const [members, setMembers] = useState<GuildMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
   const isLeader = myRole === 'Leader';
+  const ask = useAsk();
 
   const load = async () => {
     setLoading(true);
@@ -110,8 +119,8 @@ function MembersModal({ guildId, title, myRole, onClose, showFlash }: {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   const act = async (m: GuildMember, action: 'promote' | 'demote' | 'kick' | 'promote-to-leader') => {
-    if (action === 'promote-to-leader' && !window.confirm(`Передать лидерство игроку ${m.first_name}? Вы станете офицером.`)) return;
-    if (action === 'kick' && !window.confirm(`Исключить ${m.first_name} из гильдии?`)) return;
+    if (action === 'promote-to-leader' && !await ask('Передать лидерство?', `Лидером станет ${m.first_name}, вы станете офицером.`, { ok: 'Передать', danger: true })) return;
+    if (action === 'kick' && !await ask('Исключить из гильдии?', `${m.first_name} будет исключён из гильдии.`, { ok: 'Исключить', danger: true })) return;
     setBusy(m.id);
     try {
       const d = await api.guildMemberAction(guildId, m.id, action);
@@ -128,6 +137,7 @@ function MembersModal({ guildId, title, myRole, onClose, showFlash }: {
   return (
     <Dialog title={`Участники · ${title}`} onClose={onClose} width="xlarge" position={{ narrow: 'bottom', regular: 'center' }}>
       <Box>
+        {note && <Flash variant={note.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{note.msg}</Flash>}
         <Box sx={{ mb: 2 }}><Button onClick={load} disabled={loading}>↻ Обновить</Button></Box>
         {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
           : sorted.length === 0 ? <Text sx={{ color: 'fg.muted' }}>Нет участников</Text>
@@ -166,9 +176,12 @@ const FEE_TYPES = [{ v: '', n: 'Нет' }, { v: 'hourly', n: 'Почасовой
 const FEE_FREQ = [{ v: 'daily', n: 'Ежедневно' }, { v: 'weekly', n: 'Еженедельно' }, { v: 'monthly', n: 'Ежемесячно' }];
 const FEE_CUR = [{ v: 'coins', n: 'Монеты' }, { v: 'crystals', n: 'Кристаллы' }];
 
-function SettingsModal({ guildId, title, onClose, showFlash }: {
+function SettingsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
   guildId: string; title: string; onClose: () => void; showFlash: (m: string, ok: boolean) => void;
 }) {
+  // сообщения — внутри окна: флэш на странице прятался под затемнением открытого диалога
+  const [note, setNote] = useState<{ msg: string; ok: boolean } | null>(null);
+  const showFlash = (msg: string, ok: boolean) => { setNote({ msg, ok }); showPageFlash(msg, ok); };
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [info, setInfo] = useState<GuildSettings | null>(null);
@@ -225,7 +238,7 @@ function SettingsModal({ guildId, title, onClose, showFlash }: {
     } catch (e) { showFlash(String(e), false); } finally { setSaving(false); }
   };
 
-  const inputStyle = { padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, width: 170, background: 'var(--bgColor-default, #0d1117)', color: 'var(--fgColor-default, #e6edf3)' };
+  const inputSx = { width: 170, flexShrink: 0 } as const;
   const fieldRow = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 } as const;
 
   return (
@@ -237,15 +250,16 @@ function SettingsModal({ guildId, title, onClose, showFlash }: {
       footerButtons={[{ content: 'Сохранить', buttonType: 'primary', loading: saving, disabled: saving || loading, onClick: save }]}
     >
       <Box>
+        {note && <Flash variant={note.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{note.msg}</Flash>}
         {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
           : <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {/* Тип набора */}
               <Box>
                 <Box sx={fieldRow}>
                   <Text sx={{ fontSize: 1 }}>Тип гильдии</Text>
-                  <select value={guildType} onChange={e => setGuildType(e.target.value)} style={inputStyle}>
-                    {GUILD_TYPES.map(t => <option key={t.v} value={t.v}>{t.n}</option>)}
-                  </select>
+                  <Select aria-label="Тип гильдии" value={guildType} onChange={e => setGuildType(e.target.value)} sx={inputSx}>
+                    {GUILD_TYPES.map(t => <Select.Option key={t.v} value={t.v}>{t.n}</Select.Option>)}
+                  </Select>
                 </Box>
                 <Text sx={{ fontSize: 0, color: 'fg.muted', mt: 1, display: 'block', textAlign: 'right' }}>{GUILD_TYPE_HINT[guildType]}</Text>
               </Box>
@@ -260,11 +274,11 @@ function SettingsModal({ guildId, title, onClose, showFlash }: {
                   {autoAccept && <>
                     <Box sx={fieldRow}>
                       <Text sx={{ fontSize: 1 }}>Мин. население</Text>
-                      <input type="number" value={pop} onChange={e => setPop(e.target.value)} placeholder="0" style={inputStyle} />
+                      <TextInput type="number" aria-label="Мин. население" value={pop} onChange={e => setPop(e.target.value)} placeholder="0" sx={inputSx} />
                     </Box>
                     <Box sx={fieldRow}>
                       <Text sx={{ fontSize: 1 }}>Мин. прибыль/час</Text>
-                      <input type="number" value={profit} onChange={e => setProfit(e.target.value)} placeholder="0" style={inputStyle} />
+                      <TextInput type="number" aria-label="Мин. прибыль/час" value={profit} onChange={e => setProfit(e.target.value)} placeholder="0" sx={inputSx} />
                     </Box>
                   </>}
                 </Box>
@@ -273,35 +287,35 @@ function SettingsModal({ guildId, title, onClose, showFlash }: {
               {/* Авто-исключение */}
               <Box sx={fieldRow}>
                 <Text sx={{ fontSize: 1 }}>Порог неактивности</Text>
-                <select value={autoKick} onChange={e => setAutoKick(e.target.value)} style={inputStyle}>
-                  {AUTOKICK.map(t => <option key={t.v} value={t.v}>{t.n}</option>)}
-                </select>
+                <Select aria-label="Порог неактивности" value={autoKick} onChange={e => setAutoKick(e.target.value)} sx={inputSx}>
+                  {AUTOKICK.map(t => <Select.Option key={t.v} value={t.v}>{t.n}</Select.Option>)}
+                </Select>
               </Box>
 
               {/* Членский взнос */}
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <Box sx={fieldRow}>
                   <Text sx={{ fontSize: 1 }}>Членский взнос</Text>
-                  <select value={feeType} onChange={e => setFeeType(e.target.value)} style={inputStyle}>
-                    {FEE_TYPES.map(t => <option key={t.v} value={t.v}>{t.n}</option>)}
-                  </select>
+                  <Select aria-label="Членский взнос" value={feeType} onChange={e => setFeeType(e.target.value)} sx={inputSx}>
+                    {FEE_TYPES.map(t => <Select.Option key={t.v} value={t.v}>{t.n}</Select.Option>)}
+                  </Select>
                 </Box>
                 {feeType && <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pl: 2, borderLeft: '2px solid', borderColor: 'border.muted' }}>
                   <Box sx={fieldRow}>
                     <Text sx={{ fontSize: 1 }}>Сумма</Text>
-                    <input type="number" value={feeAmount} onChange={e => setFeeAmount(e.target.value)} placeholder="0" style={inputStyle} />
+                    <TextInput type="number" aria-label="Сумма" value={feeAmount} onChange={e => setFeeAmount(e.target.value)} placeholder="0" sx={inputSx} />
                   </Box>
                   <Box sx={fieldRow}>
                     <Text sx={{ fontSize: 1 }}>Периодичность</Text>
-                    <select value={feeFreq} onChange={e => setFeeFreq(e.target.value)} style={inputStyle}>
-                      {FEE_FREQ.map(t => <option key={t.v} value={t.v}>{t.n}</option>)}
-                    </select>
+                    <Select aria-label="Периодичность" value={feeFreq} onChange={e => setFeeFreq(e.target.value)} sx={inputSx}>
+                      {FEE_FREQ.map(t => <Select.Option key={t.v} value={t.v}>{t.n}</Select.Option>)}
+                    </Select>
                   </Box>
                   <Box sx={fieldRow}>
                     <Text sx={{ fontSize: 1 }}>Валюта</Text>
-                    <select value={feeCur} onChange={e => setFeeCur(e.target.value)} style={inputStyle}>
-                      {FEE_CUR.map(t => <option key={t.v} value={t.v}>{t.n}</option>)}
-                    </select>
+                    <Select aria-label="Валюта" value={feeCur} onChange={e => setFeeCur(e.target.value)} sx={inputSx}>
+                      {FEE_CUR.map(t => <Select.Option key={t.v} value={t.v}>{t.n}</Select.Option>)}
+                    </Select>
                   </Box>
                 </Box>}
               </Box>
@@ -325,10 +339,11 @@ export function Guilds() {
   const [setGuild, setSetGuild] = useState<{ id: string; title: string } | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const { flash, showFlash } = useFlash();
+  const ask = useAsk();
 
   const removeDuplicate = async (accountId: number | null, accountName: string) => {
     if (accountId == null) { showFlash(`У аккаунта "${accountName}" не найден id — удалите вручную на странице Аккаунтов`, false); return; }
-    if (!window.confirm(`Удалить дублирующийся аккаунт "${accountName}" (id ${accountId})? Действие необратимо.`)) return;
+    if (!await ask('Удалить дубль аккаунта?', `Аккаунт «${accountName}» (id ${accountId}) будет удалён из бота. Действие необратимо.`, { ok: 'Удалить', danger: true })) return;
     setDeletingId(accountId);
     try {
       const d = await api.deleteAccount(accountId);

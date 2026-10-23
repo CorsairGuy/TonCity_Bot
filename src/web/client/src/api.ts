@@ -1,7 +1,24 @@
+// Ответ без JSON (502 от прокси, пока бот перезапускается; HTML-заглушка) и обрыв сети
+// превращаются в обычный {ok:false,error}: страницы уже умеют показывать error, а исключение
+// уходило в консоль и оставляло на экране пустое «нет данных».
 async function req<T>(url: string, opts?: RequestInit): Promise<T> {
-  const r = await fetch(url, opts);
+  let r: Response;
+  try { r = await fetch(url, opts); }
+  catch { return offline<T>('Нет связи с ботом'); }
   if (r.status === 401) window.dispatchEvent(new CustomEvent('tc-unauthorized'));
-  return r.json() as Promise<T>;
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('json')) return offline<T>(`Бот недоступен (${r.status})`);
+  try {
+    const d = await r.json() as T;
+    window.dispatchEvent(new CustomEvent('tc-api-online'));
+    return d;
+  } catch { return { ok: false, error: `Некорректный ответ сервера (${r.status})` } as T; }
+}
+
+// общий баннер «Бот недоступен» (components/OfflineBanner) слушает эти события
+function offline<T>(error: string): T {
+  window.dispatchEvent(new CustomEvent('tc-api-offline', { detail: error }));
+  return { ok: false, error } as T;
 }
 
 const post = (body?: unknown): RequestInit => ({
@@ -29,7 +46,7 @@ export const api = {
   setPassword: (password: string) => req<{ ok: boolean; error?: string }>('/api/password', post({ password })),
 
   // accounts
-  accounts: () => req<{ ok: boolean; accounts: Account[] }>('/api/accounts'),
+  accounts: (name?: string) => req<{ ok: boolean; accounts: Account[] }>('/api/accounts' + (name ? `?name=${encodeURIComponent(name)}` : '')),
   // точечное обновление одного аккаунта — не тянуть весь флот ради баланса одного (см. SatoshiTower)
   accountById: (id: number) => req<{ ok: boolean; account: Account; error?: string }>(`/api/accounts/${id}`),
   addAccount: (url: string) =>
@@ -165,6 +182,11 @@ export const api = {
   guildQuestCombineBooster: (accountId: number, questId: number) =>
     req<{ ok: boolean; toName?: string; quest?: GuildQuest | null; collected?: boolean; error?: string }>(`/api/guild-quests/${accountId}/combine-booster`, post({ quest_id: questId })),
   // Уровни гильдейских квестов — новая система обновления 06.07.2026
+  // рейтинги игры: «Величайшие мэры» (топ-500) и лиги мэров/гильдий; force — мимо 10-минутного кэша сервера
+  leaderboardGlobal: (force = false) => req<LeaderboardGlobal>('/api/leaderboard/global' + (force ? '?force=1' : '')),
+  leaderboardLeagues: (force = false) => req<LeaderboardLeagues>('/api/leaderboard/leagues' + (force ? '?force=1' : '')),
+  // чужой город для просмотра карты (игра: /cities/{user_id}), сервер кэширует 5 минут
+  playerCity: (userId: number | string, force = false) => req<PlayerCity>(`/api/leaderboard/city/${userId}` + (force ? '?force=1' : '')),
   questTiers: () => req<{ ok: boolean; guilds: QuestTierGuild[] }>('/api/quest-tiers'),
   questTiersRefresh: (guildId: string) =>
     req<{ ok: boolean; data?: QuestTierData; error?: string }>(`/api/quest-tiers/${encodeURIComponent(guildId)}/refresh`, post({})),
@@ -202,7 +224,7 @@ export const api = {
   capitals: () => req<{ ok: boolean; rows: CapitalRow[] }>('/api/capital-snapshots'),
 
   // city — server: {rows: [{account, buildings, updated_at}]}
-  city: () => req<{ ok: boolean; rows: CityRow[] }>('/api/city-snapshots'),
+  city: (account?: string) => req<{ ok: boolean; rows: CityRow[] }>('/api/city-snapshots' + (account ? `?account=${encodeURIComponent(account)}` : '')),
 
   // Действия по городу (страница "Города" → "Действия") — заменяет автоматику по эталонному плану
   buildingsList: (type: 'city' | 'capital' = 'city') =>
@@ -246,7 +268,7 @@ export const api = {
     req<{ ok: boolean; criteria: unknown; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/build-criteria`),
   // ускорители — читаются только из БД, единственный живой запрос всего раздела — сама активация
   cityBoosters: (account: string) =>
-    req<{ ok: boolean; boosters: CityBoosterRow[]; queue?: { name: string; label: string }[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters`),
+    req<{ ok: boolean; boosters: CityBoosterRow[]; active?: CityActiveBooster[]; queue?: { name: string; label: string }[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters`),
   // очередь активации: шлём ВЕСЬ порядок разом (что не в массиве — выбывает из очереди)
   saveBoosterQueue: (account: string, order: string[]) =>
     req<{ ok: boolean; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/boosters/queue`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order }) }),
@@ -558,8 +580,8 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/storage-live/${accountId}/sync`, post({})),
 
   // policies (Кабинет мэра / Библиотека политик) — читается из БД, как и /api/inventory
-  policies: () =>
-    req<{ ok: boolean; byAccount: Record<string, PoliciesAccountData>; accIdByName: Record<string, number>; error?: string }>('/api/policies'),
+  policies: (account?: string) =>
+    req<{ ok: boolean; byAccount: Record<string, PoliciesAccountData>; accIdByName: Record<string, number>; error?: string }>('/api/policies' + (account ? `?account=${encodeURIComponent(account)}` : '')),
   policyAction: (accountId: number, action: PolicyActionName, payload: Record<string, unknown> = {}) =>
     req<PolicyActionResponse>(`/api/policies/${accountId}/action`, post({ action, ...payload })),
 
@@ -636,7 +658,6 @@ export interface Account {
   id: number;
   name: string;
   hasToken: boolean;
-  hasInit: boolean;
   // реальный статус сессии (WS), не просто "есть токен в БД" — токен не удаляется сам при протухании
   sessionStatus: 'active' | 'dead' | 'connecting' | 'unknown';
   buildings?: string[]; // особые здания на карте: 'market' | 'fortune' | 'wisdom' | 'reserve'
@@ -725,7 +746,7 @@ export interface DailyAdsRow {
 
 export interface AppConfig {
   logLevel: string;
-  ui?: { navOpenGroups?: string[]; mapDayNight?: 'auto' | 'day' | 'night' };
+  ui?: { navOpenGroups?: string[]; mapDayNight?: 'auto' | 'day' | 'night'; theme?: 'light' | 'dark' | null };
   update?: { auto?: boolean };
   telegram?: {
     botToken?: string;
@@ -1211,6 +1232,14 @@ export interface CityBoosterRow {
   ends_at: number | null; // мс — когда закончится ПОСЛЕДНИЙ активный инстанс этого типа
   blocked_by_other: boolean; // активен другой тип — этот нельзя активировать, пока тот не кончится
   auto: boolean; // включена ли автоактивация
+}
+// активный ускоритель (вкладка "Ускорители") — по ответу игры, даже если на складе его уже нет
+export interface CityActiveBooster {
+  name: string;
+  label: string;
+  active_limit: number;
+  currently_active: number;
+  ends_at: number; // мс — когда закончится последний активный инстанс
 }
 // запись лога действий по городу (вкладка "Лог")
 export interface CityActionLogRow {
@@ -2177,13 +2206,15 @@ export interface VersionInfo {
   status: 'current' | 'behind' | 'pinned' | 'ahead' | 'diverged' | 'unknown_local' | 'unknown';
   behindBy: number | null;
   compareUrl: string | null;
+  // что придёт с обновлением, новые сверху: смерженные PR (или коммиты, если PR нет)
+  changes?: { title: string; pr: number | null; url: string }[] | null;
   // сборка Docker-образа головы канала в GitHub Actions
   build: { status: string; conclusion: string | null; url: string } | null;
   canUpdate?: boolean;
   // время старта процесса бота — по нему панель понимает, что бот перезапустился
   startedAt?: number;
   auto?: boolean;
-  updater?: { alive: boolean; busy?: boolean; heartbeatAt: string | null; version: number | null; mode?: string | null;
+  updater?: { alive: boolean; busy?: boolean; heartbeatAt: string | null; version: number | null; outdated?: boolean; mode?: string | null;
     last: { id: string; state: string; tag: string; message: string; at: string; progress?: PullProgress } | null };
   history?: { commit: string; ref: string | null; tag: string; at: string }[];
   checkedAt: number;
@@ -2196,3 +2227,24 @@ export interface VersionInfo {
 export interface PullProgress { layers: number; downloaded: number; extracted: number; cur: number; total: number; estTotal: number }
 // этап идущего обновления из GET /api/build
 export interface UpdateStage { state: string; message: string | null; progress: PullProgress | null }
+
+// ── рейтинги игры ──
+export interface LbPlayer {
+  user_id: number; name: string; small_url: string | null; league: string | null;
+  population: number | null; profit: number | null; rank: number;
+  account: string | null; // имя своего аккаунта, если это он
+}
+export interface LbGuild {
+  id: number; title: string; photo: string | null; league: string | null;
+  population: number | null; profit: number | null; rank: number; own: boolean;
+}
+export interface LbOwn { account: string; population: number | null; profit: number | null }
+interface LbBase { ok: boolean; error?: string; stale?: boolean; updated_at?: number; own?: LbOwn[] }
+export interface LeaderboardGlobal extends LbBase { population?: LbPlayer[]; profit?: LbPlayer[] }
+export interface LeaderboardLeagues extends LbBase { players?: LbPlayer[]; guilds?: LbGuild[] }
+export interface PlayerCity {
+  ok: boolean; error?: string; updated_at?: number;
+  user?: { id: number; name: string; small_url: string | null };
+  buildings?: MapBuilding[]; unlocked_sections?: string[] | null;
+  profit_per_hour?: number | null; happiness?: number | null; income_boost?: number | null;
+}

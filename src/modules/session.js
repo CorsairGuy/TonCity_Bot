@@ -3,8 +3,6 @@ const axios=require('axios');
 const {Account}=require('../db/index');
 const cfg=require('../config');
 const logger=require('../utils/logger');
-const {sleep}=require('../utils/helpers');
-const {apiLock}=require('../utils/lock');
 const reqSign=require('../utils/reqSign');
 const wsSession=require('../utils/wsSession');
 
@@ -70,13 +68,13 @@ async function saveStakedStats(account,name,entries){
 // в игре одноразовый (rotating) — после первого успешного рефреша старый refresh_token недействителен.
 const _refreshInFlight=new Map();
 
-// Кулдаун для аккаунтов с ПОДТВЕРЖДЁННО мёртвым refresh_token (401 "Invalid or expired refresh
-// token"). Без этого КАЖДЫЙ модуль (инвентарь, вордли, рынок, квесты, ...), независимо друг от
-// друга, при любой 401/нет-seed ошибке дёргает doRefresh заново — на мёртвый аккаунт улетают
-// десятки одинаковых сетевых запросов за пару минут (см. лог: 149 "refresh error" для одного
-// аккаунта за 2 суток). Один явный 401 на refresh — веский повод не долбить сеть ближайшие 10 мин.
-const _refreshDeadUntil=new Map();
-const DEAD_COOLDOWN_MS=10*60*1000;
+// Аккаунты с ПОДТВЕРЖДЁННО мёртвым refresh_token (401 "Invalid or expired refresh token").
+// Такой токен не оживёт: помогает только новая ссылка из бота игры (/api/accounts/add). Поэтому
+// после 401 сеть больше не трогаем совсем, пока в БД не появится свежий токен (doRefresh проверяет
+// это дешёвым чтением БД) или панель не снимет отметку явно (clearDeadCooldown). Раньше отметка
+// жила 10 минут, и каждые 10 минут на мёртвый аккаунт уходили заведомо проваленные refresh+exchange.
+// Отметка в памяти: после перезапуска бота аккаунт проверяется рефрешем ещё один раз.
+const _refreshDead=new Set();
 
 async function _syncTokensFromDb(api,account){
   try{
@@ -93,20 +91,19 @@ async function _syncTokensFromDb(api,account){
 
 async function doRefresh(api,account){
   const name=account.name;
-  const deadUntil=_refreshDeadUntil.get(account.id);
-  if(deadUntil&&Date.now()<deadUntil){
-    // 13.10.2026: БАГ — аккаунт попадал в 10-минутный "подтверждённо мёртв" кулдаун (refresh 401),
+  if(_refreshDead.has(account.id)){
+    // 13.10.2026: БАГ — аккаунт попадал в "подтверждённо мёртв" (refresh 401),
     // пользователь тут же переавторизовывал его через веб-панель (/api/accounts/add — свежий
     // access_token/refresh_token УЖЕ лежат в БД), но все циклы аккаунта продолжали получать
-    // noSeedError ещё до 10 минут — doRefresh выходил здесь, даже не заглянув в БД. Жалоба: "отправил
+    // noSeedError — doRefresh выходил здесь, даже не заглянув в БД. Жалоба: "отправил
     // новую ссылку авторизации, а должно заработать мгновенно". Дешёвая проверка БД (без похода в
-    // игру) — если токен там СВЕЖЕЕ закрытого в памяти, кулдаун больше не актуален: снимаем его и
+    // игру) — если токен там СВЕЖЕЕ закрытого в памяти, отметка больше не актуальна: снимаем его и
     // ПРОВАЛИВАЕМСЯ дальше в обычный _doRefreshOnce (не просто копируем токен) — нужен настоящий
     // сетевой refresh свежим refresh_token, чтобы получить НОВЫЙ session_seed (reqSign) и поднять WS
     // заново (wsSession.notifyRefreshed), иначе подписанные запросы всё равно будут падать без seed.
     const synced=await _syncTokensFromDb(api,account);
-    if(!synced)return false; // в БД действительно всё ещё старый токен — кулдаун настоящий
-    _refreshDeadUntil.delete(account.id);
+    if(!synced)return false; // в БД всё ещё старый токен — аккаунт мёртв, ждём новую ссылку
+    _refreshDead.delete(account.id);
   }
   if(_refreshInFlight.has(account.id)){
     logger.info(`[${name}] [session] refresh already in progress, waiting…`);
@@ -130,7 +127,7 @@ async function _doRefreshOnce(api,account){
       api.setToken(fresh.access_token);
       account.access_token=fresh.access_token;
       account.refresh_token=fresh.refresh_token;
-      _refreshDeadUntil.delete(account.id);
+      _refreshDead.delete(account.id);
       return true;
     }
     const sentRt=account.refresh_token; // фиксируем токен, которым рефрешим — сравним с БД при 401
@@ -146,7 +143,7 @@ async function _doRefreshOnce(api,account){
     await Account.update({access_token:b.access_token,refresh_token:account.refresh_token},{where:{id:account.id}});
     wsSession.notifyRefreshed(account.id,()=>account.access_token); // токен/seed сменились → переоткрыть WS
     logger.info(`[${name}] [session] token refreshed`);
-    _refreshDeadUntil.delete(account.id);
+    _refreshDead.delete(account.id);
     return true;
   }catch(e){
     const status=e?.response?.status;
@@ -154,7 +151,7 @@ async function _doRefreshOnce(api,account){
     // ГОНКА РОТАЦИИ (первопричина вылета аккаунтов): пока мы делали refresh, ДРУГОЙ вызов/процесс мог
     // уже успешно рефрешнуть этот аккаунт. Игра ротирует refresh_token на каждый успешный refresh —
     // наш стал невалиден именно потому, что его ротировал победитель. Прежде чем объявлять аккаунт
-    // мёртвым или жечь init_token на exchange — перечитываем БД: если там уже лежит ДРУГОЙ токен
+    // мёртвым — перечитываем БД: если там уже лежит ДРУГОЙ токен
     // (не тот, что мы слали), значит рефреш уже сделан успешно — просто принимаем свежий токен.
     if(status===401){
       try{
@@ -163,45 +160,19 @@ async function _doRefreshOnce(api,account){
           api.setToken(fresh.access_token);
           account.access_token=fresh.access_token;
           account.refresh_token=fresh.refresh_token;
-          _refreshDeadUntil.delete(account.id);
+          _refreshDead.delete(account.id);
           logger.info(`[${name}] [session] refresh 401, но токен уже ротирован другим вызовом — принят свежий из БД`);
           return true;
         }
       }catch(_){}
     }
     logger.error(`[${name}] [session] refresh error: ${e.message}${status?` status ${status}`:''}${body?` ${body}`:''}`);
-    if(account.init_token){
-      logger.info(`[${name}] [session] trying exchange fallback…`);
-      const ok=await exchangeToken(api,account);
-      if(!ok&&status===401)_refreshDeadUntil.set(account.id,Date.now()+DEAD_COOLDOWN_MS);
-      return ok;
+    // Код из ссылки game.toncity.io/auth одноразовый и живёт ~10 минут, поэтому повторно его не
+    // обмениваем: протухший аккаунт оживит только новая ссылка из бота игры.
+    if(status===401){
+      _refreshDead.add(account.id);
+      logger.warn(`[${name}] [session] refresh_token протух — нужна новая ссылка авторизации из бота игры`);
     }
-    if(status===401)_refreshDeadUntil.set(account.id,Date.now()+DEAD_COOLDOWN_MS);
-    return false;
-  }
-}
-
-async function exchangeToken(api,account){
-  const name=account.name;
-  logger.info(`[${name}] [session] exchanging token…`);
-  try{
-    await sleep(500);
-    const r=await apiLock.run(async()=>axios.post(`${cfg.baseUrl}/web-auth/exchange`,{token:account.init_token},{timeout:30000,headers:{'content-type':'application/json','accept':'application/json','referer':`https://game.toncity.io/auth?token=${account.init_token}`}}));
-    const b=r.data;
-    if(!b.access_token){logger.error(`[${name}] [session] exchange failed: ${JSON.stringify(b)}`);return false;}
-    api.setToken(b.access_token);
-    reqSign.setSeed(account.id,b.session_seed); // seed для подписи запросов (X-Req-Token)
-    account.access_token=b.access_token;
-    if(b.refresh_token)account.refresh_token=b.refresh_token;
-    await Account.update({access_token:b.access_token,refresh_token:b.refresh_token||''},{where:{id:account.id}});
-    wsSession.notifyRefreshed(account.id,()=>account.access_token); // токен/seed сменились → переоткрыть WS
-    logger.info(`[${name}] [session] token exchanged`);
-    _refreshDeadUntil.delete(account.id);
-    return true;
-  }catch(e){
-    const status=e?.response?.status;
-    const body=typeof e?.response?.data==='string'?e.response.data:JSON.stringify(e?.response?.data||{});
-    logger.error(`[${name}] [session] exchange error: ${e.message}${status?` status ${status}`:''}${body?` ${body}`:''}`);
     return false;
   }
 }
@@ -237,18 +208,10 @@ async function ensureSession(api,account){
   const name=account.name;
   wsSession.setName(account.id,name);
   api.setRefreshFn(()=>doRefresh(api,account));
-  if(!account.access_token&&!account.refresh_token){
-    if(account.init_token){
-      const ok=await exchangeToken(api,account);
-      if(!ok)return null;
-    }else{logger.warn(`[${name}] [session] no tokens in DB`);return null;}
-  }
+  if(!account.access_token&&!account.refresh_token){logger.warn(`[${name}] [session] no tokens in DB`);return null;}
   // Нужен session_seed (для подписи запросов и WS-хендшейка). В памяти его нет после старта —
   // он приходит только в ответе exchange/refresh, поэтому обновляемся, если seed ещё не получен.
-  if(!reqSign.hasSeed(account.id)){
-    if(account.refresh_token){await doRefresh(api,account);}
-    else if(account.init_token){await exchangeToken(api,account);}
-  }
+  if(!reqSign.hasSeed(account.id)&&account.refresh_token)await doRefresh(api,account);
   // Сервер пускает REST только при активном WS — поднимаем его до первого запроса.
   const wsOk=await wsSession.ensureReady(account.id,()=>account.access_token,()=>doRefresh(api,account));
   if(!wsOk)logger.warn(`[${name}] [session] WS не готов — запросы могут отклоняться (403 direct access)`);
@@ -270,18 +233,15 @@ async function ensureSession(api,account){
   return{accessToken:account.access_token,refreshToken:account.refresh_token};
 }
 
-// Аккаунт с ПОДТВЕРЖДЁННО мёртвым refresh_token (в 10-мин кулдауне) — группам, выбирающим
+// Аккаунт с ПОДТВЕРЖДЁННО мёртвым refresh_token — группам, выбирающим
 // «любой аккаунт» для чтения (market-prices, витрина рынка и т.п.), нет смысла его выбирать:
 // запрос всё равно упадёт в «нет seed». Позволяет не долбить мёртвый аккаунт и не спамить лог.
-function isRefreshDead(accountId){
-  const until=_refreshDeadUntil.get(accountId);
-  return !!(until&&Date.now()<until);
-}
+function isRefreshDead(accountId){return _refreshDead.has(Number(accountId));}
 
-// Явный сброс кулдауна (13.10.2026) — зовётся сразу после переавторизации аккаунта через веб-панель
+// Явный сброс отметки «мёртв» (13.10.2026) — зовётся сразу после переавторизации аккаунта через веб-панель
 // (/api/accounts/add), когда в БД только что сохранился заведомо свежий access_token/refresh_token.
 // doRefresh и сам снимает кулдаун при обнаружении более свежего токена в БД (см. выше), но явный
-// вызов отсюда снимает его МГНОВЕННО, не дожидаясь следующей попытки запроса от фонового цикла.
-function clearDeadCooldown(accountId){_refreshDeadUntil.delete(Number(accountId));}
+// вызов отсюда снимает её МГНОВЕННО, не дожидаясь следующей попытки запроса от фонового цикла.
+function clearDeadCooldown(accountId){_refreshDead.delete(Number(accountId));}
 
 module.exports={ensureSession,doRefresh,saveStakedStats,saveStats:_saveStats,isRefreshDead,clearDeadCooldown};

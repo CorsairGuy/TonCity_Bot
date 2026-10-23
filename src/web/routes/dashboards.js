@@ -60,6 +60,8 @@ module.exports=function(app,ctx){
         if(l.day!=null&&!byDay.has(l.day))byDay.set(l.day,l); // DESC по дате — первое вхождение самое свежее
       }
       const today=new Date().toISOString().slice(0,10);
+      const addDays=(ymd,n)=>new Date(Date.parse(ymd+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
+      const yesterday=addDays(today,-1);
       const accounts=accs.map(acc=>{
         const snap=snapByAcc.get(acc.name);
         const rewards=snap?.rewards?JSON.parse(snap.rewards):[];
@@ -67,11 +69,21 @@ module.exports=function(app,ctx){
         // last_login — полный ISO-таймстамп (2026-10-13T05:42:...Z), сравниваем только дату —
         // раньше сравнивалось с голой датой и НИКОГДА не совпадало, подсветка "сегодня" съезжала
         // на день вперёд (считала, что сегодняшний вход ещё не забран, хотя он уже был)
-        const claimedToday=snap?.last_login?.slice(0,10)===today;
-        const todayCycleDay=streak==null?null:(claimedToday?((streak-1)%28)+1:(streak%28)+1);
+        const lastDate=snap?.last_login?.slice(0,10)||null;
+        const claimedToday=lastDate===today;
+        // Пропуск дня рвёт серию: если последний вход раньше вчерашнего, игра начнёт цикл заново
+        // с 1-го дня, даже если снимок ещё держит старый streak.
+        const broken=!claimedToday&&lastDate!=null&&lastDate<yesterday;
+        const todayCycleDay=streak==null?null:broken?1:(claimedToday?((streak-1)%28)+1:(streak%28)+1);
+        // Дата вручения 1-го дня ТЕКУЩЕГО цикла. Записи DailyLog раньше неё — прошлый цикл или
+        // прошлая серия до сброса: их день совпадает по номеру, но к нынешнему прогрессу отношения
+        // не имеет (иначе после сброса на «День 1» дни 2-4 старой серии светились как забранные).
+        // Считаем от последнего забранного дня: сегодня (день todayCycleDay) или вчера (день перед ним).
+        const cycleStart=todayCycleDay==null?null:broken?today:claimedToday?addDays(today,1-todayCycleDay):addDays(yesterday,2-todayCycleDay);
         const byDay=logsByAcc.get(acc.name)||new Map();
         const days=rewards.map(r=>{
-          const actualRow=byDay.get(r.streak_day);
+          const row=byDay.get(r.streak_day);
+          const actualRow=row&&cycleStart&&String(row.logged_at).slice(0,10)>=cycleStart&&r.streak_day<=todayCycleDay?row:null;
           const actual=actualRow?.reward?JSON.parse(actualRow.reward):null;
           const isPast=todayCycleDay!=null&&(r.streak_day<todayCycleDay||(r.streak_day===todayCycleDay&&claimedToday));
           const base=actual??{type:r.reward_type,amount:r.calculated_reward,item_id:r.item_id??null};

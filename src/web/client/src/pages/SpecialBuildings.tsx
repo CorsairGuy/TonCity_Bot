@@ -87,7 +87,7 @@ function GuildLevelsTable({ kind }: { kind: Kind }) {
                     <tr key={r.guild_id}>
                       <td>
                         <strong>{r.guild_title}</strong>
-                        <div style={{ fontSize: 11, color: 'var(--fgColor-muted, #848d97)' }}>ID: {r.guild_id}</div>
+                        <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>ID: {r.guild_id}</div>
                       </td>
                       <td><Label variant="accent">Ур. {r[levelKey]}</Label></td>
                       <td className="mono" style={{ fontSize: 11 }}>{r.updated_at ? new Date(r.updated_at).toLocaleString() : '—'}</td>

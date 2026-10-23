@@ -19,6 +19,28 @@ const CACHE_MS=30*60*1000;
 const MIN_FORCE_MS=10*1000;      // ручная проверка: условные запросы с ETag (304) лимит GitHub не тратят
 const GH='https://api.github.com/repos/'+REPO;
 const REPO_URL='https://github.com/'+REPO;
+
+// Заголовок изменения по сообщению коммита. Мерж PR на GitHub пишет «Merge pull request #N from …»,
+// а название PR — следующей строкой; squash-мерж кончается на «(#N)».
+const MERGE_PR=/^Merge pull request #(\d+) from /,SQUASH_PR=/\s*\(#(\d+)\)$/;
+function parseCommit(msg){
+  const lines=String(msg||'').split('\n').map(l=>l.trim()).filter(Boolean);
+  const first=lines[0]||'';
+  const m=first.match(MERGE_PR);
+  if(m)return{title:lines[1]||first,pr:+m[1],merge:true};
+  const q=first.match(SQUASH_PR);
+  if(q)return{title:first.replace(SQUASH_PR,''),pr:+q[1],merge:false};
+  return{title:first,pr:null,merge:/^Merge (branch|remote-tracking branch) /.test(first)};
+}
+const readableMessage=msg=>parseCommit(msg).title;
+// Что придёт с обновлением, новые сверху: смерженные PR (коммиты внутри их веток не дублируем),
+// а если PR нет совсем (пуш прямо в ветку) — обычные коммиты без мержей. Всё из того же ответа /compare.
+function changesOf(commits){
+  const all=(commits||[]).map(c=>({...parseCommit(c.commit?.message),url:c.html_url})).reverse();
+  const prs=all.filter(c=>c.pr);
+  const list=(prs.length?prs:all.filter(c=>!c.merge)).map(c=>({title:c.title,pr:c.pr,url:c.pr?`${REPO_URL}/pull/${c.pr}`:c.url}));
+  return list.length?list:null;
+}
 const WORKFLOW='.github/workflows/docker.yml';
 
 const BUILD_MS=3*60*1000;         // пока образ собирается — проверяем чаще, чтобы «Обновить» появилась сразу после сборки
@@ -133,7 +155,7 @@ async function check(){
     stable:stableRel?{version:stableRel.version,date:stableRel.date}:null,
     branch:channel.kind==='branch'?channel.name:null,
     remote:null,release:stableRel?{tag:stableRel.tagName,name:stableRel.name,date:stableRel.date,url:stableRel.url}:null,
-    status:'unknown',behindBy:null,compareUrl:null,build:null,currentRelease:null,checkedAt:Date.now(),error:null};
+    status:'unknown',behindBy:null,compareUrl:null,changes:null,build:null,currentRelease:null,checkedAt:Date.now(),error:null};
 
   // голова плавающего канала: ветка или последний релиз
   let headRef=null;
@@ -141,7 +163,7 @@ async function check(){
   else if(channel.kind==='stable'&&stableRel)headRef=stableRel.tagName;
   if(headRef){
     const c=await ghOk('/commits/'+encodeURIComponent(headRef));
-    out.remote={sha:c.sha,ref:headRef,message:String(c.commit?.message||'').split('\n')[0],date:c.commit?.committer?.date||c.commit?.author?.date||null,url:c.html_url};
+    out.remote={sha:c.sha,ref:headRef,message:readableMessage(c.commit?.message),date:c.commit?.committer?.date||c.commit?.author?.date||null,url:c.html_url};
     if(local){
       if(local.sha===c.sha||(local.sha.length<40&&c.sha.startsWith(local.sha))){out.status='current';out.behindBy=0;}
       else{
@@ -151,6 +173,7 @@ async function check(){
           const st=cmp.data.status;
           out.behindBy=cmp.data.ahead_by;
           out.compareUrl=cmp.data.html_url;
+          out.changes=changesOf(cmp.data.commits);
           // на stable откат на более старый релиз — тоже «новое» для канала
           out.status=st==='identical'?'current':st==='ahead'?'behind':channel.kind==='stable'?'behind':st==='behind'?'ahead':'diverged';
         }else out.status='unknown_local'; // локального коммита нет на GitHub (локальные правки)

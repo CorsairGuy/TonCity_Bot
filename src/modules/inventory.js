@@ -37,6 +37,7 @@ async function runInventory(api,name,{rethrow=false}={}){
         const hasMarket=String(acc.special_buildings||'').split(',').includes('market');
         // бусты не привязаны к зданию — тянем всегда; правила листинга — только с Рынком
         const activeResp=await api.get('/boosters/active').catch(()=>null);
+        if(activeResp)require('./boosterAutomation').rememberActive(name,activeResp);
         // правила комбинирования ({from_rarity,to_rarity,required_amount}) — статическая константа
         // игры, кэшируем в фоновой синхронизации, чтобы страница "Квесты" могла показать "нужно N,
         // есть M" и гасить кнопку "Комбинировать" БЕЗ живого запроса к игре при каждом открытии
