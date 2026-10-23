@@ -6,8 +6,7 @@ import { fmt, fmtDate, sortByName, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { LoadError, errText } from '../components/LoadError';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
-import { CoinIcon, CrystalIcon, CoinValue, CrystalValue } from '../components/Icons';
-import { StatCard } from '../components/StatCard';
+import { CoinIcon, CrystalIcon } from '../components/Icons';
 import { PageHeader } from '../components/PageHeader';
 
 // 13.10.2026: было таблицей на одну (последнюю) строку — переделано в карточки на весь 28-дневный
@@ -73,36 +72,6 @@ function AccountRewards({ data }: { data: DailyRewardAccount }) {
   );
 }
 
-// 23.10.2026: итоги сверху, как на Колесе фортуны — что забрано за сегодняшний UTC-день по всем
-// аккаунтам. Считается из тех же данных страницы: день is_today, уже не «ожидается».
-function TodayTotals({ accounts }: { accounts: DailyRewardAccount[] }) {
-  let claimed = 0, coins = 0, crystals = 0, items = 0;
-  for (const a of accounts) {
-    const d = a.days.find(x => x.is_today && x.source !== 'upcoming');
-    if (!d) continue;
-    claimed++;
-    if (d.reward_type === 'crystals') crystals += d.amount;
-    else if (d.reward_type === 'item') items++;
-    else coins += d.amount;
-  }
-  return (
-    <div className="stat-grid" style={{ marginBottom: 16 }}>
-      <StatCard label="Забрано сегодня" color="purple">
-        <div style={{ fontSize: 22, fontWeight: 700 }}>{claimed} / {accounts.length}</div>
-      </StatCard>
-      <StatCard label="Монеты" color="yellow">
-        <div style={{ fontSize: 22, fontWeight: 700 }}><CoinValue value={fmt(coins)} /></div>
-      </StatCard>
-      <StatCard label="Кристаллы" color="cyan">
-        <div style={{ fontSize: 22, fontWeight: 700 }}><CrystalValue value={fmt(crystals)} /></div>
-      </StatCard>
-      <StatCard label="Предметы" color="red">
-        <div style={{ fontSize: 22, fontWeight: 700 }}>{items || '—'}</div>
-      </StatCard>
-    </div>
-  );
-}
-
 export function Daily() {
   const [accounts, setAccounts] = useState<DailyRewardAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -141,10 +110,7 @@ export function Daily() {
         ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><Spinner /></Box>
         : loadErr ? null : accounts.length === 0
           ? <Text sx={{ color: 'fg.muted' }}>Нет аккаунтов</Text>
-          : <>
-            <TodayTotals accounts={accounts} />
-            {accounts.map(a => <AccountRewards key={a.name} data={a} />)}
-          </>}
+          : accounts.map(a => <AccountRewards key={a.name} data={a} />)}
     </Box>
   );
 }
