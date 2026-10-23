@@ -8,8 +8,6 @@ import capitalRoadMapData from '../data/capital-road-map.json';
 import { getPreparedSprite, pickMip, requestSprite, onSpritesReady, spriteSettled, atlasFetched } from './mapSprites';
 import { MapLoader, DATA_SHARE } from './MapLoader';
 import { startFpsCounter, type FpsCounter } from './fpsCounter';
-
-const SHOW_FPS = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1';
 import {
   type DayNightMode, type Phase, ensureNight, hourFor, stepOf, phaseAt, setPhase, shownPhase, nightBusy, onNightChange,
   wantGraded, gradedSprite, litMask, hasWindows, lampsOf, drawBuildingLights, ROAD_LIGHTS, nightMetaSettled,
@@ -1750,8 +1748,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         <div ref={focusVeilRef} style={{ position: 'absolute', inset: 0, background: MAP_BG, opacity: 0.88 }} />
         <canvas ref={focusCanvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
       </div>
-      {/* счётчик кадров — отладочный, только с ?debug=1 в адресе */}
-      {SHOW_FPS && <canvas ref={fpsRef} />}
+      <canvas ref={fpsRef} />
       <MapLoadOverlay tick={loadTick} runKey={loadKey} />
     </div>
   );
