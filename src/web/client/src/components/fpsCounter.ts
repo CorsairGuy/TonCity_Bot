@@ -4,9 +4,10 @@
 // попадают точно в пиксели экрана.
 //
 // Показывает реальное число перерисовок карты за последнюю секунду (requestAnimationFrame идёт и
-// тогда, когда карта не перерисовывается, поэтому считаются кадры самой карты — frame()). Неподвижная
-// карта не стоит пустой: раз в секунду она перерисовывается сама (heartbeat), и счётчик честно
-// показывает 1. Зависание главного потока тоже видно: за такую секунду кадров меньше.
+// тогда, когда карта не перерисовывается, поэтому считаются кадры самой карты — frame()). Окно
+// скользящее, и число перерисовывается на каждом кадре карты: 144 кадра — 144 обновления счётчика.
+// Неподвижная карта не стоит пустой: через секунду без кадров она перерисовывается сама (heartbeat),
+// и счётчик честно показывает 1. Зависание главного потока тоже видно: за такую секунду кадров меньше.
 
 const COLOR = '#76b900';
 const OUTLINE = 'rgba(0,0,0,0.85)';
@@ -53,30 +54,33 @@ export interface FpsCounter {
   stop(): void;
 }
 
-// запускает счётчик на переданном canvas; heartbeat — перерисовать карту (зовётся раз в секунду, если
-// за полсекунды карта ни разу не перерисовалась); onSample получает каждое новое значение (раз в секунду)
+// запускает счётчик на переданном canvas; heartbeat — перерисовать карту (зовётся, если карта секунду
+// не перерисовывалась); onSample получает значение на каждом кадре
 export function startFpsCounter(canvas: HTMLCanvasElement, heartbeat: () => void, onSample?: (fps: number) => void): FpsCounter {
   canvas.style.position = 'absolute';
   canvas.style.left = `${MARGIN}px`;
   canvas.style.top = `${MARGIN}px`;
   canvas.style.pointerEvents = 'none';
-  let frames = 0, shown = -1;
+  const times: number[] = [];   // метки кадров карты за последнюю секунду
+  let shown = -1, idle: ReturnType<typeof setTimeout> | null = null;
   draw(canvas, 0);
-  // секунда делится на две половины: в середине секунды неподвижной карте заказывается кадр (он
-  // точно попадёт в эту же секунду), в конце — итог секунды на экран
-  let half = 0;
-  const timer = setInterval(() => {
-    half ^= 1;
-    if (half) { if (frames === 0) heartbeat(); return; }
-    if (frames !== shown) { shown = frames; draw(canvas, frames); }
-    onSample?.(frames);
-    frames = 0;
-  }, SECOND_MS / 2);
+  // кадр по таймеру приходит чуть позже секунды (плюс ожидание requestAnimationFrame), поэтому
+  // прошлый кадр уже выпал из окна и стоящая карта показывает ровно 1. Таймер взводится заново и
+  // сам: перерисовка может выйти раньше кадра (карта ещё без размера или данных)
+  const arm = () => { if (idle) clearTimeout(idle); idle = setTimeout(() => { arm(); heartbeat(); }, SECOND_MS); };
+  arm();
   // время в фоновой вкладке — не кадры: браузер не рисует, а таймеры там приторможены
-  const onVis = () => { frames = 0; half = 0; };
+  const onVis = () => { times.length = 0; arm(); };
   document.addEventListener('visibilitychange', onVis);
   return {
-    frame: () => { frames++; },
-    stop: () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVis); },
+    frame: () => {
+      const now = performance.now();
+      times.push(now);
+      while (times[0] <= now - SECOND_MS) times.shift();
+      if (times.length !== shown) { shown = times.length; draw(canvas, shown); }
+      onSample?.(shown);
+      arm();
+    },
+    stop: () => { if (idle) clearTimeout(idle); document.removeEventListener('visibilitychange', onVis); },
   };
 }
