@@ -411,7 +411,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
 
   const requestRedraw = useCallback(() => {
     const s = state.current;
-    fpsCtl.current?.request();
     if (s.rafId) return;
     s.rafId = requestAnimationFrame(() => { s.rafId = null; redraw(); });
   }, []);
@@ -1263,7 +1262,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
         }
       }
-      fpsCtl.current?.request();
       s.rafId = requestAnimationFrame(() => { s.rafId = null; if (s.selDragging) redraw(); });
     }
 
@@ -1298,7 +1296,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       ctx.lineWidth = 1; ctx.stroke();
       ctx.restore();
 
-      fpsCtl.current?.request();
       s.rafId = requestAnimationFrame(() => { s.rafId = null; if (s.hoverTile) redraw(); });
     }
 
@@ -1365,10 +1362,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   useEffect(() => {
     const c = fpsRef.current;
     if (!c) return undefined;
-    const ctl = startFpsCounter(c);
+    const ctl = startFpsCounter(c, requestRedraw);
     fpsCtl.current = ctl;
     return () => { ctl.stop(); fpsCtl.current = null; };
-  }, []);
+  }, [requestRedraw]);
 
   // roadMap/coords — статические импортированные данные (см. COORDS/ROAD_MAP выше), доступны
   // синхронно уже в самом первом рендере через инициализатор state.current; этот эффект нужен
