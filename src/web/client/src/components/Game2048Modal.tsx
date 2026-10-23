@@ -115,9 +115,15 @@ function reconcileTiles(predicted: TileState[], serverBoard: number[][], nextId:
   return mismatch ? boardToTiles(serverBoard, nextId) : result;
 }
 
+// подсветка змейки бота: первые две линии (8 клеток от угла), куда бот сейчас собирает цепочку по
+// убыванию (modules/game2048.js snakeOf). Номер — порядок по змейке, 1 — голова (крупнейшая плитка).
+// Цвет холодный, чтобы не путаться с тёплыми плитками; чем дальше по змейке, тем бледнее.
+const SNAKE_RGB = '56,139,253';
+const snakeAlpha = (k: number) => 0.95 - k * 0.05;
+
 const SLIDE_MS = 150; // должно совпадать с CSS-переходом .g2048-tile (см. global.css) — тайминг из бандла
 
-interface BoardMsg { type: 'snapshot' | 'move' | 'done'; board?: number[][]; score?: number; max_tile?: number; game_status?: Game2048Status; direction?: Game2048Direction; reward?: number; error?: string }
+interface BoardMsg { type: 'snapshot' | 'move' | 'done'; board?: number[][]; score?: number; max_tile?: number; game_status?: Game2048Status; direction?: Game2048Direction; reward?: number; snake?: number[] | null; error?: string }
 
 interface Props {
   accountId: number;
@@ -147,6 +153,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
   const [status, setStatus] = useState<Game2048Status>('ongoing');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [snake, setSnake] = useState<number[] | null>(null);
   const nextIdRef = useRef(1);
   const tilesRef = useRef<TileState[]>([]);
   tilesRef.current = tiles;
@@ -177,12 +184,14 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
         if (data.type === 'snapshot' && data.board) {
           setTiles(boardToTiles(data.board, nextIdRef));
           setScore(data.score ?? 0); setMaxTile(data.max_tile ?? 0); setStatus(data.game_status ?? 'ongoing');
+          setSnake(data.snake ?? null);
         } else if (data.type === 'move' && data.board && data.direction) {
           const predicted = slideTiles(tilesRef.current, data.direction);
           setTiles(predicted);
           setTimeout(() => {
             setTiles(reconcileTiles(predicted, data.board!, nextIdRef));
             setScore(data.score ?? 0); setMaxTile(data.max_tile ?? 0); setStatus(data.game_status ?? 'ongoing');
+            setSnake(data.snake ?? null);
           }, SLIDE_MS);
         } else if (data.type === 'done' && data.error) setError(data.error);
       });
@@ -190,7 +199,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
     }
     api.game2048State(accountId).then(d => {
       if (cancelled) return;
-      if (d.ok) { setTiles(boardToTiles(d.board, nextIdRef)); setScore(d.score); setMaxTile(d.max_tile); setStatus(d.game_status); }
+      if (d.ok) { setTiles(boardToTiles(d.board, nextIdRef)); setScore(d.score); setMaxTile(d.max_tile); setStatus(d.game_status); setSnake(d.snake ?? null); }
       else setError(d.error ?? 'Ошибка загрузки');
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -209,7 +218,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
       if (r.ok) {
         setTimeout(() => {
           setTiles(reconcileTiles(predicted, r.board, nextIdRef));
-          setScore(r.score); setMaxTile(r.max_tile); setStatus(r.game_status);
+          setScore(r.score); setMaxTile(r.max_tile); setStatus(r.game_status); setSnake(r.snake ?? null);
           if (r.game_status !== 'ongoing') onResultRef.current({ won: r.game_status === 'won', reward: r.reward, score: r.score });
         }, SLIDE_MS);
       } else setError(r.error ?? 'Ошибка хода');
@@ -253,6 +262,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
   const BOARD = 320, PAD = 8, GAP = 8, PAD_MODAL = 8;
   const CELL = (BOARD - PAD * 2 - GAP * 3) / 4;
   const posOf = (i: number) => PAD + i * (CELL + GAP);
+  const showSnake = !!snake?.length && status === 'ongoing';
 
   return (
     // ширина задана через sx, а не пресетом width: поле 320px + по 8px с боков = 336px,
@@ -287,13 +297,17 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
               }}
             >
               {/* статичная фоновая сетка 4×4 — фиксированный размер, никогда не пересчитывается по контенту */}
-              {Array.from({ length: 16 }).map((_, k) => (
-                <div key={k} style={{
-                  position: 'absolute', width: CELL, height: CELL,
-                  left: posOf(k % 4), top: posOf(Math.floor(k / 4)),
-                  background: 'rgba(238,228,218,.35)', borderRadius: 4,
-                }} />
-              ))}
+              {Array.from({ length: 16 }).map((_, k) => {
+                const order = showSnake ? snake!.indexOf(k) : -1;
+                return (
+                  <div key={k} style={{
+                    position: 'absolute', width: CELL, height: CELL,
+                    left: posOf(k % 4), top: posOf(Math.floor(k / 4)),
+                    background: order >= 0 ? `rgba(${SNAKE_RGB},${(snakeAlpha(order) * 0.45).toFixed(2)})` : 'rgba(238,228,218,.35)',
+                    borderRadius: 4,
+                  }} />
+                );
+              })}
               {/* слившиеся тайлы (mergedInto) рисуются НИЖЕ (без z-index — раньше в DOM) выживших, чтобы
                   выживший визуально "накрывал" их в момент наложения на одной клетке */}
               {[...tiles].sort((a, b) => (a.mergedInto ? 0 : 1) - (b.mergedInto ? 0 : 1)).map(t => {
@@ -313,13 +327,30 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
                   </div>
                 );
               })}
+              {/* змейка поверх плиток: рамка клетки и номер по порядку — видно и на занятых клетках.
+                  Переключается мгновенно, без анимации: смена угла/стороны видна сразу */}
+              {showSnake && snake!.map((cell, k) => (
+                <div key={k} style={{
+                  position: 'absolute', width: CELL, height: CELL,
+                  left: posOf(cell % 4), top: posOf(Math.floor(cell / 4)),
+                  border: `3px solid rgba(${SNAKE_RGB},${snakeAlpha(k).toFixed(2)})`, borderRadius: 6,
+                  boxSizing: 'border-box', pointerEvents: 'none',
+                }}>
+                  <span style={{
+                    position: 'absolute', top: 1, left: 3, fontSize: 10, fontWeight: 'bold', lineHeight: 1,
+                    color: '#fff', background: `rgba(${SNAKE_RGB},${snakeAlpha(k).toFixed(2)})`, borderRadius: 3, padding: '1px 3px',
+                  }}>{k + 1}</span>
+                </div>
+              ))}
             </div>
             {status !== 'ongoing' && (
               <Text sx={{ fontWeight: 'bold', color: status === 'won' ? 'success.fg' : 'danger.fg' }}>
                 {status === 'won' ? 'Победа!' : 'Игра окончена'}
               </Text>
             )}
-            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Стрелки на клавиатуре или свайп</Text>
+            <Text sx={{ fontSize: 0, color: 'fg.muted', textAlign: 'center' }}>
+              Стрелки на клавиатуре или свайп{showSnake ? '. Синим — змейка бота: куда он собирает цепочку по убыванию' : ''}
+            </Text>
           </>
         )}
       </Box>

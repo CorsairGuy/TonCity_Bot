@@ -244,6 +244,9 @@ function bestMove(board){
   return best;
 }
 function evaluate(board){const r=encode(board);pickSnake(...r);return heur(...r);}
+// змейка, которую бот выберет для этой доски: первые SNAKE_LEN клеток (r*4+c) от головы — для
+// подсветки в окне 2048 (клетки, куда бот собирает цепочку сейчас)
+function snakeOf(board){pickSnake(...encode(board));return snakePath.slice(0,SNAKE_LEN);}
 
 async function logResult(account,st){
   try{
@@ -257,4 +260,4 @@ async function logResult(account,st){
 // в таблице "Оплот Мудрости", см. web/routes/minigames.js). bestMove/canMove/logResult используются
 // именно этими ручными путями (для кнопки "Решить" и записи результата в лог миниигр).
 // move/searchDepth/evaluate/ALGO_VERSION — для записи партий и офлайн-анализа (scripts/2048-replay.js).
-module.exports={bestMove,canMove,logResult,move,searchDepth,evaluate,DIRS,ALGO_VERSION};
+module.exports={bestMove,canMove,logResult,move,searchDepth,evaluate,snakeOf,DIRS,ALGO_VERSION};

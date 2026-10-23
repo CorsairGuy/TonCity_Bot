@@ -11,7 +11,7 @@ import { Game2048Modal } from '../components/Game2048Modal';
 import { useNarrow, narrowCols } from '../hooks/useNarrow';
 
 interface Result { won?: boolean; reward?: number | null; score?: number | null }
-interface BoardMsg { type: 'snapshot' | 'move' | 'done'; board?: number[][]; score?: number; max_tile?: number; game_status?: Game2048Status; direction?: Game2048Direction; reward?: number; error?: string }
+interface BoardMsg { type: 'snapshot' | 'move' | 'done'; board?: number[][]; score?: number; max_tile?: number; game_status?: Game2048Status; direction?: Game2048Direction; reward?: number; snake?: number[] | null; error?: string }
 
 export function Game2048() {
   const narrow = useNarrow();
