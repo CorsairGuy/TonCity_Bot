@@ -38,7 +38,8 @@ function start(accountId,name,makeApiForAccount){
   registry.set(accountId,entry);
   entry.promise=(async()=>{
     try{
-      const{bestMove,logResult}=require('../../modules/game2048');
+      const{bestMove,searchDepth,logResult}=require('../../modules/game2048');
+      const recorder=require('../../utils/game2048Recorder');
       const perAccountRateLimit=require('./perAccountRateLimit');
       const api=await makeApiForAccount(accountId,{noLock:true});
       const limiter=perAccountRateLimit.forAccount(accountId);
@@ -48,8 +49,11 @@ function start(accountId,name,makeApiForAccount){
       // выглядело как "бот перестал играть"/"поле не обновляется", хотя дело было не в SSE вообще.
       let st=await withRetry(()=>limiter.run(()=>api.get('/game2048/')),3,2000,`${name} 2048 load`);
       entry.board=st.board;entry.score=st.score;entry.max_tile=st.max_tile;entry.game_status=st.game_status;
+      recorder.touch(accountId,name,st);
       while(st?.game_status==='ongoing'&&!entry.stopped){
+        const t0=process.hrtime.bigint();
         const dir=bestMove(st.board);
+        const thinkMs=Number(process.hrtime.bigint()-t0)/1e6,depth=searchDepth(st.board);
         if(!dir)break;
         await new Promise(r=>setTimeout(r,400));
         if(entry.stopped)break;
@@ -62,9 +66,12 @@ function start(accountId,name,makeApiForAccount){
         let animated=true;
         try{
           st=await limiter.run(()=>api.post('/game2048/',{direction:dir}));
+          recorder.record(accountId,name,dir,st,{ms:thinkMs,depth});
         }catch(e){
           logger.warn(`[${name}] [2048] move failed (${e.message}) — resync вместо повтора хода`);
           st=await withRetry(()=>limiter.run(()=>api.get('/game2048/')),3,2000,`${name} 2048 resync`);
+          recorder.resync(accountId,st);
+          if(st?.game_status&&st.game_status!=='ongoing')recorder.finish(accountId,st);
           animated=false;
         }
         entry.board=st.board;entry.score=st.score;entry.max_tile=st.max_tile;entry.game_status=st.game_status;

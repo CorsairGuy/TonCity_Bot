@@ -1,5 +1,9 @@
 'use strict';
-const {MinigameLog}=require('../db/index');
+// MinigameLog берём лениво в logResult: модуль подключает и scripts/2048-replay.js, которому БД не нужна
+
+// Версия алгоритма выбора хода — пишется в каждую запись партии (utils/game2048Recorder.js), чтобы
+// при анализе отличать партии разных версий. Менять при любой правке evaluate/expectimax/bestMove.
+const ALGO_VERSION=1;
 
 // Механика 2048 подтверждена реверсом бандла игры (chunks/game2048-*.js): доска 4x4 (0=пусто),
 // направления 'up'|'down'|'left'|'right', POST /game2048/ {direction}. Функции ниже (extractLine/
@@ -125,9 +129,12 @@ function expectimax(board,depth,ourTurn){
 }
 
 // глубже к эндшпилю (меньше пустых клеток — меньше ветвление, можно смотреть дальше)
-function bestMove(board){
+function searchDepth(board){
   const empties=emptyCells(board);
-  const depth=empties<=3?5:empties<=6?4:3;
+  return empties<=3?5:empties<=6?4:3;
+}
+function bestMove(board){
+  const depth=searchDepth(board);
   let best=null,bestScore=-Infinity;
   for(const dir of DIRS){
     const r=move(board,dir);
@@ -140,6 +147,7 @@ function bestMove(board){
 
 async function logResult(account,st){
   try{
+    const{MinigameLog}=require('../db/index');
     const played_at=new Date().toISOString().slice(0,10);
     await MinigameLog.upsert({account,game:'2048',played_at,won:st?.game_status==='won',reward:st?.reward??null,score:st?.score??null},{conflictFields:['account','game','played_at']});
   }catch(_){}
@@ -148,4 +156,5 @@ async function logResult(account,st){
 // Автоигры больше нет по решению пользователя — 2048 играется ТОЛЬКО вручную (кнопка в модалке или
 // в таблице "Оплот Мудрости", см. web/routes/minigames.js). bestMove/canMove/logResult используются
 // именно этими ручными путями (для кнопки "Решить" и записи результата в лог миниигр).
-module.exports={bestMove,canMove,logResult};
+// move/searchDepth/evaluate/ALGO_VERSION — для записи партий и офлайн-анализа (scripts/2048-replay.js).
+module.exports={bestMove,canMove,logResult,move,searchDepth,evaluate,DIRS,ALGO_VERSION};
