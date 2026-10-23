@@ -67,24 +67,35 @@ function formatAxiosError(method,path,e){
   if(status===403&&/direct api access is not allowed/i.test(String(errText)))err.directDenied=true;
   return err;
 }
-// «Игра не ответила» — соединение оборвалось/вышел таймаут, HTTP-ответа НЕТ вообще. Это НЕ то же
-// самое, что ответ 4xx/5xx: там игра запрос обработала и высказалась, повторять нечего.
+// «Игра не ответила» — соединение оборвалось/вышел таймаут, HTTP-ответа НЕТ вообще. Это НЕ то же
+
+// самое, что ответ 4xx/5xx: там игра запрос обработала и высказалась, повторять нечего.
+
 // Сюда же таймаут общей очереди (apiLock): запрос столько ждал слот, что мы отменили ожидание —
 // ответа игры мы опять-таки не видели. Для чтения это повод повторить, для действий — нет.
-const isNoAnswer = e => /apiLock: задача не завершилась/i.test(String(e?.message || '')) || (!e?.response && (
-  ['ECONNABORTED','ETIMEDOUT','ECONNRESET','EAI_AGAIN','ENOTFOUND','EPIPE'].includes(e?.code) ||
-  /timeout|socket hang up|network error/i.test(String(e?.message||''))));
-
-// Сколько раз перечитывать. Только для ЧТЕНИЯ (GET): читать безопасно сколько угодно, ответа мы
-// всё равно ещё не получили. Для изменяющих запросов (POST/PATCH: улучшение, взнос в казну,
-// реконструкция, ход в игре) повтор ЗАПРЕЩЁН: молчание сервера не значит, что он не обработал —
-// по опыту обрабатывает, и повтор сделал бы действие дважды.
+const isNoAnswer = e => /apiLock: задача не завершилась/i.test(String(e?.message || '')) || (!e?.response && (
+
+  ['ECONNABORTED','ETIMEDOUT','ECONNRESET','EAI_AGAIN','ENOTFOUND','EPIPE'].includes(e?.code) ||
+
+  /timeout|socket hang up|network error/i.test(String(e?.message||''))));
+
+
+
+// Сколько раз перечитывать. Только для ЧТЕНИЯ (GET): читать безопасно сколько угодно, ответа мы
+
+// всё равно ещё не получили. Для изменяющих запросов (POST/PATCH: улучшение, взнос в казну,
+
+// реконструкция, ход в игре) повтор ЗАПРЕЩЁН: молчание сервера не значит, что он не обработал —
+
+// по опыту обрабатывает, и повтор сделал бы действие дважды.
+
 // Повторов немного и намеренно: сверху ретраит ещё и проход по аккаунтам (web/lib/accountSweep.js),
 // и десять попыток на каждом уровне умножались друг на друга — 57 аккаунтов молотили игру сотнями
 // запросов, из-за чего она молчала ЕЩЁ больше, а страница получала данные не по всем аккаунтам
 // (жалоба 21.08.2026 про магазин). Три попытки закрывают одиночный сбой, а массовый решается
 // снижением темпа — см. датчик давления ниже.
-const READ_RETRIES = 3;
+const READ_RETRIES = 3;
+
 // Плюс общий потолок по времени: сам запрос ждёт ответа до 30 с, и без ограничения десять попыток
 // держали бы один вызов больше пяти минут — а его ждёт цикл прокачки или страница панели.
 const READ_BUDGET_MS = 30000;
@@ -102,7 +113,8 @@ const readBackoffMs = attempt => {
   const base = Math.min(1000 * attempt, 5000);
   const crowd = 1 + Math.min(noAnswerPressure, 10) / 2;      // до ×6 при массовом молчании
   return Math.round(base * crowd * (0.5 + Math.random()));   // + разброс, чтобы не ходить строем
-};
+};
+
 class ApiClient{
   constructor(t){
     this.token=t;
@@ -231,7 +243,10 @@ class ApiClient{
   // регулярно висит до общего axios timeout:30000, а ждать столько дорого: запрос всё это время
   // держит общий apiLock (2 rps на все аккаунты), т.е. одна залипшая ручка тормозит весь бот.
   async get(p,params={},opts={}){return this._request('GET',p,()=>this._ax.get(p,{params,headers:this._sign('GET',p),...(opts.timeout?{timeout:opts.timeout}:{})}));}
-  async post(p,d={}){return this._request('POST',p,()=>this._ax.post(p,d,{headers:{'content-type':'application/json',...this._sign('POST',p)}}));}
+  // У POST opts.timeout — для ходов мини-игр (2048): игра иногда «придерживает» ответ на частые
+  // ходы до конца общего таймаута, хотя ход уже применён. Ждать 30 с незачем — вызывающий код сам
+  // перечитывает состояние (resync); сам POST при этом, как и прежде, не повторяется.
+  async post(p,d={},opts={}){return this._request('POST',p,()=>this._ax.post(p,d,{headers:{'content-type':'application/json',...this._sign('POST',p)},...(opts.timeout?{timeout:opts.timeout}:{})}));}
   async patch(p,d={}){return this._request('PATCH',p,()=>this._ax.patch(p,d,{headers:{'content-type':'application/json',...this._sign('PATCH',p)}}));}
 }
 module.exports=ApiClient;
