@@ -9,6 +9,11 @@
 const logger=require('../../utils/logger');
 const{withRetry}=require('../../utils/helpers');
 
+// Сколько ждём ответ на ход и на чтение состояния. Обычно игра отвечает за доли секунды, а на
+// частые ходы иногда молчит до общего таймаута клиента (30 с) — это её защита от частых запросов.
+// Ход при этом, как правило, уже применён, поэтому не ждём до конца, а обрываем и перечитываем доску.
+const MOVE_TIMEOUT_MS=5000,STATE_TIMEOUT_MS=8000;
+
 const registry=new Map(); // accountId -> {board,score,max_tile,game_status,subscribers:Set<Response>,stopped,promise}
 
 function broadcast(accountId,data){
@@ -52,7 +57,7 @@ function start(accountId,name,makeApiForAccount){
       // логах: "POST: /game2048/: нет ответа от сервера (ECONNABORTED)") убивал всю фоновую партию
       // целиком (catch ниже помечал её 'done' с ошибкой) после буквально пары ходов — снаружи это
       // выглядело как "бот перестал играть"/"поле не обновляется", хотя дело было не в SSE вообще.
-      let st=await withRetry(()=>limiter.run(()=>api.get('/game2048/')),3,2000,`${name} 2048 load`);
+      let st=await withRetry(()=>limiter.run(()=>api.get('/game2048/',{},{timeout:STATE_TIMEOUT_MS})),3,2000,`${name} 2048 load`);
       entry.board=st.board;entry.score=st.score;entry.max_tile=st.max_tile;entry.game_status=st.game_status;
       recorder.touch(accountId,name,st);
       while(st?.game_status==='ongoing'&&!entry.stopped){
@@ -69,11 +74,11 @@ function start(accountId,name,makeApiForAccount){
         // выберет ход заново от актуальной доски.
         let animated=true;
         try{
-          st=await limiter.run(()=>api.post('/game2048/',{direction:dir}));
+          st=await limiter.run(()=>api.post('/game2048/',{direction:dir},{timeout:MOVE_TIMEOUT_MS}));
           recorder.record(accountId,name,dir,st,{ms:thinkMs,depth});
         }catch(e){
           logger.warn(`[${name}] [2048] move failed (${e.message}) — resync вместо повтора хода`);
-          st=await withRetry(()=>limiter.run(()=>api.get('/game2048/')),3,2000,`${name} 2048 resync`);
+          st=await withRetry(()=>limiter.run(()=>api.get('/game2048/',{},{timeout:STATE_TIMEOUT_MS})),3,2000,`${name} 2048 resync`);
           recorder.resync(accountId,st);
           if(st?.game_status&&st.game_status!=='ongoing')recorder.finish(accountId,st);
           animated=false;
