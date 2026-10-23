@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Text, Link, Button, CounterLabel, ConfirmationDialog, Spinner, ProgressBar } from '@primer/react';
 import { SyncIcon, PinIcon, DownloadIcon, CheckCircleFillIcon, XCircleFillIcon, ClockFillIcon, AlertFillIcon, QuestionIcon } from '@primer/octicons-react';
@@ -34,6 +34,22 @@ export function VersionBadge() {
   const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const upd = useSelfUpdate();
+  // прилипший блок: затухание над ним тает на последних 24px прокрутки меню и у самого низа
+  // сменяется разделителем (--dock-fade: 1 — затухание, 0 — разделитель)
+  const dockRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = dockRef.current;
+    if (!el) return;
+    let sc: HTMLElement | null = el.closest('[data-overlayscrollbars-viewport]');
+    for (let p = el.parentElement; !sc && p; p = p.parentElement) if (/auto|scroll/.test(getComputedStyle(p).overflowY)) sc = p;
+    if (!sc) return;
+    const box = sc;
+    const sync = () => el.style.setProperty('--dock-fade', String(Math.max(0, Math.min(1, (box.scrollHeight - box.scrollTop - box.clientHeight) / 24))));
+    sync();
+    box.addEventListener('scroll', sync, { passive: true });
+    const ro = new ResizeObserver(sync); ro.observe(box);
+    return () => { box.removeEventListener('scroll', sync); ro.disconnect(); };
+  });
   // обновление идёт на сервере (в т.ч. начатое с другой страницы/вкладки или автообновлением)
   const build = useBuildState();
   const serverBusy = build.busy;
@@ -122,12 +138,12 @@ export function VersionBadge() {
           на вертикали стрелок групп, заголовок — с той же позиции, что текст пунктов. Над блоком
           разделитель; отступы до него и после равны (14px до текста). Есть что ставить (или уже
           ставится) — блок прилипает к низу меню и виден при любой прокрутке. */}
-      <div className={pinnedToBottom ? 'version-dock' : undefined} style={pinnedToBottom ? undefined : { paddingTop: 8 }}>
+      <div ref={dockRef} className={pinnedToBottom ? 'version-dock' : undefined} style={pinnedToBottom ? undefined : { paddingTop: 8 }}>
       <Box sx={{ height: 1, mx: 2, bg: 'border.muted' }} />
       <Box sx={{ pt: '13px', px: 2, pb: 1, fontSize: '12px', lineHeight: '16px', color: 'fg.muted', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <Box sx={{ display: 'flex', gap: 2, minWidth: 0 }}>
           <Box sx={{ width: 16, height: 18, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: st.color }}>
-            <Box as="span" sx={{ display: 'inline-flex', borderRadius: '50%', boxShadow: fresh ? (t: any) => `0 0 0 3px ${t.colors.success.subtle}, 0 0 10px 2px ${t.colors.success.muted}` : undefined }}>{st.icon}</Box>
+            <Box as="span" className={fresh ? 'version-glow' : undefined} sx={{ display: 'inline-flex', borderRadius: '50%' }}>{st.icon}</Box>
           </Box>
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Text as="div" sx={{ fontSize: '13px', lineHeight: '18px', fontWeight: 'semibold', color: fresh ? 'success.fg' : 'fg.default', display: 'flex', alignItems: 'center' }}>{st.title}</Text>
@@ -154,7 +170,10 @@ export function VersionBadge() {
             display: 'flex', flexDirection: 'column', gap: '5px' }}
             style={{ borderImage: 'linear-gradient(to bottom, transparent 2px, var(--version-line) 8px) 1' }}>
             {shown.map((c, i) => (
-              <Link key={i} href={c.url} target="_blank" rel="noreferrer" sx={{ color: 'fg.default', ':hover': { color: 'accent.fg' } }}>
+              // при наведении — без синего и подчёркивания: участок линии напротив пункта загорается зелёным
+              <Link key={i} href={c.url} target="_blank" rel="noreferrer" sx={{ position: 'relative', color: 'fg.default',
+                ':hover': { color: 'fg.default', textDecoration: 'none' },
+                ':hover::before': { content: '""', position: 'absolute', left: '-17px', top: 0, bottom: 0, width: '2px', bg: 'success.fg' } }}>
                 {c.title}{c.pr ? <Text sx={{ color: 'fg.subtle' }}> #{c.pr}</Text> : null}
               </Link>
             ))}
