@@ -6,7 +6,7 @@ import { api, type FortuneRow, type Account, type FortuneCanDrawResult } from '.
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
-import { CoinValue, CrystalValue, IC_CRYSTAL } from '../components/Icons';
+import { CoinValue, CrystalValue, CoinIcon, CrystalIcon, IC_CRYSTAL } from '../components/Icons';
 import { StatCard } from '../components/StatCard';
 import { PageHeader } from '../components/PageHeader';
 import { useNarrow, narrowCols } from '../hooks/useNarrow';
@@ -41,13 +41,19 @@ function RewardCell({ reward }: { reward: FortuneRow['reward'] }) {
   const r = unwrapReward(reward);
   const type = getRewardType(reward);
 
-  if (type === 'coins' || type === 'gold') {
-    const n = parseFloat(String(r.actual_coins ?? r.coins_amount ?? r.amount ?? 0)) || 0;
-    return <CoinValue value={fmt(n)} />;
-  }
-  if (type === 'crystals') {
-    const n = parseFloat(String(r.crystals_amount ?? r.amount ?? 0)) || 0;
-    return <CrystalValue value={fmt(n)} />;
+  // 23.10.2026: монеты и кристаллы — такой же карточкой, как на «Ежедневной награде» (иконка над
+  // суммой на подложке своего цвета, .dr-coins/.dr-crystals), а не голым текстом рядом с предметами
+  if (type === 'coins' || type === 'gold' || type === 'crystals') {
+    const cr = type === 'crystals';
+    const n = parseFloat(String(cr ? (r.crystals_amount ?? r.amount ?? 0) : (r.actual_coins ?? r.coins_amount ?? r.amount ?? 0))) || 0;
+    return (
+      <div className="item-card" style={{ gap: 0, display: 'inline-flex' }}>
+        <div className={`item-card__box ${cr ? 'dr-crystals' : 'dr-coins'}`} style={{ width: 48, height: 48, borderRadius: 8, gap: 2 }}>
+          {cr ? <CrystalIcon size={18} /> : <CoinIcon size={18} />}
+          <span className="dr-amount" style={{ fontSize: 10 }}>{fmt(n)}</span>
+        </div>
+      </div>
+    );
   }
   if (type === 'item') {
     const id = (r.item_id ?? r.reward_id) as number | undefined;
