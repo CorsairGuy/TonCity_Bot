@@ -3,7 +3,7 @@
 
 // Версия алгоритма выбора хода — пишется в каждую запись партии (utils/game2048Recorder.js), чтобы
 // при анализе отличать партии разных версий. Менять при любой правке evaluate/expectimax/bestMove.
-const ALGO_VERSION=4;
+const ALGO_VERSION=5;
 
 // Механика 2048 подтверждена реверсом бандла игры (chunks/game2048-*.js): доска 4x4 (0=пусто),
 // направления 'up'|'down'|'left'|'right', POST /game2048/ {direction}. Функции ниже (extractLine/
@@ -73,13 +73,18 @@ const DIRS=['up','down','left','right'];
 // двух линиях змейки (SNAKE_LEN=8), третью и четвёртую бот заполняет как выгоднее (по просьбе
 // пользователя), штраф втрое сильнее v3. Офлайн на 40 одинаковых партиях: v3 — 40 побед, 48 мс/ход,
 // 2,64 нарушения порядка в первых двух линиях; v4 — 40 побед, 33 мс/ход, 2,09 нарушения.
+// v5 — бонус змейки по ЗНАЧЕНИЮ плитки (2^ранг), а не по рангу: с рангом слияние 32+32 на соседних
+// местах змейки выглядело потерей (5 на втором месте пропадает, на первом +1), и бот тянул со
+// слияниями, забивая освободившееся место мелочью, — в том числе в шаге от победы. По значению
+// любое слияние вдоль змейки выгодно. Офлайн на тех же 40 партиях: 40 побед, 27 мс/ход, нарушений
+// порядка в первых двух линиях 1,36 (v4 — 2,09), по всей змейке 3,77 (v4 — 6,90).
 // Доска внутри — 4 строки по 16 бит, клетка = ранг в 4 битах (младший полубайт — столбец 0);
 // ход по строке — готовые таблицы на все 65536 строк, поэтому одна позиция считается быстро.
 const H={lost:200000,monoPow:4,mono:47,sumPow:3.5,sum:11,merges:700,empty:270};
 const WIN_RANK=11,WIN_SCORE=1e15; // плитка 2048 — партия выиграна сразу, дальше игра не идёт
 // проигрыш (ходов нет) хуже любой позиции: со штрафом змейки оценка бывает отрицательной
 const LOST_SCORE=-1e12;
-const SNAKE_W=150,SNAKE_POW=4,SNAKE_VAL_W=1e7,SNAKE_LEN=8;
+const SNAKE_W=150,SNAKE_POW=4,SNAKE_VAL_W=1.5e5,SNAKE_LEN=8;
 const CPROB_MIN=0.0001,CACHE_DEPTH=15;
 const ROW_LEFT=new Uint16Array(65536),ROW_RIGHT=new Uint16Array(65536),ROW_HEUR=new Float64Array(65536);
 const revRow=r=>((r&15)<<12)|((r>>4&15)<<8)|((r>>8&15)<<4)|(r>>12&15);
@@ -145,6 +150,7 @@ for(const[cr,cc]of[[0,0],[0,3],[3,0],[3,3]])for(const byRow of[true,false]){
   SNAKE_PATHS.push(p);
 }
 const RANK_POW=Array.from({length:16},(_,r)=>Math.pow(r,SNAKE_POW));
+const VAL=Array.from({length:16},(_,r)=>r?Math.pow(2,r):0); // значение плитки по рангу
 const SNAKE_DEC=Array.from({length:16},(_,k)=>Math.pow(0.5,k)); // вес места в змейке для SNAKE_VAL_W
 let snakePath=SNAKE_PATHS[0]; // змейка текущего хода, выбирается в bestMove
 function pickSnake(a,b,c,e){
@@ -164,7 +170,7 @@ function heur(a,b,c,e){
     const q=snakePath[k];
     const x=(q<4?a:q<8?b:q<12?c:e)>>(4*(q&3))&15;
     if(prev>=0&&x>prev)pen+=RANK_POW[x]-RANK_POW[prev];
-    val+=x*SNAKE_DEC[k];
+    val+=VAL[x]*SNAKE_DEC[k];
     prev=x;
   }
   return h-SNAKE_W*pen+SNAKE_VAL_W*val;
