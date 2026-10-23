@@ -62,7 +62,6 @@ button { font-family: inherit; }
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  --version-line: rgb(74 194 107 / 40%);   /* линия списка изменений в блоке версии (success.muted) */
   --sidebar-w: 240px;
   --header-h: 0px;
 }
@@ -128,7 +127,9 @@ body {
 /* у самого низа прокрутки затухание сменяется разделителем: --dock-fade (1 — затухание, 0 — разделитель) ставит VersionBadge */
 .version-dock > div:first-child { opacity: calc(1 - var(--dock-fade, 1)); }
 html[data-theme="dark"] .version-dock { --dock-bg: color-mix(in srgb, rgb(22 27 34) 82%, var(--bg)); }
-html[data-theme="dark"] { --version-line: rgb(46 160 67 / 40%); }
+/* подложка списка изменений в блоке версии: мягче, чем neutral.muted у Primer */
+.version-changes { background: rgb(175 184 193 / 25%); }
+html[data-theme="dark"] .version-changes { background: rgb(110 118 129 / 20%); }
 /* значок «Новая версия»: «сердцебиение» — двойной удар значка, от удара расходится кольцо (до ×1.6),
    потом пауза. Кольцо — псевдоэлемент поверх, разметку не сдвигает */
 @keyframes version-beat { 0%, 40%, 100% { transform: scale(1); } 8% { transform: scale(1.12); } 16% { transform: scale(1); } 24% { transform: scale(1.08); } }

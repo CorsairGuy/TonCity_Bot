@@ -166,23 +166,21 @@ export function VersionBadge() {
           <ProgressBar barSize="small" aria-label={prog.title} progress={prog.stage === 'run' ? 100 : prog.stage} animated={prog.stage === 'run'} />
         )}
         {!updating && shown.length > 0 && (
-          // линия идёт из-под значка по его вертикали, текст — с позиции заголовка
-          <Box sx={{ ml: '7px', pl: '15px', mt: '-20px', pt: '20px', borderLeft: '2px solid', borderColor: 'success.muted', color: 'fg.default',
-            display: 'flex', flexDirection: 'column', gap: '5px' }}
-            style={{ borderImage: 'linear-gradient(to bottom, transparent 2px, var(--version-line) 8px) 1' }}>
+          // что придёт с обновлением: подложка на всю ширину меню (края как у пунктов меню и кнопки)
+          <Box className="version-changes" sx={{ mx: '-8px', p: 2, borderRadius: 2, color: 'fg.default', display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {shown.map((c, i) => (
-              // при наведении — без синего и подчёркивания: участок линии напротив пункта загорается зелёным
-              <Link key={i} href={c.url} target="_blank" rel="noreferrer" sx={{ position: 'relative', color: 'fg.default',
-                ':hover': { color: 'fg.default', textDecoration: 'none' },
-                ':hover::before': { content: '""', position: 'absolute', left: '-17px', top: 0, bottom: 0, width: '2px', bg: 'success.fg' } }}>
-                {c.title}{c.pr ? <Text sx={{ color: 'fg.subtle' }}> #{c.pr}</Text> : null}
+              // при наведении — без синего и подчёркивания: номер PR загорается зелёным
+              <Link key={i} href={c.url} target="_blank" rel="noreferrer" sx={{ color: 'fg.default',
+                ':hover': { color: 'fg.default', textDecoration: 'none' }, ':hover .pr-num': { color: 'success.fg' } }}>
+                {c.title}{c.pr ? <Text className="pr-num" sx={{ color: 'fg.subtle' }}> #{c.pr}</Text> : null}
               </Link>
             ))}
             {changes.length > MAX_CHANGES && <Link href={newLink} target="_blank" rel="noreferrer" muted>ещё {changes.length - MAX_CHANGES} на GitHub →</Link>}
           </Box>
         )}
-        {!updating && hasUpdate && canClick && <Button size="small" variant="primary" block leadingVisual={DownloadIcon} onClick={() => setConfirm(true)}>Обновить</Button>}
-        {!updating && pinned && !!v.newerReleases && <Button as={RouterLink} to="/settings#updates" size="small" block>Выбрать версию</Button>}
+        {/* кнопки высотой 32px, как пункты меню, и с теми же краями (8px от края меню) */}
+        {!updating && hasUpdate && canClick && <Button variant="primary" block leadingVisual={DownloadIcon} onClick={() => setConfirm(true)} sx={{ mx: '-8px', width: 'auto' }}>Обновить</Button>}
+        {!updating && pinned && !!v.newerReleases && <Button as={RouterLink} to="/settings#updates" block sx={{ mx: '-8px', width: 'auto' }}>Выбрать версию</Button>}
         {(note || upd.msg || v.error || outdated) && (
           <Box sx={{ pl: '24px', display: 'flex', flexDirection: 'column', gap: 1 }}>
             {note && <Text sx={{ color: 'fg.subtle' }}>{note}</Text>}
