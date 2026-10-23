@@ -23,12 +23,6 @@ function broadcast(accountId,data){
   for(const res of entry.subscribers){try{res.write(line);}catch(_){}}
 }
 
-// змейка для подсветки в окне: считается тут же по доске (8 вариантов × 16 клеток — микросекунды),
-// без запросов к игре; сбой не должен мешать партии
-function snake(board){
-  try{return board?require('../../modules/game2048').snakeOf(board):null;}catch(_){return null;}
-}
-
 function list(){
   return[...registry.entries()].map(([accountId,e])=>({account_id:accountId,board:e.board,score:e.score,max_tile:e.max_tile,game_status:e.game_status}));
 }
@@ -65,8 +59,7 @@ function start(accountId,name,makeApiForAccount){
       // выглядело как "бот перестал играть"/"поле не обновляется", хотя дело было не в SSE вообще.
       let st=await withRetry(()=>limiter.run(()=>api.get('/game2048/',{},{timeout:STATE_TIMEOUT_MS})),3,2000,`${name} 2048 load`);
       entry.board=st.board;entry.score=st.score;entry.max_tile=st.max_tile;entry.game_status=st.game_status;
-      entry.snake=snake(st.board);
-      broadcast(accountId,{type:'snapshot',board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status,snake:entry.snake});
+      broadcast(accountId,{type:'snapshot',board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status});
       recorder.touch(accountId,name,st);
       while(st?.game_status==='ongoing'&&!entry.stopped){
         const{dir,ms:thinkMs}=await engine.bestMove(st.board);
@@ -92,10 +85,9 @@ function start(accountId,name,makeApiForAccount){
           animated=false;
         }
         entry.board=st.board;entry.score=st.score;entry.max_tile=st.max_tile;entry.game_status=st.game_status;
-        entry.snake=snake(st.board);
         broadcast(accountId,animated
-          ?{type:'move',direction:dir,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status,snake:entry.snake}
-          :{type:'snapshot',board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status,snake:entry.snake});
+          ?{type:'move',direction:dir,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status}
+          :{type:'snapshot',board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status});
       }
       if(st?.game_status&&st.game_status!=='ongoing')await logResult(name,st);
       broadcast(accountId,{type:'done',ok:true,game_status:st?.game_status,reward:st?.reward,stopped:entry.stopped});
@@ -112,4 +104,4 @@ function start(accountId,name,makeApiForAccount){
   return entry;
 }
 
-module.exports={start,stop,get,list,broadcast,snake};
+module.exports={start,stop,get,list,broadcast};

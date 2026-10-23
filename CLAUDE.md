@@ -105,7 +105,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 | `tasks` | `runDailyLogin` | ежедневный вход: `GET/POST /daily-login/` |
 | `fortune` | `runFortune` | колесо фортуны: `GET /fortune-pavilion/can-draw`, `POST /fortune-pavilion/daily-draw` (одиночный спин) |
 | `journey` | `runJourney` | путь мэра: `GET/POST /mjourney/` |
-| `game2048` | `runGame2048` | 2048 (взвешенная матрица): `GET/POST /game2048/` |
+| `game2048` | `bestMove` | 2048: ход — expectimax на C++ в WASM (`game2048.wasm`, исходники и MIT-лицензия — `vendor/game2048/`, пересборка `build.sh`; `LICENSE` не удалять), только «Решить»/ручная игра: `GET/POST /game2048/` |
 | `wordle` | `runWordle/Once/Loop`, `submitWordAll` | вордли: `GET /wordle/stats`, `POST /wordle/guess`; `submitWordAll` подаёт слово на все аккаунты И пишет `WordleLog` из свежих stats |
 | `minesweeper` | `solveMinesweeper` | сапёр: `GET /minesweeper/`, `POST /minesweeper/`, `GET /minesweeper/reward` |
 | `sudoku` | `solveSudoku` | судоку: `GET /sudoku/`, `POST /sudoku/generate`, `POST /sudoku/` |

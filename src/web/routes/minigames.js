@@ -200,7 +200,7 @@ module.exports=function(app,ctx){
         const acc=await Account.findByPk(Number(req.params.accountId),{attributes:['name']}).catch(()=>null);
         game2048Recorder.touch(Number(req.params.accountId),acc?.name||String(req.params.accountId),st);
       }
-      res.json({ok:true,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status,snake:game2048Progress.snake(st.board)});
+      res.json({ok:true,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
@@ -214,7 +214,7 @@ module.exports=function(app,ctx){
       const st=await perAccountRateLimit.forAccount(req.params.accountId).run(()=>api.post('/game2048/',{direction}));
       game2048Recorder.record(Number(req.params.accountId),acc?.name||String(req.params.accountId),direction,st);
       if(st?.game_status&&st.game_status!=='ongoing')await logResult(acc?.name||String(req.params.accountId),st);
-      res.json({ok:true,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status,reward:st.reward,snake:game2048Progress.snake(st.board)});
+      res.json({ok:true,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status,reward:st.reward});
     }catch(e){res.status(500).json({ok:false,error:e?.response?.data?.error||e.message});}
   });
 
@@ -231,7 +231,7 @@ module.exports=function(app,ctx){
       entry=game2048Progress.start(accountId,acc?.name||String(accountId),makeApiForAccount);
     }
     if(entry.board){
-      res.write(`data: ${JSON.stringify({type:'snapshot',board:entry.board,score:entry.score,max_tile:entry.max_tile,game_status:entry.game_status,snake:entry.snake})}\n\n`);
+      res.write(`data: ${JSON.stringify({type:'snapshot',board:entry.board,score:entry.score,max_tile:entry.max_tile,game_status:entry.game_status})}\n\n`);
     }
     entry.subscribers.add(res);
     req.on('close',()=>{entry.subscribers.delete(res);});

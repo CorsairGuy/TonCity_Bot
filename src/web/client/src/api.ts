@@ -552,9 +552,9 @@ export const api = {
 
   // 2048 (Оплот Мудрости) — живая игра в модалке, не решается вслепую на сервере целиком
   game2048State: (accountId: number) =>
-    req<{ ok: boolean; board: number[][]; score: number; max_tile: number; game_status: Game2048Status; snake?: number[] | null; error?: string }>(`/api/game2048/${accountId}`),
+    req<{ ok: boolean; board: number[][]; score: number; max_tile: number; game_status: Game2048Status; error?: string }>(`/api/game2048/${accountId}`),
   game2048Move: (accountId: number, direction: Game2048Direction) =>
-    req<{ ok: boolean; board: number[][]; score: number; max_tile: number; game_status: Game2048Status; reward?: number; snake?: number[] | null; error?: string }>(`/api/game2048/${accountId}/move`, post({ direction })),
+    req<{ ok: boolean; board: number[][]; score: number; max_tile: number; game_status: Game2048Status; reward?: number; error?: string }>(`/api/game2048/${accountId}/move`, post({ direction })),
   // кто сейчас доигрывается в фоне (см. web/lib/game2048Progress.js) — переживает перезагрузку
   // страницы/закрытие вкладки, не завязано на конкретное SSE-соединение
   game2048Live: () =>
