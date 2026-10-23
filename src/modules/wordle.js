@@ -267,24 +267,33 @@ async function _solveForAccount(api,name,maxAttempts){
   return false;
 }
 
-const _runStats={};
+// Слова попыток из ответа /wordle/stats (игра отдаёт только попытки текущего игрового дня)
+function _wordsFromStats(s){
+  const arr=Array.isArray(s?.stats)?s.stats:[];
+  return arr.map(a=>Array.isArray(a.feedback)?a.feedback.slice().sort((x,y)=>x.position-y.position).map(f=>f.letter).join(''):'').filter(x=>x.length===5);
+}
+
+// Пишет строку WordleLog за день строго по ответу игры: слова и победа — только этого дня
+async function _saveLog(name,date,s){
+  const words=_wordsFromStats(s);
+  try{await WordleLog.upsert({account:name,played_at:date,won:s?.won?1:0,attempts:words.length,words:JSON.stringify(words)});}
+  catch(e){logger.warn(`[wordle] [${name}] сохранение в БД: ${e.message}`);}
+}
 
 async function runWordleOnce(clients){
   _resetIfNewDay();
+  // дата фиксируется на старте прохода: проход, перешедший через полночь, пишет в свой день
+  const day=sharedState.date;
   logger.info('[wordle] сбор истории попыток со всех аккаунтов...');
 
   for(const{api,name}of clients){
-    if(!_runStats[name])_runStats[name]={won:false,words:[]};
     try{
       const s=await api.get('/wordle/stats');
-      if(s?.won){
-        _runStats[name].won=true;
-        if(!sharedState.word){
-          const last=Array.isArray(s.stats)?s.stats[s.stats.length-1]:null;
-          if(last?.feedback){
-            const w=last.feedback.slice().sort((a,b)=>a.position-b.position).map(f=>f.letter).join('');
-            if(w.length===5)sharedState.word=w;
-          }
+      if(s?.won&&!sharedState.word){
+        const last=Array.isArray(s.stats)?s.stats[s.stats.length-1]:null;
+        if(last?.feedback){
+          const w=last.feedback.slice().sort((a,b)=>a.position-b.position).map(f=>f.letter).join('');
+          if(w.length===5)sharedState.word=w;
         }
       }
       const prev=Array.isArray(s?.stats)?s.stats:[];
@@ -292,10 +301,7 @@ async function runWordleOnce(clients){
         if(!Array.isArray(attempt.feedback))continue;
         _applyFeedback(attempt.feedback);
         const w=attempt.feedback.slice().sort((a,b)=>a.position-b.position).map(f=>f.letter).join('');
-        if(w.length===5){
-          if(!sharedState.usedWords.includes(w))sharedState.usedWords.push(w);
-          if(!_runStats[name].words.includes(w))_runStats[name].words.push(w);
-        }
+        if(w.length===5&&!sharedState.usedWords.includes(w))sharedState.usedWords.push(w);
       }
     }catch(e){logger.warn(`[wordle] [${name}] stats error: ${e.message}`);}
     await sleep(300);
@@ -308,14 +314,7 @@ async function runWordleOnce(clients){
     let anyActive=false;
     for(const{api,name}of clients){
       try{
-        const before=sharedState.usedWords.length;
-        const active=await _solveForAccount(api,name,MAX_BOT_ATTEMPTS);
-        if(active){
-          anyActive=true;
-          const newWords=sharedState.usedWords.slice(before);
-          for(const w of newWords)if(!_runStats[name].words.includes(w))_runStats[name].words.push(w);
-          if(sharedState.word)_runStats[name].won=true;
-        }
+        if(await _solveForAccount(api,name,MAX_BOT_ATTEMPTS))anyActive=true;
       }catch(e){logger.error(`[wordle] [${name}] ${e.message}`);}
       await sleep(500);
     }
@@ -325,22 +324,17 @@ async function runWordleOnce(clients){
   if(sharedState.word){
     logger.info(`[wordle] подаём "${sharedState.word}" на оставшиеся аккаунты`);
     for(const{api,name}of clients){
-      try{
-        const before=sharedState.usedWords.length;
-        await _solveForAccount(api,name,MAX_BOT_ATTEMPTS);
-        const newWords=sharedState.usedWords.slice(before);
-        for(const w of newWords)if(!_runStats[name].words.includes(w))_runStats[name].words.push(w);
-        _runStats[name].won=true;
-      }catch(e){logger.error(`[wordle] [${name}] ${e.message}`);}
+      try{await _solveForAccount(api,name,MAX_BOT_ATTEMPTS);}
+      catch(e){logger.error(`[wordle] [${name}] ${e.message}`);}
       await sleep(500);
     }
   }
 
-  const today=new Date().toISOString().slice(0,10);
-  for(const[name,st]of Object.entries(_runStats)){
-    try{
-      await WordleLog.upsert({account:name,played_at:today,won:st.won?1:0,attempts:st.words.length,words:JSON.stringify(st.words)});
-    }catch(e){logger.warn(`[wordle] [${name}] сохранение в БД: ${e.message}`);}
+  // итог дня — из свежего /wordle/stats каждого аккаунта, а не из накопленного в памяти
+  for(const{api,name}of clients){
+    try{await _saveLog(name,day,await api.get('/wordle/stats'));}
+    catch(e){logger.warn(`[wordle] [${name}] stats для журнала: ${e.message}`);}
+    await sleep(300);
   }
   logger.info('[wordle] подбор завершён');
 }
@@ -364,15 +358,9 @@ async function submitWordAll(clients,word){
   const w=String(word||'').trim().toLowerCase();
   const results=[];
   if(w.length!==5||!/^[а-яёa-z]+$/.test(w))return{ok:false,error:'нужно слово из 5 букв',results};
-  const today=new Date().toISOString().slice(0,10);
-  const wordsFromStats=s=>{
-    const arr=Array.isArray(s?.stats)?s.stats:[];
-    return arr.map(a=>Array.isArray(a.feedback)?a.feedback.slice().sort((x,y)=>x.position-y.position).map(f=>f.letter).join(''):'').filter(x=>x.length===5);
-  };
-  const saveLog=async(name,s)=>{
-    const words=wordsFromStats(s);
-    try{await WordleLog.upsert({account:name,played_at:today,won:s?.won?1:0,attempts:words.length,words:JSON.stringify(words)});}catch(_){}
-  };
+  _resetIfNewDay();
+  const day=sharedState.date;
+  const saveLog=(name,s)=>_saveLog(name,day,s);
   for(const{api,name}of clients){
     try{
       const s=await api.get('/wordle/stats').catch(()=>null);
