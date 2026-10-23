@@ -73,7 +73,8 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 
 ### Сессии/авторизация — `src/modules/session.js`
 - `ensureSession`: пробует `/progress/`; при неудаче — `doRefresh`.
-- `doRefresh`: `POST /web-auth/refresh {refresh_token}` → новый `access_token` (+ ротация refresh), пишет в БД. Есть per-account lock (`_refreshInFlight`), чтобы не рефрешить дважды. Fallback: `exchangeToken` через `POST /web-auth/exchange {token: init_token}`.
+- `doRefresh`: `POST /web-auth/refresh {refresh_token}` → новый `access_token` (+ ротация refresh), пишет в БД. Есть per-account lock (`_refreshInFlight`), чтобы не рефрешить дважды. После 401 на refresh аккаунт помечается мёртвым (`_refreshDead`, `isRefreshDead`) и больше не ходит в игру до новых токенов в БД.
+- Код из ссылки `game.toncity.io/auth?...` одноразовый и живёт ~10 минут: его меняет на токены только `POST /api/accounts/add` (`/web-auth/exchange`), сам код не хранится. Протухший аккаунт оживляет только новая ссылка из бота игры (решение 23.10.2026).
 - `saveStats`: из `/progress/` пишет в `Account` баланс/кристаллы и показатели города. `params[0]` = после всех апгрейдов (final), `params[last]` = текущее.
 
 ### API-клиент — `src/api/client.js`

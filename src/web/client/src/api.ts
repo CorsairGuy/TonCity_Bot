@@ -658,7 +658,6 @@ export interface Account {
   id: number;
   name: string;
   hasToken: boolean;
-  hasInit: boolean;
   // реальный статус сессии (WS), не просто "есть токен в БД" — токен не удаляется сам при протухании
   sessionStatus: 'active' | 'dead' | 'connecting' | 'unknown';
   buildings?: string[]; // особые здания на карте: 'market' | 'fortune' | 'wisdom' | 'reserve'
