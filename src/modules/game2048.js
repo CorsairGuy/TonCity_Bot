@@ -3,7 +3,7 @@
 
 // Версия алгоритма выбора хода — пишется в каждую запись партии (utils/game2048Recorder.js), чтобы
 // при анализе отличать партии разных версий. Менять при любой правке evaluate/expectimax/bestMove.
-const ALGO_VERSION=2;
+const ALGO_VERSION=3;
 
 // Механика 2048 подтверждена реверсом бандла игры (chunks/game2048-*.js): доска 4x4 (0=пусто),
 // направления 'up'|'down'|'left'|'right', POST /game2048/ {direction}. Функции ниже (extractLine/
@@ -56,10 +56,22 @@ const DIRS=['up','down','left','right'];
 // плитки, штраф за сумму рангов. Змейка при этом складывается сама: монотонные строки и столбцы
 // и есть змейка. Поиск — expectimax на 3–4 случайных спавна вперёд с отсечением маловероятных
 // веток и кэшем позиций. Подобрано прогоном офлайн-партий (scripts/2048-replay.js --sim).
+// v3 — к оценке v2 добавлен штраф змейки (по просьбе пользователя: собирать цепочку по убыванию,
+// как вручную). Перед каждым ходом из 8 змеек (4 угла × по строкам/по столбцам) выбирается та, что
+// лучше ложится на доску (лексикографически: крупнейший ранг в голове, дальше как можно крупнее по
+// порядку), и в оценке каждой позиции перебора за каждое место, где по ходу змейки следующая
+// клетка больше предыдущей (пустая тоже считается), вычитается SNAKE_W·(больший⁴ − меньший⁴) по
+// рангам. Офлайн на 100 одинаковых партиях: v2 — 100 побед, 9,8 мс/ход, длина змейки 5,10;
+// v3 — 99 побед, ~59 мс/ход (пик ~0,7 с), длина 5,35. Сильнее штраф — меньше побед (30/40 при
+// ×100), поэтому вес не поднимать без прогона. Из-за цены расчёта ход считается в отдельном потоке
+// (game2048Worker.js), чтобы не тормозить процесс бота.
 // Доска внутри — 4 строки по 16 бит, клетка = ранг в 4 битах (младший полубайт — столбец 0);
 // ход по строке — готовые таблицы на все 65536 строк, поэтому одна позиция считается быстро.
 const H={lost:200000,monoPow:4,mono:47,sumPow:3.5,sum:11,merges:700,empty:270};
-const WIN_RANK=11,WIN_SCORE=1e8; // плитка 2048 — партия выиграна сразу, дальше игра не идёт
+const WIN_RANK=11,WIN_SCORE=1e15; // плитка 2048 — партия выиграна сразу, дальше игра не идёт
+// проигрыш (ходов нет) хуже любой позиции: со штрафом змейки оценка бывает отрицательной
+const LOST_SCORE=-1e12;
+const SNAKE_W=50,SNAKE_POW=4;
 const CPROB_MIN=0.0001,CACHE_DEPTH=15;
 const ROW_LEFT=new Uint16Array(65536),ROW_RIGHT=new Uint16Array(65536),ROW_HEUR=new Float64Array(65536);
 const revRow=r=>((r&15)<<12)|((r>>4&15)<<8)|((r>>8&15)<<4)|(r>>12&15);
@@ -111,10 +123,41 @@ function bMove(a,b,c,e,d){
   }
   M0=n0;M1=n1;M2=n2;M3=n3;
 }
+// 8 змеек: путь по клеткам r*4+c от головы. Ряд змейки 0 идёт от угла, ряд 1 — обратно и т.д.
+const SNAKE_PATHS=[];
+for(const[cr,cc]of[[0,0],[0,3],[3,0],[3,3]])for(const byRow of[true,false]){
+  const p=[];
+  for(let i=0;i<4;i++)for(let j=0;j<4;j++){
+    const along=i%2===0?j:3-j;
+    let r=byRow?i:along,c=byRow?along:i;
+    if(cr===3)r=3-r;
+    if(cc===3)c=3-c;
+    p.push(r*4+c);
+  }
+  SNAKE_PATHS.push(p);
+}
+const RANK_POW=Array.from({length:16},(_,r)=>Math.pow(r,SNAKE_POW));
+let snakePath=SNAKE_PATHS[0]; // змейка текущего хода, выбирается в bestMove
+function pickSnake(a,b,c,e){
+  const rows=[a,b,c,e];
+  let best=-Infinity;
+  for(const p of SNAKE_PATHS){
+    let sc=0;
+    for(let k=0;k<16;k++){const q=p[k];sc+=(rows[q>>2]>>(4*(q&3))&15)*Math.pow(16,15-k);}
+    if(sc>best){best=sc;snakePath=p;}
+  }
+}
 function heur(a,b,c,e){
   let h=ROW_HEUR[a]+ROW_HEUR[b]+ROW_HEUR[c]+ROW_HEUR[e];
   for(let sh=0;sh<16;sh+=4)h+=ROW_HEUR[(a>>sh&15)|((b>>sh&15)<<4)|((c>>sh&15)<<8)|((e>>sh&15)<<12)];
-  return h;
+  let pen=0,prev=-1;
+  for(let k=0;k<16;k++){
+    const q=snakePath[k];
+    const x=(q<4?a:q<8?b:q<12?c:e)>>(4*(q&3))&15;
+    if(prev>=0&&x>prev)pen+=RANK_POW[x]-RANK_POW[prev];
+    prev=x;
+  }
+  return h-SNAKE_W*pen;
 }
 function maxRank(a,b,c,e){
   let m=0;
@@ -126,7 +169,7 @@ function maxRank(a,b,c,e){
 }
 
 function moveNode(a,b,c,e,s,cprob,depth){
-  let best=0;
+  let best=LOST_SCORE;
   for(let d=0;d<4;d++){
     bMove(a,b,c,e,d);
     if(M0===a&&M1===b&&M2===c&&M3===e)continue;
@@ -134,7 +177,7 @@ function moveNode(a,b,c,e,s,cprob,depth){
     const v=maxRank(n0,n1,n2,n3)>=WIN_RANK?WIN_SCORE:chanceNode(n0,n1,n2,n3,s,cprob,depth);
     if(v>best)best=v;
   }
-  return best; // ходов нет — проигрыш, 0
+  return best; // ходов нет — проигрыш
 }
 function chanceNode(a,b,c,e,s,cprob,depth){
   if(cprob<CPROB_MIN||depth>=s.limit)return heur(a,b,c,e);
@@ -178,18 +221,19 @@ function searchDepth(board){
 // возвращает лучший ход ('up'|'down'|'left'|'right') или null, если ходов нет
 function bestMove(board){
   const[a,b,c,e]=encode(board);
+  pickSnake(a,b,c,e);
   const s={limit:searchDepth(board),cache:new Map()};
   let best=null,bestScore=-Infinity;
   for(let d=0;d<4;d++){
     bMove(a,b,c,e,d);
     if(M0===a&&M1===b&&M2===c&&M3===e)continue;
     const n0=M0,n1=M1,n2=M2,n3=M3;
-    const score=maxRank(n0,n1,n2,n3)>=WIN_RANK?WIN_SCORE:chanceNode(n0,n1,n2,n3,s,1,0)+1e-6;
+    const score=maxRank(n0,n1,n2,n3)>=WIN_RANK?WIN_SCORE:chanceNode(n0,n1,n2,n3,s,1,0);
     if(score>bestScore){bestScore=score;best=DIRS[d];}
   }
   return best;
 }
-function evaluate(board){return heur(...encode(board));}
+function evaluate(board){const r=encode(board);pickSnake(...r);return heur(...r);}
 
 async function logResult(account,st){
   try{
