@@ -103,6 +103,8 @@ export function UpdatesCard() {
       const d = await api.version(force);
       if (d && d.ok) {
         setV(d); if (!v) applyFrom(d);
+        // плашка версии в меню берёт те же данные, чтобы не показывать устаревшее
+        window.dispatchEvent(new CustomEvent('tc-version', { detail: d }));
         if (force) { setNote(checkNote(d)); setTimeout(() => setNote(null), 6000); }
       }
     } catch { if (force) setNote('Панель не отвечает'); }
