@@ -115,9 +115,21 @@ function reconcileTiles(predicted: TileState[], serverBoard: number[][], nextId:
   return mismatch ? boardToTiles(serverBoard, nextId) : result;
 }
 
+// подсветка змейки бота: первые две линии (8 клеток от угла), куда бот сейчас собирает цепочку по
+// убыванию (modules/game2048.js snakeOf). Клетка змейки обведена цветом плитки, которую там надо
+// собрать: голова — крупнейшая плитка, дальше вдвое меньше на каждом шаге (с 32 в углу: 32, 16, 8,
+// 4, 2). Плитка внутри обводки чуть меньше клетки, сверху подписана цель, пока она не собрана.
+// Обводка на тон темнее цвета цели, чтобы змейка была видна и там, где плитка уже собрана; места,
+// где ещё не собрано, мягко пульсируют (.g2048-need в global.css). Вариант выбран пользователем.
+const SNAKE_SHRINK = 0.9;
+function shade(hex: string, f: number) {
+  const n = parseInt(hex.slice(1), 16), m = (x: number) => Math.round(x * f);
+  return `rgb(${m(n >> 16)},${m((n >> 8) & 255)},${m(n & 255)})`;
+}
+
 const SLIDE_MS = 150; // должно совпадать с CSS-переходом .g2048-tile (см. global.css) — тайминг из бандла
 
-interface BoardMsg { type: 'snapshot' | 'move' | 'done'; board?: number[][]; score?: number; max_tile?: number; game_status?: Game2048Status; direction?: Game2048Direction; reward?: number; error?: string }
+interface BoardMsg { type: 'snapshot' | 'move' | 'done'; board?: number[][]; score?: number; max_tile?: number; game_status?: Game2048Status; direction?: Game2048Direction; reward?: number; snake?: number[] | null; error?: string }
 
 interface Props {
   accountId: number;
@@ -147,6 +159,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
   const [status, setStatus] = useState<Game2048Status>('ongoing');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [snake, setSnake] = useState<number[] | null>(null);
   const nextIdRef = useRef(1);
   const tilesRef = useRef<TileState[]>([]);
   tilesRef.current = tiles;
@@ -177,12 +190,14 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
         if (data.type === 'snapshot' && data.board) {
           setTiles(boardToTiles(data.board, nextIdRef));
           setScore(data.score ?? 0); setMaxTile(data.max_tile ?? 0); setStatus(data.game_status ?? 'ongoing');
+          setSnake(data.snake ?? null);
         } else if (data.type === 'move' && data.board && data.direction) {
           const predicted = slideTiles(tilesRef.current, data.direction);
           setTiles(predicted);
           setTimeout(() => {
             setTiles(reconcileTiles(predicted, data.board!, nextIdRef));
             setScore(data.score ?? 0); setMaxTile(data.max_tile ?? 0); setStatus(data.game_status ?? 'ongoing');
+            setSnake(data.snake ?? null);
           }, SLIDE_MS);
         } else if (data.type === 'done' && data.error) setError(data.error);
       });
@@ -190,7 +205,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
     }
     api.game2048State(accountId).then(d => {
       if (cancelled) return;
-      if (d.ok) { setTiles(boardToTiles(d.board, nextIdRef)); setScore(d.score); setMaxTile(d.max_tile); setStatus(d.game_status); }
+      if (d.ok) { setTiles(boardToTiles(d.board, nextIdRef)); setScore(d.score); setMaxTile(d.max_tile); setStatus(d.game_status); setSnake(d.snake ?? null); }
       else setError(d.error ?? 'Ошибка загрузки');
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -209,7 +224,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
       if (r.ok) {
         setTimeout(() => {
           setTiles(reconcileTiles(predicted, r.board, nextIdRef));
-          setScore(r.score); setMaxTile(r.max_tile); setStatus(r.game_status);
+          setScore(r.score); setMaxTile(r.max_tile); setStatus(r.game_status); setSnake(r.snake ?? null);
           if (r.game_status !== 'ongoing') onResultRef.current({ won: r.game_status === 'won', reward: r.reward, score: r.score });
         }, SLIDE_MS);
       } else setError(r.error ?? 'Ошибка хода');
@@ -253,6 +268,12 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
   const BOARD = 320, PAD = 8, GAP = 8, PAD_MODAL = 8;
   const CELL = (BOARD - PAD * 2 - GAP * 3) / 4;
   const posOf = (i: number) => PAD + i * (CELL + GAP);
+  const showSnake = !!snake?.length && status === 'ongoing';
+  const board = tilesToBoard(tiles);
+  const head = Math.max(2, ...board.flat());
+  // цель на каждом месте змейки; места, где цель вышла бы меньше 2, не показываем
+  const targetAt = new Map<number, number>();
+  if (showSnake) snake!.forEach((cell, k) => { if (head >> k >= 2) targetAt.set(cell, head >> k); });
 
   return (
     // ширина задана через sx, а не пресетом width: поле 320px + по 8px с боков = 336px,
@@ -287,29 +308,46 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
               }}
             >
               {/* статичная фоновая сетка 4×4 — фиксированный размер, никогда не пересчитывается по контенту */}
-              {Array.from({ length: 16 }).map((_, k) => (
-                <div key={k} style={{
-                  position: 'absolute', width: CELL, height: CELL,
-                  left: posOf(k % 4), top: posOf(Math.floor(k / 4)),
-                  background: 'rgba(238,228,218,.35)', borderRadius: 4,
-                }} />
-              ))}
+              {Array.from({ length: 16 }).map((_, k) => {
+                const tgt = targetAt.get(k);
+                const empty = !board[Math.floor(k / 4)][k % 4];
+                return (
+                  <div key={k} className={tgt && (empty || board[Math.floor(k / 4)][k % 4] < tgt) ? 'g2048-need' : undefined} style={{
+                    position: 'absolute', width: CELL, height: CELL,
+                    left: posOf(k % 4), top: posOf(Math.floor(k / 4)),
+                    background: tgt ? shade(tileColor(tgt).bg, 0.82) : 'rgba(238,228,218,.35)', borderRadius: tgt ? 6 : 4,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {tgt && (
+                      <div style={{
+                        width: CELL * SNAKE_SHRINK, height: CELL * SNAKE_SHRINK, borderRadius: 4, background: '#cdc1b4',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 'bold', fontSize: tgt >= 1000 ? 18 : tgt >= 100 ? 22 : 26, color: 'rgba(119,110,101,.45)',
+                      }}>{empty ? tgt : null}</div>
+                    )}
+                  </div>
+                );
+              })}
               {/* слившиеся тайлы (mergedInto) рисуются НИЖЕ (без z-index — раньше в DOM) выживших, чтобы
                   выживший визуально "накрывал" их в момент наложения на одной клетке */}
               {[...tiles].sort((a, b) => (a.mergedInto ? 0 : 1) - (b.mergedInto ? 0 : 1)).map(t => {
                 const { bg, text } = tileColor(t.value);
+                const tgt = !t.mergedInto ? targetAt.get(t.row * 4 + t.col) : undefined;
+                const sz = tgt ? CELL * SNAKE_SHRINK : CELL, off = (CELL - sz) / 2;
+                const need = tgt && t.value < tgt ? tgt : null;
                 return (
                   <div
                     key={t.id}
                     className={'g2048-tile' + (t.isNew ? ' g2048-tile-new' : '') + (t.justMerged ? ' g2048-tile-pop' : '')}
                     style={{
-                      position: 'absolute', width: CELL, height: CELL,
-                      left: posOf(t.col), top: posOf(t.row),
+                      position: 'absolute', width: sz, height: sz,
+                      left: posOf(t.col) + off, top: posOf(t.row) + off,
                       background: bg, color: text, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      borderRadius: 4, fontWeight: 'bold', fontSize: t.value >= 1000 ? 22 : t.value >= 100 ? 26 : 32,
+                      borderRadius: 4, fontWeight: 'bold', fontSize: (t.value >= 1000 ? 22 : t.value >= 100 ? 26 : 32) - (tgt ? 4 : 0),
                     }}
                   >
                     {t.value}
+                    {need && <span style={{ position: 'absolute', top: 3, fontSize: 10, lineHeight: 1, opacity: 0.8 }}>{need}</span>}
                   </div>
                 );
               })}
@@ -319,7 +357,9 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
                 {status === 'won' ? 'Победа!' : 'Игра окончена'}
               </Text>
             )}
-            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Стрелки на клавиатуре или свайп</Text>
+            <Text sx={{ fontSize: 0, color: 'fg.muted', textAlign: 'center' }}>
+              Стрелки на клавиатуре или свайп{showSnake ? '. Обводка — змейка бота: какую плитку он собирает на этом месте' : ''}
+            </Text>
           </>
         )}
       </Box>
