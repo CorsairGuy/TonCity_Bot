@@ -5,14 +5,16 @@
 // подключается к потоку сама.
 import { connect } from './serverEventsConnect';
 
-export type ServerEventType = 'build' | 'maintenance' | 'version';
+// city — свежие постройки одного города {account,buildings} (общая карта всех городов); это разовое
+// событие, а не состояние, поэтому последнее не запоминается
+export type ServerEventType = 'build' | 'maintenance' | 'version' | 'city';
 
 const handlers = new Map<ServerEventType, Set<(data: any) => void>>();
 const last = new Map<ServerEventType, unknown>();
 let started = false;
 
 function deliver(type: ServerEventType, data: unknown) {
-  last.set(type, data);
+  if (type !== 'city') last.set(type, data);
   handlers.get(type)?.forEach(f => f(data));
 }
 

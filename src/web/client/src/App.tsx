@@ -44,7 +44,7 @@ const QuestTiers = lazy(() => import('./pages/QuestTiers').then(m => ({ default:
 const Auditorium = lazy(() => import('./pages/SpecialBuildings').then(m => ({ default: m.Auditorium })));
 const Factory = lazy(() => import('./pages/SpecialBuildings').then(m => ({ default: m.Factory })));
 const Capitals = lazy(() => import('./pages/Capitals').then(m => ({ default: m.Capitals })));
-const City = lazy(() => import('./pages/City').then(m => ({ default: m.City })));
+const CityWorld = lazy(() => import('./pages/CityWorld').then(m => ({ default: m.CityWorld })));
 const CityMap = lazy(() => import('./pages/CityMap').then(m => ({ default: m.CityMap })));
 const ShopBoosters = lazy(() => import('./pages/ShopBoosters').then(m => ({ default: m.ShopBoosters })));
 const ShopPacks = lazy(() => import('./pages/ShopPacks').then(m => ({ default: m.ShopPacks })));
@@ -426,7 +426,7 @@ export default function App() {
           <Route path="/greatest-mayors" element={<GreatestMayors />} />
           <Route path="/leagues"         element={<Leagues />} />
           <Route path="/player-city"     element={<PlayerCity />} />
-          <Route path="/city"            element={<City />} />
+          <Route path="/city"            element={<CityWorld />} />
           <Route path="/city-map"        element={<CityMap />} />
           <Route path="/global-upgrade-plan" element={<GlobalUpgradePlan />} />
           <Route path="/global-capital-upgrade-plan" element={<GlobalCapitalUpgradePlan />} />

@@ -186,7 +186,7 @@ const CAPITAL_FOUNDATION_IDS = new Set([
 ]);
 const CAPITAL_TALL_CONSTRUCTION_IDS = new Set(['CAP_COM_finance_center.png', 'CAP_guild_headquarters.png']);
 
-function constructionSpriteId(id: string, type: 'city' | 'capital'): string {
+export function constructionSpriteId(id: string, type: 'city' | 'capital'): string {
   if (type === 'capital') {
     if (CAPITAL_FOUNDATION_IDS.has(id)) return 'CAP_level0.png';
     if (CAPITAL_TALL_CONSTRUCTION_IDS.has(id)) return 'construction2.png';
@@ -235,6 +235,8 @@ interface Props {
   // смена суток (только город — у столицы ночной разметки нет): по часам устройства, всегда день или
   // всегда ночь. По умолчанию — день, карта рисуется как раньше
   dayNight?: DayNightMode;
+  // зум наружу дальше самого мелкого масштаба — уход на общую карту всех городов (pages/CityWorld.tsx)
+  onZoomOut?: () => void;
 }
 
 // сколько карта ждёт ночной набор спрайтов, прежде чем рисовать без него
@@ -270,7 +272,9 @@ function MapLoadOverlay({ tick, runKey }: { tick: () => LoadState | null; runKey
   );
 }
 
-export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day' }: Props) {
+export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut }: Props) {
+  const onZoomOutRef = useRef(onZoomOut);
+  onZoomOutRef.current = onZoomOut;
   // "x_y" клетки закрытой секции → id секции — только город, только пока секция не в unlockedSections
   const lockedCells = useMemo(() => {
     const m = new Map<string, string>();
@@ -346,6 +350,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // прошлого touchmove, чтобы считать приращения покадрово (как у колеса мыши, только источник —
     // не delta, а изменение dist/mid между кадрами)
     pinchDist: null as number | null,
+    pinchOut: 1, // насколько ещё сжали пальцы, упёршись в самый мелкий масштаб
+
     pinchMidX: null as number | null,
     pinchMidY: null as number | null,
     mode: 'view' as CityActionMode,
@@ -1456,6 +1462,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const rect = wrap.getBoundingClientRect();
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      // уже на самом мелком масштабе и крутят наружу — дальше только общая карта
+      if (e.deltaY > 0 && s.scale <= MIN_SCALE * 1.001 && onZoomOutRef.current) { onZoomOutRef.current(); return; }
       const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s.scale * factor));
       s.ox = mx + (s.ox - mx) * (newScale / s.scale);
       s.oy = my + (s.oy - my) * (newScale / s.scale);
@@ -1592,6 +1600,9 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         const rect = wrap.getBoundingClientRect();
         const dist = touchDist(e.touches), mid = touchMid(e.touches, rect);
         const factor = dist / s.pinchDist;
+        // упёрлись в самый мелкий масштаб и продолжают сводить пальцы — уход на общую карту
+        s.pinchOut = s.scale <= MIN_SCALE * 1.001 && factor < 1 ? s.pinchOut * factor : 1;
+        if (s.pinchOut < 0.75 && onZoomOutRef.current) { s.pinchDist = null; s.pinchOut = 1; onZoomOutRef.current(); return; }
         const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s.scale * factor));
         // зум, привязанный к текущей средней точке двух пальцев (она не "уезжает" на экране)
         s.ox = mid.x + (s.ox - mid.x) * (newScale / s.scale);

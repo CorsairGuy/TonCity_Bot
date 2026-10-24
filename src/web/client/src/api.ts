@@ -225,6 +225,9 @@ export const api = {
 
   // city — server: {rows: [{account, buildings, updated_at}]}
   city: (account?: string) => req<{ ok: boolean; rows: CityRow[] }>('/api/city-snapshots' + (account ? `?account=${encodeURIComponent(account)}` : '')),
+  // общая карта всех городов: снимки, показатели и ручные очереди одним запросом
+  cityWorld: () => req<{ ok: boolean; rows: CityWorldRow[]; order: string[]; error?: string }>('/api/city-world'),
+  cityActionLogAll: (limit = 300) => req<{ ok: boolean; rows: CityActionLogRow[]; error?: string }>(`/api/city-action-log?limit=${limit}`),
 
   // Действия по городу (страница "Города" → "Действия") — заменяет автоматику по эталонному плану
   buildingsList: (type: 'city' | 'capital' = 'city') =>
@@ -746,7 +749,7 @@ export interface DailyAdsRow {
 
 export interface AppConfig {
   logLevel: string;
-  ui?: { navOpenGroups?: string[]; mapDayNight?: 'auto' | 'day' | 'night'; theme?: 'light' | 'dark' | null };
+  ui?: { navOpenGroups?: string[]; mapDayNight?: 'auto' | 'day' | 'night'; theme?: 'light' | 'dark' | null; cityOrder?: string[] };
   update?: { auto?: boolean };
   telegram?: {
     botToken?: string;
@@ -1172,6 +1175,10 @@ export interface CapitalRow {
   updated_at: string;
 }
 
+export interface CityWorldRow extends CityRow {
+  balance: number; profit: number; profit_final: number; population: number; population_final: number; happiness: number;
+  queue: CityStrategyQueueItem[];
+}
 export interface CityRow {
   account: string;
   buildings: MapBuilding[];
