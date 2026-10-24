@@ -23,7 +23,9 @@ const set = (next: BuildState) => {
 function apply(d: BuildEvent) {
   if (!d || !d.startedAt) return;
   if (!base) base = { startedAt: d.startedAt, commit: d.commit };
-  else if (d.startedAt !== base.startedAt || (d.commit && d.commit !== base.commit)) { window.location.reload(); return; }
+  // перезапуск = другой коммит или время запуска сдвинулось заметно (новый процесс поднимается секунды);
+  // расхождение в миллисекунды — не перезапуск, а погрешность расчёта на сервере
+  else if (Math.abs(d.startedAt - base.startedAt) > 2000 || (d.commit && d.commit !== base.commit)) { window.location.reload(); return; }
   // бот уже перезапускается и не отвечает — остаётся последний известный этап
   set({ busy: !!d.busy, startedAt: d.startedAt, update: d.busy ? d.update ?? null : null });
 }
