@@ -90,7 +90,7 @@ async function freeze(canvases: HTMLCanvasElement[]): Promise<Mip[]> {
 // Атласы качаются все сразу, параллельно, как только карта заказала из них первый кадр: нарезка идёт
 // по одному атласу, и раньше каждый следующий файл начинал качаться только после нарезки прежнего.
 // Держим сжатый файл (Blob), а не картинку: распакованный атлас — до 20 МБ памяти, сжатый — сотни КБ.
-// После нарезки атласа файл отпускается.
+// Сжатый файл остаётся на сессию: новые кадры того же атласа не требуют повторного fetch.
 const atlases = new Map<string, Promise<Blob | null>>();
 const atlasesDone = new Set<string>(); // файл атласа уже пришёл (или не пришёл совсем) — для шкалы загрузки
 
@@ -115,7 +115,6 @@ export function spriteSettled(id: string, targetW: number): boolean {
 
 async function loadAtlas(url: string): Promise<HTMLImageElement | null> {
   const blob = await fetchAtlas(url);
-  atlases.delete(url);
   if (!blob) return loadImage(url); // не скачался — последняя попытка обычной загрузкой картинки
   const obj = URL.createObjectURL(blob);
   try { return await loadImage(obj); } finally { URL.revokeObjectURL(obj); }
