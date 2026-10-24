@@ -8,7 +8,7 @@ import { CityMapCity, CityHead, cityStatsFor, computePolicyMultiplier, buildingN
 import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
-  MapPalette, MapBrushLevel, PanelShell, StatsPanel, WalletTop, WalletInline, WalletRows, type Wallet, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
+  MapPalette, MapBrushLevel, PanelShell, StatsPanel, WalletTop, type Wallet, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
   SWAP, LogPanel, ForecastPanel, QueuePanel, PendingList, DemolishPanel, ReconstructPanel, RenovatePanel, MasterplanBar, ItemIcon, Glyph, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
 } from './cityMapPanels';
 import { CoinValue } from '../components/Icons';
@@ -838,9 +838,7 @@ export function CityWorld() {
           <Tile value={totalProfit > 0 ? `+${Math.max(0, (totalFinal / totalProfit - 1) * 100).toFixed(0)}%` : '—'} label="потенциал" color="success.fg" />
         </Box>
         <SumLine left={`жителей ${fmt(totalPop)}`} right={`строится ${buildingNow}`} />
-        <WalletInline w={walletAll} />
       </Summary>
-      <WalletRows w={walletAll} />
       {draftList}
       <Caption right={cities.length}>Города</Caption>
       {cityList(cities, r => { const n = r.buildings.filter(isBuilding).length; return n ? `строится ${n}` : `жителей ${fmt(r.population)}`; },

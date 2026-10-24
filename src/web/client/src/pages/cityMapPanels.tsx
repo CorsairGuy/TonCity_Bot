@@ -2,20 +2,20 @@
 // сам сайдбар всегда открыт. Здесь — оформление страниц сайдбара, данные и действия приходят из
 // CityMapCity.tsx (там же остались Строительство/Перемещение/Реконструкция в прежнем виде).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type DragEvent } from 'react';
-import { Box, Button, CounterLabel, IconButton, Label, Octicon, ProgressBar, Spinner, Text, TextInput, Timeline } from '@primer/react';
+import { Box, Button, CounterLabel, IconButton, Octicon, ProgressBar, Spinner, Text, TextInput, Timeline } from '@primer/react';
 import { Tooltip } from '@primer/react/experimental';
 import {
   GraphIcon, GoalIcon, StackIcon, ClockIcon, PlusIcon, ArrowBothIcon, TrashIcon, IterationsIcon, StarIcon, ZapIcon, LogIcon,
   QuestionIcon, SearchIcon, XIcon, DashIcon, ArrowRightIcon, ArrowUpIcon,
-  PlusCircleIcon, UnlockIcon, CheckIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon, LockIcon,
+  PlusCircleIcon, UnlockIcon, CheckIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
 import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, MapBuilding, BuildingDef, CityBoosterRow, CityActiveBooster, CityActionLogRow, ForecastEvent } from '../api';
 import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
 import { Scrollable } from '../components/Scrollable';
-import { CoinValue, CrystalValue, CoinIcon, CrystalIcon } from '../components/Icons';
-import { fmt, fmtInt, ITEMS_BY_ID } from '../utils';
+import { CoinValue, CrystalValue } from '../components/Icons';
+import { fmt, ITEMS_BY_ID } from '../utils';
 import { catalogItemImg } from '../hooks/useItemCatalog';
 
 export type PanelMode = CityActionMode;
@@ -365,105 +365,10 @@ const SERVICE_SPRITE: Record<ServiceCat, string> = { hospital: 'SER_city_hospita
 // общий эффект category/type-множителей и глобального множителя относительно raw.profit
 // кошелёк города (или всех городов): монеты, алмазы, вложенное в стейкинг; income — монет в час
 export interface Wallet { coins: number; crystals: number; stakedCoins: number; stakedCrystals: number; income: number }
-// ВРЕМЕННО: вариант вида для сравнения (?wv=A|B|C), после выбора остаётся один
-export const WALLET_V = (() => { try { return new URLSearchParams(location.search).get('wv') || 'A'; } catch { return 'A'; } })();
 const coinRow = (v: ReactNode) => <Box as="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>{v}</Box>;
-// А — своя карточка над доходом; Б — строка внутри карточки дохода; В — строки как «жители»
-// круглая подложка под значок монеты или алмаза
-function Coin({ kind, size = 36 }: { kind: 'coin' | 'crystal'; size?: number }) {
-  return (
-    <Box sx={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center', bg: kind === 'coin' ? 'attention.subtle' : 'accent.subtle',
-      boxShadow: theme => `inset 0 0 0 1px ${kind === 'coin' ? theme.colors.attention.muted : theme.colors.accent.muted}` }}>
-      {kind === 'coin' ? <CoinIcon size={Math.round(size * 0.55)} /> : <CrystalIcon size={Math.round(size * 0.55)} />}
-    </Box>
-  );
-}
-const big = { fontSize: 3, lineHeight: 1.1, fontWeight: 'semibold', ...num, ...ell } as const;
-function WalletVariant({ w, v }: { w: Wallet; v: string }) {
-  const staked = w.stakedCoins > 0 || w.stakedCrystals > 0;
-  const hours = w.income > 0 ? w.coins / w.income : 0;
-  if (v === '1') return (
-    // 1 · «Кошелёк»: одна карточка, две половины с крупными значками, разделитель, стейк внизу
-    <Box sx={{ borderRadius: '12px', bg: 'canvas.subtle', border: '1px solid', borderColor: 'border.muted', overflow: 'hidden' }}>
-      <Box sx={{ display: 'flex' }}>
-        {([['coin', fmtStat(w.coins), 'монеты'], ['crystal', fmtStat(w.crystals), 'алмазы']] as const).map(([k, val, lab], i) => (
-          <Box key={k} sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 2, p: 2, borderLeft: i ? '1px solid' : 0, borderColor: 'border.muted' }}>
-            <Coin kind={k} size={32} />
-            <Box sx={{ minWidth: 0 }}><Text as="div" sx={{ ...big, fontSize: 2 }}>{val}</Text><Text as="div" sx={{ ...muted, ...ell }}>{lab}</Text></Box>
-          </Box>
-        ))}
-      </Box>
-      {staked && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, borderTop: '1px solid', borderColor: 'border.muted', bg: 'canvas.default', ...muted, ...num }}>
-        <Octicon icon={LockIcon} size={12} /><Text sx={{ flex: 1 }}>в стейкинге</Text>
-        <CoinValue value={fmtStat(w.stakedCoins)} /><CrystalValue value={fmtStat(w.stakedCrystals)} />
-      </Box>}
-    </Box>
-  );
-  if (v === '2') return (
-    // 2 · две цветные карточки: золотая и синяя, значок в углу, стейк — меткой
-    <Box sx={{ display: 'flex', gap: 2 }}>
-      {([['coin', fmtStat(w.coins), 'монеты', w.stakedCoins > 0 ? fmtStat(w.stakedCoins) : '', 'attention'], ['crystal', fmtStat(w.crystals), 'алмазы', w.stakedCrystals > 0 ? fmtStat(w.stakedCrystals) : '', 'accent']] as const).map(([k, val, lab, st, tone]) => (
-        <Box key={k} sx={{ flex: 1, minWidth: 0, position: 'relative', p: 2, borderRadius: '12px', bg: `${tone}.subtle`, border: '1px solid', borderColor: `${tone}.muted`, overflow: 'hidden' }}>
-          <Box sx={{ position: 'absolute', right: '-6px', bottom: '-6px', opacity: 0.25 }}>{k === 'coin' ? <CoinIcon size={44} /> : <CrystalIcon size={44} />}</Box>
-          <Text as="div" sx={{ ...big, color: `${tone}.fg` }}>{val}</Text>
-          <Text as="div" sx={{ ...muted, ...ell }}>{lab}</Text>
-          {st && <Label size="small" sx={{ mt: 1, bg: 'canvas.default' }}><Octicon icon={LockIcon} size={10} sx={{ mr: 1 }} />{st}</Label>}
-        </Box>
-      ))}
-    </Box>
-  );
-  if (v === '3') return (
-    // 3 · главная цифра — монеты крупно, алмазы рядом; ниже полоса «на сколько часов дохода»
-    <Summary tone="attention">
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Coin kind="coin" size={40} />
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Text as="div" sx={{ fontSize: 4, lineHeight: 1.1, fontWeight: 'semibold', ...num, ...ell }}>{fmtStat(w.coins)}</Text>
-          <Text as="div" sx={{ ...muted }}>монет на счету</Text>
-        </Box>
-        <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-          <Text as="div" sx={{ fontWeight: 'semibold', ...num }}><CrystalValue value={fmtStat(w.crystals)} /></Text>
-          <Text as="div" sx={{ ...muted }}>алмазы</Text>
-        </Box>
-      </Box>
-      {hours > 0 && <SumLine left={hours < 1 ? 'меньше часа дохода' : `${fmtStat(hours)} ч дохода`} right={staked ? <>в стейке <CoinValue value={fmtStat(w.stakedCoins)} /></> : undefined} />}
-    </Summary>
-  );
-  if (v === '4') return (
-    // 4 · строки-кошелёк: значок, сумма, справа метка стейка; одна общая подложка
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px', borderRadius: '12px', overflow: 'hidden' }}>
-      {([['coin', fmtStat(w.coins), 'монеты', w.stakedCoins > 0 ? fmtStat(w.stakedCoins) : '', w.income > 0 ? `+${fmtStat(w.income)}/ч` : ''], ['crystal', fmtStat(w.crystals), 'алмазы', w.stakedCrystals > 0 ? fmtStat(w.stakedCrystals) : '', '']] as const).map(([k, val, lab, st, inc]) => (
-        <Box key={k} sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2, bg: 'canvas.subtle' }}>
-          <Coin kind={k} size={32} />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}><Text sx={{ fontSize: 2, fontWeight: 'semibold', ...num }}>{val}</Text>{inc && <Text sx={{ fontSize: 0, color: 'success.fg', ...num }}>{inc}</Text>}</Box>
-            <Text as="div" sx={{ ...muted }}>{lab}</Text>
-          </Box>
-          {st && <Label variant="secondary" sx={{ ...num }}><Octicon icon={LockIcon} size={12} sx={{ mr: 1 }} />{st}</Label>}
-        </Box>
-      ))}
-    </Box>
-  );
-  if (v === '5') return (
-    // 5 · компактная «касса»: подпись, две суммы в одну строку крупно, под ними стейк и запас в часах
-    <Box sx={{ p: 2, borderRadius: '12px', bg: 'canvas.subtle', border: '1px solid', borderColor: 'border.muted', display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text sx={{ fontSize: 0, fontWeight: 'semibold', color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Баланс</Text>
-        {hours > 0 && <Label size="small" variant={hours >= 24 ? 'success' : 'attention'}>{hours < 1 ? '< 1 ч' : `${fmtStat(hours)} ч дохода`}</Label>}
-      </Box>
-      <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}><CoinIcon size={22} /><Text sx={big}>{fmtStat(w.coins)}</Text></Box>
-        <Box sx={{ width: '1px', alignSelf: 'stretch', bg: 'border.muted' }} />
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}><CrystalIcon size={22} /><Text sx={big}>{fmtStat(w.crystals)}</Text></Box>
-      </Box>
-      {staked && <SumLine left={<><Octicon icon={LockIcon} size={12} /> в стейкинге</>} right={<>{coinRow(<CoinValue value={fmtStat(w.stakedCoins)} />)} · {coinRow(<CrystalValue value={fmtStat(w.stakedCrystals)} />)}</>} />}
-    </Box>
-  );
-  return null;
-}
+// карточка баланса над доходом: монеты и алмазы (сокращённо), ниже — вложенное в стейкинг
 export function WalletTop({ w }: { w?: Wallet }) {
-  if (w && ['1', '2', '3', '4', '5'].includes(WALLET_V)) return <WalletVariant w={w} v={WALLET_V} />;
-  if (!w || WALLET_V !== 'A') return null;
+  if (!w) return null;
   const staked = w.stakedCoins > 0 || w.stakedCrystals > 0;
   return (
     <Summary tone="neutral">
@@ -475,30 +380,6 @@ export function WalletTop({ w }: { w?: Wallet }) {
     </Summary>
   );
 }
-export function WalletInline({ w }: { w?: Wallet }) {
-  if (!w || WALLET_V !== 'B') return null;
-  return (
-    <Box sx={{ display: 'flex', gap: 2, p: 2, borderRadius: '8px', bg: 'canvas.default', alignItems: 'center', ...num }}>
-      <Text sx={{ ...muted, flex: 1 }}>баланс</Text>
-      <Text sx={{ fontWeight: 'semibold' }}><CoinValue value={fmtStat(w.coins)} /></Text>
-      <Text sx={{ fontWeight: 'semibold' }}><CrystalValue value={fmtStat(w.crystals)} /></Text>
-    </Box>
-  );
-}
-export function WalletRows({ w }: { w?: Wallet }) {
-  if (!w || WALLET_V !== 'C') return null;
-  const hours = w.income > 0 ? w.coins / w.income : 0;
-  return <>
-    <Row lead={<IconThumbImg><CoinIcon size={20} /></IconThumbImg>} title={fmtStat(w.coins)} sub={w.stakedCoins > 0 ? 'монеты · в стейке' : 'монеты'}
-      trail={w.stakedCoins > 0 ? <Val color="fg.muted">+{fmtStat(w.stakedCoins)}</Val> : hours ? <Val color="fg.muted">{hours < 1 ? '< 1 ч дохода' : `${fmtStat(hours)} ч дохода`}</Val> : undefined} />
-    <Row lead={<IconThumbImg><CrystalIcon size={20} /></IconThumbImg>} title={fmtStat(w.crystals)} sub={w.stakedCrystals > 0 ? 'алмазы · в стейке' : 'алмазы'}
-      trail={w.stakedCrystals > 0 ? <Val color="fg.muted">+{fmtStat(w.stakedCrystals)}</Val> : undefined} />
-  </>;
-}
-function IconThumbImg({ children }: { children: ReactNode }) {
-  return <Box sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{children}</Box>;
-}
-
 export function StatsPanel({ raw, s, projected, mods, wallet }: { raw: CityStats; s: CityStats; projected: CityStats; mods: CityStatsMods; wallet?: Wallet }) {
   const base = raw.profit * raw.happiness;
   const guild = mods.incomeBoost ?? 0;
@@ -538,9 +419,7 @@ export function StatsPanel({ raw, s, projected, mods, wallet }: { raw: CityStats
             </Box>
           ))}
         </Box>
-        <WalletInline w={wallet} />
       </Summary>
-      <WalletRows w={wallet} />
       {people.map(([ic, c, v, k, after]) => (
         <Row key={k} lead={<IconThumb icon={ic} color={c} />} title={v} sub={k}
           trail={after !== v ? <Val color="fg.muted">→ {after}</Val> : undefined} />
