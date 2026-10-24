@@ -37,18 +37,6 @@ function boardToTiles(board: number[][], nextId: { current: number }): TileState
   }
   return tiles;
 }
-// счёт по доске: в 2048 каждое слияние даёт очки, равные новой плитке, поэтому плитка v (из двоек)
-// принесла v·(log2 v − 1). В ответе игры score не рос по ходу партии (скрин пользователя 24.10.2026),
-// поэтому показываем счёт по доске (выше реального на 4 за каждую выпавшую сразу четвёрку), а ответ
-// игры — если он больше
-const fmtScore = (n: number) => Math.round(n).toLocaleString('ru-RU');
-
-function boardScore(board: number[][]): number {
-  let s = 0;
-  for (const row of board) for (const v of row) if (v >= 4) s += v * (Math.log2(v) - 1);
-  return s;
-}
-
 function tilesToBoard(tiles: TileState[]): number[][] {
   const b = Array.from({ length: 4 }, () => Array(4).fill(0));
   for (const t of tiles) if (!t.mergedInto) b[t.row][t.col] = t.value;
@@ -281,7 +269,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
               <Dialog.Title id={dialogLabelId} sx={{ fontSize: 1, lineHeight: 1.3 }}>{accountName}</Dialog.Title>
               {!loading && (
                 <Text as="div" sx={{ fontSize: 0, color: 'fg.muted', lineHeight: 1.35, mt: '2px' }}>
-                  Счёт <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{fmtScore(Math.max(score, boardScore(tilesToBoard(tiles))))}</Text>
+                  Счёт <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{score}</Text>
                   {solving && thinkMs != null && <> · ход бота <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{thinkMs} мс</Text></>}
                   {status !== 'ongoing' && <> · <Text sx={{ fontWeight: 'bold', color: status === 'won' ? 'success.fg' : 'danger.fg' }}>{status === 'won' ? 'Победа!' : 'Игра окончена'}</Text></>}
                 </Text>
