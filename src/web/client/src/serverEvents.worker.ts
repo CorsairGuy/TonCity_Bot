@@ -9,11 +9,13 @@ type Port = { postMessage(m: unknown): void; start(): void; onmessage: ((e: Mess
 const ports = new Set<Port>();
 const last = new Map<string, unknown>();
 let opened = false;
+// разовые события (свежие постройки города) — новой вкладке не повторяются
+const EVENT_ONLY = new Set(['city']);
 
 function open() {
   opened = true;
   connect((type, data) => {
-    last.set(type, data);
+    if (!EVENT_ONLY.has(type)) last.set(type, data);
     for (const p of ports) p.postMessage({ type, data });
   });
 }

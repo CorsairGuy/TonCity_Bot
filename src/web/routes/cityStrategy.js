@@ -351,6 +351,16 @@ module.exports=function(app,ctx){
     }catch(e){res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});}
   });
 
+  // общий лог всех городов (общая карта, вкладка «Лог» издалека)
+  app.get('/api/city-action-log',async(req,res)=>{
+    try{
+      const{CityActionLog}=require('../../db/index');
+      const limit=Math.min(500,Math.max(1,Number(req.query.limit)||300));
+      const rows=await CityActionLog.findAll({order:[['created_at','DESC']],limit});
+      res.json({ok:true,rows});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   // ── Лог действий по городу (вкладка "Лог") — запрос уже написан так, что без WHERE account он
   // станет общим логом всех аккаунтов разом (задел на будущее из плана).
   app.get('/api/city-strategy/:account/action-log',async(req,res)=>{

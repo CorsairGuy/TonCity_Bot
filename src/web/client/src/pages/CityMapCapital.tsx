@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
-import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon, XIcon } from '@primer/octicons-react';
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon } from '@primer/octicons-react';
 import { useNarrow } from '../hooks/useNarrow';
 import { api, type CapitalRow, type MapBuilding, type CapitalStrategyTarget, type CapitalStrategyQueueItem, type CapitalActionLogRow, type ForecastEvent, type GlobalUpgradeRule } from '../api';
 import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
@@ -12,7 +12,7 @@ import { useMapDayNight } from '../hooks/useMapDayNight';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
-import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, PlanPanel, PlanSaveButton, FooterButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, PlanPanel, PlanSaveButton, FooterButton, CancelButton, QueuePanel, PendingList, MovePanel, LogPanel, ForecastPanel, CapitalStatsPanel, Empty, CAPITAL_TOOLS, type PanelMode } from './cityMapPanels';
 
 // Здания столицы (config/capital_buildings.txt) — принципиально другая форма, чем городской
 // BuildingDef (api.ts): нет category/star_lvl/is_reconstructible и т.п., зато есть type
@@ -150,6 +150,9 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const [catalog, setCatalog] = useState<CapitalBuildingDef[]>([]);
   const [targets, setTargets] = useState<CapitalStrategyTarget[]>([]);
   const [manualQueue, setManualQueue] = useState<CapitalStrategyQueueItem[]>([]);
+  // сохранённые на сервере цели и очередь — к ним возвращает «Отменить»
+  const [savedTargets, setSavedTargets] = useState<CapitalStrategyTarget[]>([]);
+  const [savedManualQueue, setSavedManualQueue] = useState<CapitalStrategyQueueItem[]>([]);
   const [globalPlan, setGlobalPlan] = useState<GlobalUpgradeRule[]>([]);
   const [coordsSet, setCoordsSet] = useState<Set<string>>(new Set());
   const [actionLog, setActionLog] = useState<CapitalActionLogRow[]>([]);
@@ -190,7 +193,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     ], () => setDataDone(n => n + 1)).then(([c, b, t, co, gp]) => {
       if (c.ok) setRows(c.rows);
       if (b.ok) setCatalog(b.buildings);
-      if (t.ok) { setTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); }
+      if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setSavedManualQueue(t.queue ?? []); }
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
       if (gp.ok) setGlobalPlan(gp.plan);
     }).finally(() => setLoading(false));
@@ -304,7 +307,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     try {
       const r = await api.saveCapitalQueue(guildTitle, manualQueue);
       showFlash(r.ok ? 'Сохранено' : (r.error ?? 'Ошибка'), !!r.ok);
-      if (r.ok) refreshMap();
+      if (r.ok) { setSavedManualQueue(manualQueue); refreshMap(); }
     } catch (e) { showFlash(String(e), false); } finally { setBusy(false); }
   };
   const saveTargets = async () => {
@@ -313,7 +316,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
       const keep = targets.filter(t => !planRemoved.has(`${t.x},${t.y}`));
       const r = await api.saveCapitalStrategy(guildTitle, keep);
       showFlash(r.ok ? 'Сохранено' : (r.error ?? 'Ошибка'), !!r.ok);
-      if (r.ok) { setTargets(keep); setPlanRemoved(new Set()); refreshMap(); }
+      if (r.ok) { setTargets(keep); setSavedTargets(keep); setPlanRemoved(new Set()); refreshMap(); }
     } catch (e) { showFlash(String(e), false); } finally { setBusy(false); }
   };
 
@@ -340,7 +343,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     setProgress(null);
     showFlash(`Выполнено: ${ok}${fail ? `, ошибок: ${fail}` : ''}`, fail === 0);
     refreshMap();
-    api.capitalStrategy(guildTitle).then(t => { if (t.ok) setTargets(t.targets); });
+    api.capitalStrategy(guildTitle).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); } });
   };
 
   const manualQueuePrices = useMemo(() => manualQueue.map((q, i) => {
@@ -453,15 +456,22 @@ export function CityMapCapital({ account: guildTitle }: Props) {
   const [runLabel, runTone] = own && queue.every(a => a.kind === mode) ? own : ['Выполнить', 'primary' as const];
   const runFooter = queue.length > 0 && (
     <>
-      <IconButton icon={XIcon} aria-label="Очистить" disabled={executing} onClick={() => setQueue([])} />
       <FooterButton label={executing && progress ? `Выполняется ${progress.done} из ${progress.total}` : runLabel} tone={runTone}
         icon={CheckIcon} count={queue.length} busy={executing} onClick={runQueue} />
+      <CancelButton disabled={executing} onClick={() => setQueue([])} />
     </>
   );
+  const sameCells = (a: { x: number; y: number; target_level?: number }[], b: typeof a) => a.length === b.length && a.every((v, i) => v.x === b[i].x && v.y === b[i].y && v.target_level === b[i].target_level);
   const footer = mode === 'upgrade'
-    ? <PlanSaveButton count={targets.filter(t => !planRemoved.has(`${t.x},${t.y}`)).length} busy={busy} onClick={saveTargets} />
+    ? <>
+        <PlanSaveButton count={targets.filter(t => !planRemoved.has(`${t.x},${t.y}`)).length} busy={busy} onClick={saveTargets} />
+        <CancelButton disabled={busy || (planRemoved.size === 0 && sameCells(targets, savedTargets))} onClick={() => { setTargets(savedTargets); setPlanRemoved(new Set()); }} />
+      </>
     : mode === 'queue'
-      ? <FooterButton label="Сохранить" icon={CheckIcon} count={manualQueue.length} busy={busy} onClick={saveManualQueue} />
+      ? <>
+          <FooterButton label="Сохранить" icon={CheckIcon} count={manualQueue.length} busy={busy} onClick={saveManualQueue} />
+          <CancelButton disabled={busy || sameCells(manualQueue, savedManualQueue)} onClick={() => setManualQueue(savedManualQueue)} />
+        </>
       : runFooter || undefined;
   const headActions = mode === 'forecast'
     ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Пересчитать прогноз" disabled={forecastLoading} onClick={loadForecast} />
@@ -538,7 +548,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
         '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },
       }}>
         <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
-          count={mode === 'queue' ? manualQueue.length : undefined}>
+>
 
           {mode === 'view' && (
             <CapitalStatsPanel coins={row?.coins ?? 0} crystals={row?.crystals ?? 0}

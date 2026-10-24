@@ -15,6 +15,8 @@ function unsubscribe(account, res) {
 }
 
 function broadcast(account, buildings) {
+  // общая карта всех городов слушает общий поток событий панели, а не по соединению на город
+  try { require('../web/lib/panelEvents').emit('city', { account, buildings }); } catch (_) {}
   const set = subscribers.get(account);
   if (!set || !set.size) return;
   const data = `data: ${JSON.stringify({ buildings })}\n\n`;

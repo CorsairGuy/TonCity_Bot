@@ -4,7 +4,9 @@
 //   build       — какой процесс отвечает (commit, startedAt) и ход обновления (обновлятель занят,
 //                 этап, прогресс скачивания); новый startedAt после перезапуска = панель перезагружается;
 //   maintenance — техработы игры (utils/maintenance.js status());
-//   version     — каждая свежая проверка GitHub (utils/versionCheck.js events), её делает только бот.
+//   version     — каждая свежая проверка GitHub (utils/versionCheck.js events), её делает только бот;
+//   city        — свежий список построек одного города {account,buildings} для общей карты всех
+//                 городов (utils/cityLive.js). Это событие, а не состояние: новому подписчику не повторяется.
 // Браузер держит одно соединение на все вкладки (client/src/serverEvents.worker.ts), поэтому лимит
 // в 6 соединений на сайт не съедается. Состояние обновлятеля и техработ — локальные файл и флаг:
 // сверяем их раз в TICK_MS и только пока кто-то подключён, наружу ничего не запрашиваем.
@@ -33,6 +35,12 @@ function write(res,type,data){
 }
 function publish(type,data){
   last[type]=JSON.stringify(data);
+  for(const res of subs)write(res,type,data);
+}
+
+// разовое событие всем подключённым вкладкам (без запоминания для новых подписчиков)
+function emit(type,data){
+  if(!subs.size)return;
   for(const res of subs)write(res,type,data);
 }
 
@@ -86,4 +94,4 @@ function handler(req,res){
   });
 }
 
-module.exports={handler,hookVersion,STARTED};
+module.exports={handler,hookVersion,emit,STARTED};

@@ -39,6 +39,15 @@ async function loadPlans(account) {
   };
 }
 
+// ручные очереди всех городов разом (общая карта всех городов): {account: [{x,y}, ...]}
+async function loadAllQueues() {
+  const { CityUpgradeQueue } = db();
+  const rows = await CityUpgradeQueue.findAll({ order: [['account', 'ASC'], ['pos', 'ASC'], ['id', 'ASC']], raw: true });
+  const out = {};
+  for (const v of rows) (out[v.account] ||= []).push({ x: num(v.x), y: num(v.y) });
+  return out;
+}
+
 // ── сохранение списка целиком (панель присылает весь список) ────────────────────────────────
 // Не «удалить всё и вставить заново», а diff: неизменные клетки не трогаем вообще, поэтому
 // параллельная точечная правка (бот вычёркивает выполненную позицию) не конфликтует с сохранением.
@@ -207,6 +216,6 @@ async function migrateFromBlobs() {
 }
 
 module.exports = {
-  loadPlans, saveTargets, saveQueue, saveReconstruct,
+  loadPlans, loadAllQueues, saveTargets, saveQueue, saveReconstruct,
   removeReconstruct, removeQueue, removeTargets, moveCell, migrateFromBlobs, MARK,
 };

@@ -69,6 +69,29 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  // Общая карта всех городов: снимки построек, показатели из Account и ручные очереди одним
+  // запросом. Порядок городов — config.ui.cityOrder (ручное перетаскивание), остальные по доходу.
+  app.get('/api/city-world',async(req,res)=>{
+    try{
+      const{CitySnapshot,Account}=require('../../db/index');
+      const[snaps,accs,queues]=await Promise.all([
+        CitySnapshot.findAll({order:[['account','ASC']]}),
+        Account.findAll({attributes:['name','balance','profit','profit_final','population','population_final','happiness']}),
+        require('../../db/cityPlans').loadAllQueues(),
+      ]);
+      const byName=new Map(accs.map(a=>[a.name,a]));
+      const n=v=>{const x=Number(v);return isFinite(x)?x:0;};
+      const rows=snaps.filter(r=>byName.has(r.account)).map(r=>{
+        const a=byName.get(r.account);
+        return{account:r.account,buildings:r.buildings?JSON.parse(r.buildings):[],unlockedSections:r.unlocked_sections?JSON.parse(r.unlocked_sections):null,updated_at:r.updated_at,
+          balance:n(a.balance),profit:n(a.profit),profit_final:n(a.profit_final),population:n(a.population),population_final:n(a.population_final),happiness:n(a.happiness),
+          queue:queues[r.account]||[]};
+      });
+      const order=require('../../config').getConfig().ui?.cityOrder;
+      res.json({ok:true,rows,order:Array.isArray(order)?order:[]});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   app.get('/api/capital-snapshots',async(req,res)=>{
     try{
       const{CapitalSnapshot,GuildSnapshot,Account}=require('../../db/index');

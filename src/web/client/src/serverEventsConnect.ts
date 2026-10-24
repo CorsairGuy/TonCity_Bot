@@ -1,7 +1,7 @@
 // Подключение к потоку событий бота (GET /api/events) с переподключением. Сам EventSource
 // переподключается только после обрыва сети; ответ не-200 (401 до входа в панель, 502 от прокси,
 // пока бот перезапускается) закрывает его навсегда — тогда открываем заново с нарастающей паузой.
-const TYPES = ['build', 'maintenance', 'version'];
+const TYPES = ['build', 'maintenance', 'version', 'city'];
 
 export function connect(onEvent: (type: string, data: unknown) => void) {
   let delay = 2000;

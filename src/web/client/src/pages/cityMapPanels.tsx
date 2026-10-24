@@ -6,7 +6,7 @@ import { Box, Button, CounterLabel, IconButton, Octicon, ProgressBar, Spinner, T
 import { Tooltip } from '@primer/react/experimental';
 import {
   GraphIcon, GoalIcon, StackIcon, ClockIcon, PlusIcon, ArrowBothIcon, TrashIcon, IterationsIcon, StarIcon, ZapIcon, LogIcon,
-  QuestionIcon, SearchIcon, XIcon, DashIcon, ArrowRightIcon, ArrowUpIcon, ArrowDownIcon,
+  QuestionIcon, SearchIcon, XIcon, DashIcon, ArrowRightIcon, ArrowUpIcon,
   PlusCircleIcon, UnlockIcon, CheckIcon, PeopleIcon, SmileyIcon, CheckCircleFillIcon, RocketIcon,
 } from '@primer/octicons-react';
 import type { CityActionMode } from '../components/CityActionsCanvas';
@@ -116,14 +116,13 @@ export function MapBrushLevel({ value, onChange }: { value: number; onChange: (v
 
 // ── каркас сайдбара ─────────────────────────────────────────────────────────
 // gap — зазор между блоками содержимого: 8px, как отступы по бокам (Строительство — 16px)
-export function PanelShell({ mode, count, hint, actions, footer, gap = 2, children }: { mode: PanelMode; count?: number; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; gap?: number; children: ReactNode }) {
+export function PanelShell({ mode, title, hint, actions, footer, gap = 2, children }: { mode: PanelMode; title?: ReactNode; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; gap?: number; children: ReactNode }) {
   const [help, setHelp] = useState(false);
   const t = toolFor(mode);
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, bg: 'canvas.default' }}>
       <Box sx={{ height: 48, flexShrink: 0, pl: 3, pr: 2, display: 'flex', alignItems: 'center', gap: 2, borderBottom: '1px solid', borderColor: 'border.default' }}>
-        <Text sx={{ fontWeight: 'semibold', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</Text>
-        {count != null && count > 0 && <CounterLabel>{count}</CounterLabel>}
+        <Text sx={{ fontWeight: 'semibold', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title ?? t.title}</Text>
         {actions}
         <IconButton size="small" variant="invisible" icon={QuestionIcon} aria-label="Подсказка" aria-pressed={help} onClick={() => setHelp(h => !h)}
           sx={help ? { bg: 'accent.subtle', '& svg': { color: 'accent.fg' } } : undefined} />
@@ -137,7 +136,7 @@ export function PanelShell({ mode, count, hint, actions, footer, gap = 2, childr
           <Box sx={{ display: 'flex', flexDirection: 'column', gap, '& > *': { flexShrink: 0 }, '& .panel-caption': { pb: gap > 2 ? 2 : 0 } }}>{children}</Box>
         </Box>
       </Scrollable>
-      {footer && <Box sx={{ flexShrink: 0, p: 2, display: 'flex', alignItems: 'center', gap: 2, borderTop: '1px solid', borderColor: 'border.default' }}>{footer}</Box>}
+      {footer && <Box sx={{ flexShrink: 0, p: 2, display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid', borderColor: 'border.default' }}>{footer}</Box>}
     </Box>
   );
 }
@@ -146,11 +145,14 @@ const muted = { fontSize: 0, color: 'fg.muted' } as const;
 // вторая строка карточки: светлее серой подписи, но не белая (--fg-sub в global.css, своя для каждой темы)
 const sub2 = { fontSize: 0, color: 'var(--fg-sub)', lineHeight: '16px' } as const;
 const num = { fontVariantNumeric: 'tabular-nums' } as const;
+// строка обрезается до высоты заглавных — подпись встаёт ровно по центру между карточками
+const CAP_TRIM = { textBox: 'trim-both cap alphabetic' } as const;
+// подпись группы: 8px от краёв карточек слева и справа, число справа — без значков
 export function Caption({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
-    <Box className="panel-caption" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-      <Text sx={{ fontSize: 0, fontWeight: 'semibold', color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{children}</Text>
-      {right != null && <Text sx={muted}>{right}</Text>}
+    <Box className="panel-caption" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, px: 2, my: 1 }}>
+      <Text sx={{ fontSize: 0, lineHeight: 1, fontWeight: 'semibold', color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.04em', minWidth: 0, ...ell, ...CAP_TRIM }}>{children}</Text>
+      {right != null && <Text sx={{ ...muted, lineHeight: 1, flexShrink: 0, ...num, ...CAP_TRIM }}>{right}</Text>}
     </Box>
   );
 }
@@ -172,21 +174,21 @@ const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`;
 // Ритм 8 px: карточки со скруглением 12, белые плитки внутри цветной сводки — 8.
 // Заливки по состоянию — те же приглушённые цвета, что у шапок карточек «Плана».
 const FILL_DANGER = 'rgba(255,129,130,.4)';
-const FILL_ATTENTION = 'rgba(212,167,44,.4)';
+export const FILL_ATTENTION = 'rgba(212,167,44,.4)';
 const FILL_RENOVATE = 'rgba(171,125,248,.35)'; // здание отмечено к реновации
 const ell = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const;
 // градиент из сегментов [цвет, процент], как прогресс в шапке карточки здания
-function fillOf(parts: [string, number][]): string {
+export function fillOf(parts: [string, number][]): string {
   let at = 0; const stops: string[] = [];
   for (const [c, p] of parts) { const to = Math.min(100, at + Math.max(0, p)); stops.push(`${c} ${at}% ${to}%`); at = to; }
   stops.push(`transparent ${at}%`);
   return `linear-gradient(90deg, ${stops.join(', ')})`;
 }
 // цветная сводка сверху (зелёная у «Плана»): фон X.subtle, внутри белые плитки
-function Summary({ tone = 'success', children }: { tone?: string; children: ReactNode }) {
+export function Summary({ tone = 'success', children }: { tone?: string; children: ReactNode }) {
   return <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2, borderRadius: '12px', bg: `${tone}.subtle` }}>{children}</Box>;
 }
-function Tile({ value, label, color, size = 3 }: { value: ReactNode; label: ReactNode; color?: string; size?: number }) {
+export function Tile({ value, label, color, size = 3 }: { value: ReactNode; label: ReactNode; color?: string; size?: number }) {
   return (
     <Box sx={{ flex: 1, minWidth: 0, p: 2, borderRadius: '8px', bg: 'canvas.default' }}>
       <Text as="div" sx={{ fontSize: size, lineHeight: 1.1, fontWeight: 'semibold', color: color ?? 'fg.default', ...num, ...ell }}>{value}</Text>
@@ -194,7 +196,7 @@ function Tile({ value, label, color, size = 3 }: { value: ReactNode; label: Reac
     </Box>
   );
 }
-function SumLine({ left, right }: { left: ReactNode; right?: ReactNode }) {
+export function SumLine({ left, right }: { left: ReactNode; right?: ReactNode }) {
   return <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, ...muted, ...num }}><Text>{left}</Text>{right != null && <Text>{right}</Text>}</Box>;
 }
 // карточка-строка, как у здания в «Плане»: миниатюра 36px и две строки 20+16px — карточка 52px,
@@ -288,14 +290,11 @@ function Line({ lead, left, right, sx }: { lead?: ReactNode; left: ReactNode; ri
     </Box>
   );
 }
-function Dashed({ children, h = 48 }: { children: ReactNode; h?: number }) {
-  return <Box sx={{ minHeight: h, px: 3, borderRadius: '12px', border: '1px dashed', borderColor: 'border.default', display: 'grid', placeItems: 'center', textAlign: 'center', ...muted }}>{children}</Box>;
-}
 function IconThumb({ icon, color = 'fg.muted', size = 36 }: { icon: React.ElementType; color?: string; size?: number }) {
   return <Box sx={{ width: size, height: size, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0, color }}><Octicon icon={icon} /></Box>;
 }
 // миниатюра здания с бейджем (номер в очереди, значок типа в логе)
-function BadgeThumb({ id, badge, badgeBg = 'accent.emphasis', corner = 'tl', dim }: { id: string; badge: ReactNode; badgeBg?: string; corner?: 'tl' | 'br'; dim?: boolean }) {
+export function BadgeThumb({ id, badge, badgeBg = 'accent.emphasis', corner = 'tl', dim }: { id: string; badge: ReactNode; badgeBg?: string; corner?: 'tl' | 'br'; dim?: boolean }) {
   return (
     <Box sx={{ position: 'relative', flexShrink: 0 }}>
       <Thumb id={id} size={36} bg="canvas.default" dim={dim} />
@@ -328,6 +327,11 @@ export function FooterButton({ label, count, icon, tone = 'primary', busy, disab
       <Button variant="primary" block leadingVisual={icon} trailingVisual={count != null ? Count : undefined} loading={busy} disabled={disabled || busy} onClick={onClick} sx={sx}>{label}</Button>
     </Box>
   );
+}
+
+// красная «Отменить» под кнопкой подтверждения — одна на всех вкладках (зазор 8px даёт подвал сайдбара)
+export function CancelButton({ disabled, onClick }: { disabled?: boolean; onClick: () => void }) {
+  return <Button variant="danger" block disabled={disabled} onClick={onClick}>Отменить</Button>;
 }
 
 // ── Показатели: синяя сводка дохода, жители/счастье и сервисы карточками ───
@@ -426,11 +430,11 @@ function planSum(cells: PlanCell[]): PlanSum {
 }
 const pctOf = (n: number, of: number) => of ? n / of * 100 : 0;
 // заливка шапки здания и плашек клеток: те же цвета, что у полос, приглушённые
-const FILL_DONE = 'rgba(74,194,107,.4)';
-const FILL_WIP = 'rgba(84,174,255,.4)';
+export const FILL_DONE = 'rgba(74,194,107,.4)';
+export const FILL_WIP = 'rgba(84,174,255,.4)';
 const FILL_OFF = 'rgba(248,81,73,.4)'; // клетка помечена к удалению
 const DONE_FG = '#7ee787'; // «готово» в шапке поверх зелёной заливки — светлее success.fg
-function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
+export function PlanBar({ done, wip, span, size = 'small', bg }: { done: number; wip: number; span: number; size?: 'small' | 'default' | 'large'; bg?: string }) {
   return (
     <ProgressBar barSize={size} aria-label="Прогресс" sx={{ flex: '1 1 auto', minWidth: 0, ...(bg ? { bg } : null) }}>
       <ProgressBar.Item className="pb-fill" progress={pctOf(done, span)} sx={{ bg: 'success.emphasis' }} />
@@ -593,7 +597,6 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
           </Box>
         );
       })}
-      <Dashed>Кликните здание на карте, чтобы добавить</Dashed>
     </>
   );
 }
@@ -639,10 +642,8 @@ export function MovePanel({ from, moves, labelFor, disabled, onCancel, onRemove 
           <Row lead={from.id ? <Thumb id={from.id} size={36} bg="canvas.default" /> : <IconThumb icon={ArrowBothIcon} />} title={from.id ? labelFor(from.id) : '—'}
             sub={`откуда ${from.x},${from.y}${from.level ? ` · ур. ${from.level}` : ''}`} fill={fillOf([[FILL_WIP, 100]])}
             trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Отменить выбор" onClick={onCancel} />} />
-          <Box sx={{ display: 'grid', placeItems: 'center', color: 'fg.muted' }}><Octicon icon={ArrowDownIcon} /></Box>
-          <Dashed h={52}>Куда? Кликните пустую клетку</Dashed>
         </>
-      ) : <Dashed h={52}>Кликните здание, которое хотите переместить</Dashed>}
+      ) : null}
       {moves.length > 0 && <Caption right={`всего ${moves.length}`}>Ждут выполнения</Caption>}
       {moves.map(m => (
         <Row key={m.id} lead={m.sprite ? <Thumb id={m.sprite} size={36} bg="canvas.default" /> : <IconThumb icon={ArrowBothIcon} />} title={m.sprite ? labelFor(m.sprite) : 'Перемещение'}
@@ -678,7 +679,6 @@ export function DemolishPanel({ tiles, lossPerHour, popLoss, income, disabled, o
             <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Снять отметку" disabled={disabled} onClick={() => onRemove(t.id)} /></Box>
           </>} />
       ))}
-      <Dashed>Кликните или проведите кистью по зданиям</Dashed>
     </>
   );
 }
@@ -720,14 +720,13 @@ export function ReconstructPanel({ groups, components, disabled, onToggle }: { g
             trail={c.g.comp != null ? <ItemCard tag="component" count={c.g.comp} short={short} /> : undefined} />
         );
       })}
-      <Dashed>Кликните или проведите кистью по зданиям</Dashed>
     </>
   );
 }
 
 // ── Реновация: мастерпланы кубиками и плотный список с галочками ────────────
-export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabled }: {
-  masterplans: number; disabled: boolean; incomeGain: number;
+export function RenovatePanel({ masterplans, items, onToggle, disabled }: {
+  masterplans: number; disabled: boolean;
   items: { x: number; y: number; id: string; nextId: string; name: string; nextName: string; cost: number | null; marked: boolean }[];
   onToggle: (x: number, y: number) => void;
 }) {
@@ -757,10 +756,8 @@ export function RenovatePanel({ masterplans, items, incomeGain, onToggle, disabl
                 trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={short} />} />
             );
           }); })()}
-          <Dashed>Кликните по зданиям на карте</Dashed>
         </>
       )}
-      {incomeGain > 0 && <SumLine left="доход после реновации" right={<Text sx={{ color: 'success.fg' }}>+{fmt(incomeGain)}/ч</Text>} />}
     </>
   );
 }
@@ -787,8 +784,8 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
           sub={<>{`активен · ещё ${fmtTimeLeft(b.ends_at - Date.now())}`}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</>}
           trail={<Val mono color="attention.fg">{hhmm(b.ends_at)}</Val>} />
       ))}
-      <Caption right={queue.length ? `${queue.length}` : undefined}>Очередь</Caption>
-      {queue.length === 0 ? <Dashed>Пусто. Бот включает ускорители отсюда по порядку, как только освобождается слот.</Dashed> : queue.map((q, i) => (
+      {queue.length > 0 && <Caption right={queue.length}>Очередь</Caption>}
+      {queue.map((q, i) => (
         <Box key={`${q.name}:${i}`} draggable onDragStart={e => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => setDrag(null)}
           onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (drag != null && drag !== i) onReorder(drag, i); setDrag(null); }}
           sx={{ opacity: drag === i ? 0.5 : 1, cursor: 'grab' }}>
@@ -839,7 +836,9 @@ const LOG_TYPE: Record<string, [string, React.ElementType, string]> = {
 };
 // общее у лога города и столицы (у столицы guild_id вместо account)
 type LogRow = Pick<CityActionLogRow, 'id' | 'type' | 'building_id' | 'level_from' | 'level_to' | 'duration_ms' | 'created_at'>;
-export function LogPanel<R extends LogRow>({ rows, loading, label, labelFor }: { rows: R[]; loading: boolean; label: (r: R) => string; labelFor: (id: string) => string }) {
+// place — город строки на общей карте всех городов: встаёт в начало второй строки
+const withPlace = (place: string | undefined, sub: string) => place ? `${place} · ${sub}` : sub;
+export function LogPanel<R extends LogRow>({ rows, loading, label, labelFor, place }: { rows: R[]; loading: boolean; label: (r: R) => string; labelFor: (id: string) => string; place?: (r: R) => string | undefined }) {
   if (loading && rows.length === 0) return <Spinner size="small" />;
   if (rows.length === 0) return <Empty>Лог пуст</Empty>;
   return (
@@ -856,7 +855,7 @@ export function LogPanel<R extends LogRow>({ rows, loading, label, labelFor }: {
             return (
               <Row key={r.id} lead={sprite ? <BadgeThumb id={sprite} badge={<Octicon icon={ic} size={10} />} badgeBg={badge} corner="br" dim={r.type === 'demolish'} /> : <IconThumb icon={ic} color={badge.replace('emphasis', 'fg')} />}
                 title={isUp ? labelFor(sprite!) : kind} bg={r.type === 'demolish' ? 'danger.subtle' : 'canvas.subtle'}
-                sub={isUp ? `${r.level_from} → ${r.level_to}${r.duration_ms ? ` · ${fmtTimeLeft(r.duration_ms)}` : ''}` : (cut > 0 ? text.slice(cut + 2) : text)}
+                sub={withPlace(place?.(r), isUp ? `${r.level_from} → ${r.level_to}${r.duration_ms ? ` · ${fmtTimeLeft(r.duration_ms)}` : ''}` : (cut > 0 ? text.slice(cut + 2) : text))}
                 trail={<Time ms={new Date(r.created_at).getTime()} />} />
             );
           })}
@@ -866,7 +865,7 @@ export function LogPanel<R extends LogRow>({ rows, loading, label, labelFor }: {
   );
 }
 // стройка под ускорителем залита жёлтым и подписана множителем
-export function ForecastPanel({ events, loading, labelFor }: { events: ForecastEvent[]; loading: boolean; labelFor: (id: string) => string }) {
+export function ForecastPanel<E extends ForecastEvent>({ events, loading, labelFor, place }: { events: E[]; loading: boolean; labelFor: (id: string) => string; place?: (e: E) => string | undefined }) {
   if (loading) return <Spinner size="small" />;
   if (events.length === 0) return <Empty>Прогноз пуст: в ближайшие трое суток запускать нечего.</Empty>;
   return (
@@ -878,7 +877,7 @@ export function ForecastPanel({ events, loading, labelFor }: { events: ForecastE
             const boost = e.boost_multiplier != null && e.boost_multiplier > 1 ? e.boost_multiplier : null;
             return (
               <Row key={i} lead={<Thumb id={e.building_id} size={36} bg="canvas.default" />} title={labelFor(e.building_id)} fill={boost ? fillOf([[FILL_ATTENTION, 100]]) : undefined}
-                sub={`${e.level_from} → ${e.level_to} · ${fmtTimeLeft(e.duration_ms)}`}
+                sub={withPlace(place?.(e), `${e.level_from} → ${e.level_to} · ${fmtTimeLeft(e.duration_ms)}`)}
                 trail={<Time ms={e.start} title={boost ? `${e.boost_name ?? 'ускоритель'} ×${boost}` : undefined} />} />
             );
           })}
