@@ -143,8 +143,9 @@ module.exports=function(app,ctx){
   // (targets/queue/reconstructPlan), поэтому фронтенд не менялся.
   app.get('/api/city-strategy/:account',async(req,res)=>{
     try{
-      const plans=await require('../../db/cityPlans').loadPlans(req.params.account);
-      res.json({ok:true,...plans});
+      const mod=require('../../db/cityPlans');
+      const[plans,builds]=await Promise.all([mod.loadPlans(req.params.account),mod.loadBuildPlans(req.params.account)]);
+      res.json({ok:true,...plans,buildPlan:builds[req.params.account]||[]});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 

@@ -66,6 +66,13 @@ const MAX_RING_CHUNKS_PER_FRAME = 1;
 const ZOOM_SETTLE_MS = 180;
 // фон карты: куски непрозрачные (alpha:false) — композитору не нужно смешивать их с подложкой
 const MAP_BG = '#d8d8d8';
+// упрощение на дальнем зуме (ширина клетки на экране, device-px): мельче BADGE_PX — без бейджей
+// уровней, пятен света фонарей и отсвета окон; мельче COARSE_PX — каждый город одной готовой картинкой
+// (карта всех городов, см. Props.world)
+const BADGE_PX = 34;
+const COARSE_PX = 16;
+// разрешение картинки города: ширина клетки в ней, device-px
+const COARSE_TILE = 22;
 
 function deviceDpr(): number {
   return Math.min(3, Math.max(1, window.devicePixelRatio || 1));
@@ -83,9 +90,20 @@ function getDpr(): number {
 const TALL_TILE_H = 445;
 // сила отсвета горящих окон на площадку под зданием
 const SPILL = 1.4;
-interface DrawItem { x0: number; y0: number; x1: number; y1: number; z?: 0 | 1 | 2; draw: (ctx: CanvasRenderingContext2D, r: number) => void }
+// c — номер города на карте всех городов (для его картинки на дальнем зуме)
+interface DrawItem { x0: number; y0: number; x1: number; y1: number; z?: 0 | 1 | 2; c?: number; draw: (ctx: CanvasRenderingContext2D, r: number) => void }
 // кусок — свой <canvas> в DOM-контейнере своего масштаба
 interface Chunk { el: HTMLCanvasElement; ver: number }
+// карта всех городов: сетка, дороги и закрытые секции уже в общих координатах
+export interface WorldLayout {
+  coordsList: { x: number; y: number }[]; roadMap: Record<string, { asset: string; big?: boolean }>; lockedCells: Map<string, string>;
+  cityAt: (gx: number, gy: number) => number;
+  regions: { gx: number; gy: number; span: number }[];   // квадрат каждого города в сетке, по номеру города
+}
+export interface MapCamera { gx: number; gy: number; tile: number; key: number; animate?: boolean }
+export interface MapView { cx: number; cy: number; tile: number; W: number; H: number }
+export interface CellFill { key: string; fill: string; stroke?: string }
+export interface RegionFill { gx: number; gy: number; span: number; fill: string }
 
 // мягкие пятна света ночью: на земле под фонарём и плафон фонаря
 const glows: Record<string, HTMLCanvasElement> = {};
@@ -237,6 +255,15 @@ interface Props {
   dayNight?: DayNightMode;
   // зум наружу дальше самого мелкого масштаба — уход на общую карту всех городов (pages/CityWorld.tsx)
   onZoomOut?: () => void;
+  // ── карта всех городов (pages/CityWorld.tsx): все входы — в общих координатах сетки ──
+  world?: WorldLayout;
+  minScale?: number;
+  camera?: MapCamera | null;            // поставить клетку в центр экрана с шириной клетки tile (новый key — новый наезд)
+  onView?: (v: MapView) => void;        // центр экрана в клетках сетки и ширина клетки, после каждого сдвига
+  fills?: CellFill[];                   // заливка клеток поверх карты
+  regions?: RegionFill[];               // заливка квадратов span×span клеток (город целиком)
+  onTap?: (gx: number, gy: number) => void;   // клик, который не стал действием (Просмотр и клетки вне validSet)
+  onHoverCell?: (gx: number | null, gy: number | null) => void;
 }
 
 // сколько карта ждёт ночной набор спрайтов, прежде чем рисовать без него
@@ -272,14 +299,20 @@ function MapLoadOverlay({ tick, runKey }: { tick: () => LoadState | null; runKey
   );
 }
 
-export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut }: Props) {
+export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut, world, minScale, camera, onView, fills, regions, onTap, onHoverCell }: Props) {
   const onZoomOutRef = useRef(onZoomOut);
   onZoomOutRef.current = onZoomOut;
+  const cb = useRef({ onView, onTap, onHoverCell });
+  cb.current = { onView, onTap, onHoverCell };
+  const MIN = minScale ?? MIN_SCALE;
+  const minRef = useRef(MIN);
+  minRef.current = MIN;
   // "x_y" клетки закрытой секции → id секции — только город, только пока секция не в unlockedSections
   const lockedCells = useMemo(() => {
     const m = new Map<string, string>();
     // unlockedSections не передали (снимок ещё без этих данных) — замков не рисуем вовсе,
     // иначе весь город выглядит запертым
+    if (world) return world.lockedCells;
     if (type !== 'city' || !sections?.length || !unlockedSections) return m;
     const unlocked = new Set(unlockedSections);
     for (const sec of sections) {
@@ -287,7 +320,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       for (const c of sec.coordinates) m.set(`${c.x}_${c.y}`, sec.id);
     }
     return m;
-  }, [type, sections, unlockedSections]);
+  }, [type, sections, unlockedSections, world]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -312,6 +345,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     world: { x0: 0, y0: 0, x1: 0, y1: 0 },
     ver: 1,
     nextEndMs: Infinity,
+    // здания, которые сейчас строятся (живой слой рисует только их — не перебирать все здания карты в кадре)
+    underway: [] as MapBuilding[],
     layerR: 0,
     chunks: new Map<string, Chunk>(),
     // контейнеры кусков по масштабу: текущий (layerR) и, пока он не дорисован, прежний
@@ -391,6 +426,24 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     loadPct: 0,
     spriteMapState: (spriteMapCache ? 'ready' : 'loading') as 'loading' | 'ready' | 'failed',
     wantKeys: [] as { id: string; tw: number; url: string }[],
+    // карта всех городов
+    cityAt: null as ((gx: number, gy: number) => number) | null,
+    regions: [] as { gx: number; gy: number; span: number }[],
+    cityParts: [] as any[],
+    fullList: true,
+    underForest: new Set<string>(),
+    underForestFor: null as unknown,
+    underForestNight: false,
+    cityBox: new Map<number, { x0: number; y0: number; x1: number; y1: number }>(),
+    coarseImg: new Map<number, { el: HTMLCanvasElement; ver: number }>(),
+    coarseDirty: new Set<number>(),
+    camKey: -1,
+    anim: null as { from: { cx: number; cy: number; tile: number }; to: { cx: number; cy: number; tile: number }; t0: number } | null,
+    lastView: '',
+    lastCenter: null as { cx: number; cy: number; tile: number } | null,
+    fillPaths: [] as { fill: string; stroke?: string; path: Path2D }[],
+    regionPaths: [] as { fill: string; path: Path2D }[],
+    hoverGx: null as number | null, hoverGy: null as number | null,
   });
   state.current.mode = mode;
   state.current.validSet = validSet;
@@ -408,6 +461,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   // s.bmap, уже реф) обновлялся верно. Тот же паттерн уже эталонно применён в MapEditor.tsx, где
   // здания вообще хранятся только в реф-поле, а не как проп.
   state.current.blist = buildings;
+  state.current.cityAt = world?.cityAt ?? null;
+  state.current.regions = world?.regions ?? [];
+  const camRef = useRef(camera);
+  camRef.current = camera;
   state.current.type = type;
   // другая карта — снова ждём её полной загрузки под лоадером
   const loadKey = `${type}:${mapKey}`;
@@ -467,9 +524,26 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // без этого центр съезжал влево на TW/2, из-за чего слева и справа было по-разному пусто
     const totalW = (s.cols + s.rows - 2) * TW / 2 + TW;
     const totalH = (s.cols + s.rows - 2) * TH / 2 + TH;
-    s.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min(W / totalW, H / totalH) * 0.88));
+    s.scale = Math.max(minRef.current, Math.min(MAX_SCALE, Math.min(W / totalW, H / totalH) * 0.88));
     s.ox = W / 2 - totalW / 2 * s.scale;
     s.oy = H / 2 - totalH / 2 * s.scale;
+  }
+
+  // центр экрана в клетках сетки (дробных) и ширина клетки на экране
+  function viewCenter(W: number, H: number) {
+    const s = state.current;
+    const wx = (W / 2 - s.ox) / s.scale, wy = (H / 2 - s.oy) / s.scale;
+    const a = (wx - TW / 2) * 2 / TW - (s.rows - 1), b = (wy - TH / 2) * 2 / TH;
+    return { cx: s.x0 + (a + b) / 2, cy: s.y0 + (b - a) / 2, tile: TW * s.scale };
+  }
+  // поставить клетку (cx,cy) сетки в центр экрана с шириной клетки tile
+  function lookAt(cx: number, cy: number, tile: number, W: number, H: number) {
+    const s = state.current;
+    s.scale = Math.max(minRef.current, Math.min(MAX_SCALE, tile / TW));
+    const col = cx - s.x0, row = cy - s.y0;
+    const X = (col - row + (s.rows - 1)) * TW / 2 + TW / 2, Y = (col + row) * TH / 2 + TH / 2;
+    s.ox = W / 2 - X * s.scale;
+    s.oy = H / 2 - Y * s.scale;
   }
 
   function clampPan() {
@@ -510,144 +584,228 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   // draw-list неподвижного слоя: те же три вида клеток и тот же порядок художника (по диагоналям),
   // что раньше рисовались прямо в кадре. У каждого элемента — мировой bbox, по нему кусок берёт
   // только пересекающиеся с ним клетки.
+  // одна часть draw-list: весь город или вся карта. Карта всех городов собирает список по городам и
+  // пересобирает только изменившиеся (клик в одном городе не трогает остальные шестьдесят)
+  interface Part {
+    sig: string; items: DrawItem[]; want: [string, number][]; itemBox: Map<string, { x0: number; y0: number; x1: number; y1: number }>;
+    lampGlows: { x: number; y: number }[]; spill: { x: number; y: number; key: string }[]; roadCells: { x: number; y: number }[]; nextEnd: number;
+    box: { x0: number; y0: number; x1: number; y1: number } | null;
+  }
+  const newPart = (sig: string): Part => ({ sig, items: [], want: [], itemBox: new Map(), lampGlows: [], spill: [], roadCells: [], nextEnd: Infinity, box: null });
+
   function buildDrawList() {
     const s = state.current;
-    const items: DrawItem[] = [];
-    const want: [string, number][] = [];
     const nowMs = Date.now();
-    let nextEnd = Infinity;
-    s.itemBox = new Map();
-    s.lampGlows = [];
-    s.spill = [];
-    s.roadCells = [];
     // клетки под большими деревьями леса — фонарей там нет. Спрайт 2×2 стоит низом на клетке x+1,y
     // (см. env.big ниже), то есть занимает x..x+1 и y-1..y; дорога рядом с лесом сюда не попадает
-    const underForest = new Set<string>();
-    if (s.nightOn) for (const [k, v] of Object.entries(s.roadMap)) {
-      if (!v.big) continue;
-      const i = k.indexOf('_'), x = +k.slice(0, i), y = +k.slice(i + 1);
-      for (const [ax, ay] of [[0, 0], [1, 0], [0, -1], [1, -1]]) underForest.add(`${x + ax}_${y + ay}`);
+    if (s.underForestFor !== s.roadMap || s.underForestNight !== s.nightOn) {
+      s.underForestFor = s.roadMap; s.underForestNight = s.nightOn;
+      s.underForest = new Set<string>();
+      if (s.nightOn) for (const [k, v] of Object.entries(s.roadMap)) {
+        if (!v.big) continue;
+        const i = k.indexOf('_'), x = +k.slice(0, i), y = +k.slice(i + 1);
+        for (const [ax, ay] of [[0, 0], [1, 0], [0, -1], [1, -1]]) s.underForest.add(`${x + ax}_${y + ay}`);
+      }
     }
-    for (let d = 0; d <= (s.cols - 1) + (s.rows - 1); d++) {
-      for (let col = 0; col <= d; col++) {
-        const row = d - col;
-        if (col >= s.cols || row >= s.rows) continue;
-        const gx = s.x0 + col, gy = s.y0 + row;
-        const { x: sx, y: sy } = isoToScreen(col, row);
-        const b = s.bmap[`${gx}_${gy}`];
-        const valid = s.coords.size === 0 || s.coords.has(`${gx}_${gy}`);
-        const lockedSectionId = s.lockedCells.get(`${gx}_${gy}`);
-        if (lockedSectionId) {
-          // закрытая секция — тёмный тайл с замком вместо обычной травы/построек (там их и не может
-          // быть, пока секция не открыта); клик по клетке ловится отдельно, см. onMouseUp/onTouchEnd
-          items.push({ x0: sx, y0: sy, x1: sx + TW, y1: sy + TH, z: 0, draw: ctx => drawTile(ctx, sx, sy, 'rgba(8,8,12,.62)', 'rgba(255,255,255,.15)', '🔒') });
-        } else if (b) {
-          const cat = buildingCat(b.id);
-          const cc = MAP_CAT_COLORS[cat] || { fill: 'rgba(100,100,100,.3)', stroke: 'rgba(150,150,150,.6)' };
-          // здание в процессе стройки/улучшения — игра подменяет тайл на один из общих спрайтов
-          // стройки (не рисует своё готовое здание), см. constructionSpriteId — сверено с бандлом
-          const endMs = b.end ? new Date(b.end).getTime() : 0;
-          const underConstruction = endMs > nowMs;
-          if (underConstruction && endMs < nextEnd) nextEnd = endMs;
-          const spriteId = underConstruction ? constructionSpriteId(b.id, s.type) : b.id;
-          const sp = s.spriteMap[spriteId];
-          // в режимах "Реконструкция"/"Реновация"/"Улучшение"/"План" прячем (сильно затемняем) здания,
-          // к которым действие неприменимо — так на карте видны только реально подходящие кандидаты,
-          // не нужно самому вычислять required_lvl/is_reconstructible/занятость стройкой на глаз
-          const hideAsInapplicable = DIM_INAPPLICABLE_MODES.has(s.mode) && !s.validSet.has(`${gx}_${gy}`);
-          const RS = 1.025, dw = TW * RS;
-          const dh = sp ? sp.frame.h * TW / 753 * RS : TH;
-          const dx = sx - (dw - TW) / 2, dy = sy + TH - dh;
-          want.push([spriteId, dw]);
-          const key = `${gx}_${gy}`;
-          const box = { x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: sy + TH };
-          if (!underConstruction) s.itemBox.set(key, box);
-          // ночью площадка вырезана из спрайта здания (см. padMask в mapNight.ts): под здание кладётся
-          // пустая клетка-мостовая, и свет фонарей и окон ложится на неё так же, как на дорогу
-          const empSp = s.spriteMap['empty.png'];
-          if (ROAD_LIGHTS && s.nightOn && s.type === 'city' && empSp) {
-            const gh = empSp.frame.h * TW / 753 * RS, gy = sy + TH - gh;
-            want.push(['empty.png', dw]);
-            items.push({ x0: dx, y0: gy, x1: dx + dw, y1: gy + gh, z: 0, draw: (ctx, r) => { drawSprite(ctx, 'empty.png', dw, r, dx, gy, dw, gh); } });
-            s.roadCells.push({ x: sx, y: sy });
-            if (!underConstruction) s.spill.push({ x: sx + TW / 2, y: sy + TH * 0.72, key });
-          }
-          items.push({ ...box, draw: (ctx, r) => {
-            if (hideAsInapplicable) ctx.globalAlpha = 0.12;
-            const ok = drawSprite(ctx, spriteId, dw, r, dx, dy, dw, dh);
-            if (!ok) drawTile(ctx, sx, sy, cc.fill, cc.stroke, buildingLabel(b.id));
-            if (hideAsInapplicable) ctx.globalAlpha = 1;
-            // ночью — горящие окна и подсветка поверх перекрашенного спрайта
-            else if (ok && s.ph && !underConstruction) drawBuildingLights(ctx, s.ph, spriteId, s.lit.get(key) ?? 0, spriteTargetW(dw), r, dx, dy, dw, dh);
-          } });
-        } else if (valid) {
-          const empSp = s.spriteMap['empty.png'];
-          const RS = 1.025, dw = TW * RS;
-          const dh0 = empSp ? empSp.frame.h * TW / 753 : TH, dh = dh0 * RS;
-          const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
+    const underForest = s.underForest;
+    const emit = (P: Part, col: number, row: number, c?: number) => {
+      const items = P.items, want = P.want, first = items.length;
+      const gx = s.x0 + col, gy = s.y0 + row;
+      const { x: sx, y: sy } = isoToScreen(col, row);
+      const b = s.bmap[`${gx}_${gy}`];
+      const valid = s.coords.size === 0 || s.coords.has(`${gx}_${gy}`);
+      const lockedSectionId = s.lockedCells.get(`${gx}_${gy}`);
+      if (lockedSectionId) {
+        // закрытая секция — тёмный тайл с замком вместо обычной травы/построек (там их и не может
+        // быть, пока секция не открыта); клик по клетке ловится отдельно, см. onMouseUp/onTouchEnd
+        items.push({ x0: sx, y0: sy, x1: sx + TW, y1: sy + TH, z: 0, draw: ctx => drawTile(ctx, sx, sy, 'rgba(8,8,12,.62)', 'rgba(255,255,255,.15)', '🔒') });
+      } else if (b) {
+        const cat = buildingCat(b.id);
+        const cc = MAP_CAT_COLORS[cat] || { fill: 'rgba(100,100,100,.3)', stroke: 'rgba(150,150,150,.6)' };
+        // здание в процессе стройки/улучшения — игра подменяет тайл на один из общих спрайтов
+        // стройки (не рисует своё готовое здание), см. constructionSpriteId — сверено с бандлом
+        const endMs = b.end ? new Date(b.end).getTime() : 0;
+        const underConstruction = endMs > nowMs;
+        if (underConstruction && endMs < P.nextEnd) P.nextEnd = endMs;
+        const spriteId = underConstruction ? constructionSpriteId(b.id, s.type) : b.id;
+        const sp = s.spriteMap[spriteId];
+        // в режимах "Реконструкция"/"Реновация"/"Улучшение"/"План" прячем (сильно затемняем) здания,
+        // к которым действие неприменимо — так на карте видны только реально подходящие кандидаты,
+        // не нужно самому вычислять required_lvl/is_reconstructible/занятость стройкой на глаз
+        const hideAsInapplicable = DIM_INAPPLICABLE_MODES.has(s.mode) && !s.validSet.has(`${gx}_${gy}`);
+        const RS = 1.025, dw = TW * RS;
+        const dh = sp ? sp.frame.h * TW / 753 * RS : TH;
+        const dx = sx - (dw - TW) / 2, dy = sy + TH - dh;
+        want.push([spriteId, dw]);
+        const key = `${gx}_${gy}`;
+        const box = { x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: sy + TH };
+        if (!underConstruction) P.itemBox.set(key, box);
+        // ночью площадка вырезана из спрайта здания (см. padMask в mapNight.ts): под здание кладётся
+        // пустая клетка-мостовая, и свет фонарей и окон ложится на неё так же, как на дорогу
+        const empSp = s.spriteMap['empty.png'];
+        if (ROAD_LIGHTS && s.nightOn && s.type === 'city' && empSp) {
+          const gh = empSp.frame.h * TW / 753 * RS, gy = sy + TH - gh;
           want.push(['empty.png', dw]);
-          if (s.nightOn) s.roadCells.push({ x: sx, y: sy });
-          items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: Math.max(sy + TH, dy + dh), z: 0, draw: (ctx, r) => {
-            if (!drawSprite(ctx, 'empty.png', dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.18)');
-          } });
-        } else {
-          const env = s.roadMap[`${gx}_${gy}`] || null;
-          const envSp = env ? s.spriteMap[env.asset] : null;
-          if (env && envSp) {
-            const f = envSp.frame;
-            if (env.big) {
-              const dw = Math.round(TW * 2), dh = Math.round(f.h * TW / 753 * 2);
-              const dx = Math.round(sx), dy = Math.round(sy + 3 * TH / 2 - dh);
-              want.push([env.asset, dw]);
-              items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
-            } else {
-              const RS = 1.05, dh0 = f.h * TW / 753;
-              const dw = TW * RS, dh = dh0 * RS;
-              const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
-              want.push([env.asset, dw]);
-              items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, z: 0, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
-              // клетка дороги — свет фонарей ложится только на такие клетки (асфальт и тротуары)
-              if (s.nightOn) s.roadCells.push({ x: sx, y: sy });
-              // ночью плоские тайлы рисуются нижним проходом раньше зданий, а деревья у дороги торчат над
-              // клеткой: здание сзади их перекрыло бы. Часть выше верхних кромок клетки рисуется ещё раз
-              // вместе со зданиями, в порядке художника, как днём
-              if (s.nightOn && f.h > TALL_TILE_H) items.push({ x0: dx, y0: dy, x1: dx + dw, y1: sy + TH / 2, draw: (ctx, r) => {
-                ctx.save();
-                ctx.beginPath();
-                ctx.moveTo(dx, dy); ctx.lineTo(dx + dw, dy); ctx.lineTo(dx + dw, sy + TH / 2); ctx.lineTo(sx + TW, sy + TH / 2);
-                ctx.lineTo(sx + TW / 2, sy); ctx.lineTo(sx, sy + TH / 2); ctx.lineTo(dx, sy + TH / 2); ctx.closePath();
-                ctx.clip();
-                drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh);
-                ctx.restore();
-              } });
-              // фонари на тротуарах вдоль бордюра
-              if (ROAD_LIGHTS && s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly]) => {
-                const x = dx + lx * dw, y = dy + ly * dh;
-                s.lampGlows.push({ x, y });
-                items.push({ x0: x - TW * 0.5, y0: y - TH * 1.2, x1: x + TW * 0.5, y1: y + TH * 0.6, draw: ctx => drawLampPost(ctx, x, y) });
-              });
-            }
+          items.push({ x0: dx, y0: gy, x1: dx + dw, y1: gy + gh, z: 0, draw: (ctx, r) => { drawSprite(ctx, 'empty.png', dw, r, dx, gy, dw, gh); } });
+          P.roadCells.push({ x: sx, y: sy });
+          if (!underConstruction) P.spill.push({ x: sx + TW / 2, y: sy + TH * 0.72, key });
+        }
+        items.push({ ...box, draw: (ctx, r) => {
+          if (hideAsInapplicable) ctx.globalAlpha = 0.12;
+          const ok = drawSprite(ctx, spriteId, dw, r, dx, dy, dw, dh);
+          if (!ok) drawTile(ctx, sx, sy, cc.fill, cc.stroke, buildingLabel(b.id));
+          if (hideAsInapplicable) ctx.globalAlpha = 1;
+          // ночью — горящие окна и подсветка поверх перекрашенного спрайта
+          else if (ok && s.ph && !underConstruction) drawBuildingLights(ctx, s.ph, spriteId, s.lit.get(key) ?? 0, spriteTargetW(dw), r, dx, dy, dw, dh);
+        } });
+      } else if (valid) {
+        const empSp = s.spriteMap['empty.png'];
+        const RS = 1.025, dw = TW * RS;
+        const dh0 = empSp ? empSp.frame.h * TW / 753 : TH, dh = dh0 * RS;
+        const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
+        want.push(['empty.png', dw]);
+        if (s.nightOn) P.roadCells.push({ x: sx, y: sy });
+        items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: Math.max(sy + TH, dy + dh), z: 0, draw: (ctx, r) => {
+          if (!drawSprite(ctx, 'empty.png', dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.18)');
+        } });
+      } else {
+        const env = s.roadMap[`${gx}_${gy}`] || null;
+        const envSp = env ? s.spriteMap[env.asset] : null;
+        if (env && envSp) {
+          const f = envSp.frame;
+          if (env.big) {
+            const dw = Math.round(TW * 2), dh = Math.round(f.h * TW / 753 * 2);
+            const dx = Math.round(sx), dy = Math.round(sy + 3 * TH / 2 - dh);
+            want.push([env.asset, dw]);
+            items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
+          } else {
+            const RS = 1.05, dh0 = f.h * TW / 753;
+            const dw = TW * RS, dh = dh0 * RS;
+            const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
+            want.push([env.asset, dw]);
+            items.push({ x0: dx, y0: dy, x1: dx + dw, y1: dy + dh, z: 0, draw: (ctx, r) => { drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh); } });
+            // клетка дороги — свет фонарей ложится только на такие клетки (асфальт и тротуары)
+            if (s.nightOn) P.roadCells.push({ x: sx, y: sy });
+            // ночью плоские тайлы рисуются нижним проходом раньше зданий, а деревья у дороги торчат над
+            // клеткой: здание сзади их перекрыло бы. Часть выше верхних кромок клетки рисуется ещё раз
+            // вместе со зданиями, в порядке художника, как днём
+            if (s.nightOn && f.h > TALL_TILE_H) items.push({ x0: dx, y0: dy, x1: dx + dw, y1: sy + TH / 2, draw: (ctx, r) => {
+              ctx.save();
+              ctx.beginPath();
+              ctx.moveTo(dx, dy); ctx.lineTo(dx + dw, dy); ctx.lineTo(dx + dw, sy + TH / 2); ctx.lineTo(sx + TW, sy + TH / 2);
+              ctx.lineTo(sx + TW / 2, sy); ctx.lineTo(sx, sy + TH / 2); ctx.lineTo(dx, sy + TH / 2); ctx.closePath();
+              ctx.clip();
+              drawSprite(ctx, env.asset, dw, r, dx, dy, dw, dh);
+              ctx.restore();
+            } });
+            // фонари на тротуарах вдоль бордюра
+            if (ROAD_LIGHTS && s.nightOn && !underForest.has(`${gx}_${gy}`)) lampsOf(env.asset).forEach(([lx, ly]) => {
+              const x = dx + lx * dw, y = dy + ly * dh;
+              P.lampGlows.push({ x, y });
+              items.push({ x0: x - TW * 0.5, y0: y - TH * 1.2, x1: x + TW * 0.5, y1: y + TH * 0.6, draw: ctx => drawLampPost(ctx, x, y) });
+            });
           }
         }
       }
-    }
+      if (c != null) for (let i = first; i < items.length; i++) items[i].c = c;
+    };
     // бейджи уровней — тоже неподвижный слой, поверх всех зданий (после них в порядке художника).
     // Бейдж стройки с живым прогрессом рисуется в живом слое, см. redraw
     const fsz = Math.max(8, Math.round(TW * 0.13));
     const mctx = probeCtx();
     mctx.font = `bold ${fsz}px sans-serif`;
-    for (const b of s.blist) {
-      const col = b.x - s.x0, row = b.y - s.y0;
-      if (col < 0 || col >= s.cols || row < 0 || row >= s.rows) continue;
-      if (DIM_INAPPLICABLE_MODES.has(s.mode) && !s.validSet.has(`${b.x}_${b.y}`)) continue;
-      const endMs = b.end ? new Date(b.end).getTime() : 0;
-      if (endMs > nowMs) continue;
-      const label = s.labels.get(`${b.x}_${b.y}`);
-      if (!label) continue;
-      const { x: sx, y: sy } = isoToScreen(col, row);
-      const bx = sx + TW / 2, by = sy + TH / 2;
-      const hw = Math.max(mctx.measureText(label).width + 8, fsz + 6) / 2 + 8, hh = (fsz + 5) / 2 + 8; // +8 — тень
-      items.push({ x0: bx - hw, y0: by - hh, x1: bx + hw, y1: by + hh, z: 2, draw: ctx => drawLevelBadge(ctx, bx, by, label, fsz) });
+    const badgesOf = (P: Part, list: MapBuilding[], c?: number) => {
+      for (const b of list) {
+        const col = b.x - s.x0, row = b.y - s.y0;
+        if (col < 0 || col >= s.cols || row < 0 || row >= s.rows) continue;
+        if (DIM_INAPPLICABLE_MODES.has(s.mode) && !s.validSet.has(`${b.x}_${b.y}`)) continue;
+        const endMs = b.end ? new Date(b.end).getTime() : 0;
+        if (endMs > nowMs) continue;
+        const label = s.labels.get(`${b.x}_${b.y}`);
+        if (!label) continue;
+        const { x: sx, y: sy } = isoToScreen(col, row);
+        const bx = sx + TW / 2, by = sy + TH / 2;
+        const hw = Math.max(mctx.measureText(label).width + 8, fsz + 6) / 2 + 8, hh = (fsz + 5) / 2 + 8; // +8 — тень
+        P.items.push({ x0: bx - hw, y0: by - hh, x1: bx + hw, y1: by + hh, z: 2, c, draw: ctx => drawLevelBadge(ctx, bx, by, label, fsz) });
+      }
+    };
+    const boxOf = (items: DrawItem[]) => {
+      let bx: Part['box'] = null;
+      for (const it of items) {
+        if (it.z === 2) continue;
+        if (!bx) bx = { x0: it.x0, y0: it.y0, x1: it.x1, y1: it.y1 };
+        else { if (it.x0 < bx.x0) bx.x0 = it.x0; if (it.y0 < bx.y0) bx.y0 = it.y0; if (it.x1 > bx.x1) bx.x1 = it.x1; if (it.y1 > bx.y1) bx.y1 = it.y1; }
+      }
+      return bx;
+    };
+
+    let parts: Part[];
+    const changed: { c: number; old: Part['box']; box: Part['box'] }[] = [];
+    const regions = s.regions;
+    if (s.cityAt && regions.length) {
+      // подпись города: постройки, подписи бейджей и затенение — что меняет его элементы
+      const dim = DIM_INAPPLICABLE_MODES.has(s.mode);
+      const byCity: MapBuilding[][] = regions.map(() => []);
+      for (const b of s.blist) { const c = s.cityAt(b.x, b.y); if (c >= 0 && c < byCity.length) byCity[c].push(b); }
+      const full = s.fullList || s.cityParts.length !== regions.length;
+      const glob = `${s.mode}|${s.nightOn}|${Object.keys(s.spriteMap).length}|${s.dpr}`;
+      parts = regions.map((rg, c) => {
+        const list = byCity[c];
+        let sig = glob;
+        for (const b of list) { const k = `${b.x}_${b.y}`; sig += `;${k},${b.id},${b.level},${b.end ?? ''},${s.labels.get(k) ?? ''}${dim ? (s.validSet.has(k) ? 'v' : 'n') : ''}`; }
+        const prev = s.cityParts[c];
+        if (!full && prev && prev.sig === sig) return prev;
+        const P = newPart(sig);
+        for (let d = 0; d <= 2 * (rg.span - 1); d++) for (let i = 0; i <= d; i++) {
+          const j = d - i;
+          if (i >= rg.span || j >= rg.span) continue;
+          emit(P, rg.gx + i - s.x0, rg.gy + j - s.y0, c);
+        }
+        badgesOf(P, list, c);
+        P.box = boxOf(P.items);
+        if (!full) changed.push({ c, old: prev?.box ?? null, box: P.box });
+        return P;
+      });
+      s.cityParts = parts;
+    } else {
+      const P = newPart('');
+      for (let d = 0; d <= (s.cols - 1) + (s.rows - 1); d++) {
+        for (let col = 0; col <= d; col++) {
+          const row = d - col;
+          if (col >= s.cols || row >= s.rows) continue;
+          emit(P, col, row);
+        }
+      }
+      badgesOf(P, s.blist);
+      parts = [P];
+    }
+    s.fullList = false;
+    const items: DrawItem[] = parts.length === 1 ? parts[0].items : ([] as DrawItem[]).concat(...parts.map(p => p.items));
+    let nextEnd = Infinity;
+    s.itemBox = new Map(); s.lampGlows = []; s.spill = []; s.roadCells = [];
+    for (const P of parts) {
+      for (const [k, v] of P.itemBox) s.itemBox.set(k, v);
+      if (P.lampGlows.length) s.lampGlows.push(...P.lampGlows);
+      if (P.spill.length) s.spill.push(...P.spill);
+      if (P.roadCells.length) s.roadCells.push(...P.roadCells);
+      if (P.nextEnd < nextEnd) nextEnd = P.nextEnd;
+    }
+    // изменился только один город — перерисовываются только его куски и его картинка, остальные остаются
+    if (changed.length) {
+      for (const ch of changed) {
+        s.coarseDirty.add(ch.c);
+        for (const bx of [ch.old, ch.box]) {
+          if (!bx) continue;
+          for (const lr of s.layers.keys()) {
+            const cw = CHUNK / lr;
+            for (let cy = Math.floor(bx.y0 / cw); cy <= Math.floor(bx.y1 / cw); cy++)
+              for (let cx = Math.floor(bx.x0 / cw); cx <= Math.floor(bx.x1 / cw); cx++) {
+                const key = `${lr}:${cx}:${cy}`, chk = s.chunks.get(key);
+                if (chk) chk.ver = -1;
+              }
+          }
+        }
+      }
     }
 
     const w = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
@@ -656,14 +814,21 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       if (it.x1 > w.x1) w.x1 = it.x1; if (it.y1 > w.y1) w.y1 = it.y1;
     }
     if (!items.length) { w.x0 = w.y0 = 0; w.x1 = w.y1 = 1; }
+    // рамки городов для их картинок на дальнем зуме (без бейджей — их там нет)
+    s.cityBox = new Map();
+    if (s.cityAt) parts.forEach((P, c) => { if (P.box) s.cityBox.set(c, P.box); });
     s.drawList = items;
     s.world = w;
     s.nextEndMs = nextEnd;
+    s.underway = s.blist.filter(b => b.end && new Date(b.end).getTime() > nowMs);
     s.listDirty = false;
     // сразу ставим в очередь подготовку всех спрайтов карты, не дожидаясь, пока до них доскроллят
     const seen = new Set<string>();
     s.wantKeys = [];
-    for (const [id, drawW] of want) {
+    const want = new Map<string, number>();
+    for (const P of parts) for (const [id, drawW] of P.want) want.set(`${id}@${drawW}`, drawW);
+    for (const [key, drawW] of want) {
+      const id = key.slice(0, key.lastIndexOf('@'));
       const info = s.spriteMap[id];
       if (!info) continue;
       const tw = spriteTargetW(drawW);
@@ -693,9 +858,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
 
   // ночной проход куска: земля, пятна света фонарей, здания с окнами, тонирование стороны солнца и
   // дымки у горизонта, бейджи поверх
-  function paintNight(ctx: CanvasRenderingContext2D, r: number, ph: Phase, wx0: number, wy0: number, wx1: number, wy1: number) {
+  function paintNight(ctx: CanvasRenderingContext2D, r: number, ph: Phase, wx0: number, wy0: number, wx1: number, wy1: number, city?: number) {
     const s = state.current;
-    const hit = (it: { x0: number; y0: number; x1: number; y1: number }) => !(it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1);
+    const hit = (it: { x0: number; y0: number; x1: number; y1: number; c?: number }) => !(it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1) && (city == null || it.c === city);
+    const badges = r * TW >= BADGE_PX;
     for (const it of s.drawList) if (it.z === 0 && hit(it)) it.draw(ctx, r);
     if (ph.lamps > 0.01 && s.lampGlows.length) {
       // пятна света — только на земле (дороги, пустые клетки, площадки под зданиями)
@@ -750,7 +916,27 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = g; ctx.fillRect(wx0, wy0, wx1 - wx0, wy1 - wy0);
       ctx.globalCompositeOperation = 'source-over';
     }
-    for (const it of s.drawList) if (it.z === 2 && hit(it)) it.draw(ctx, r);
+    if (badges) for (const it of s.drawList) if (it.z === 2 && hit(it)) it.draw(ctx, r);
+  }
+
+  // картинка города для дальнего зума: те же элементы неподвижного слоя, только этого города
+  function renderCoarse(c: number) {
+    const s = state.current, box = s.cityBox.get(c);
+    if (!box) return;
+    const rc = COARSE_TILE / TW;
+    const old = s.coarseImg.get(c);
+    const el = old?.el ?? document.createElement('canvas');
+    const w = Math.ceil((box.x1 - box.x0) * rc), h = Math.ceil((box.y1 - box.y0) * rc);
+    if (el.width !== w || el.height !== h) { el.width = w; el.height = h; }
+    const ctx = el.getContext('2d')!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'low';
+    ctx.setTransform(rc, 0, 0, rc, -box.x0 * rc, -box.y0 * rc);
+    if (s.ph) paintNight(ctx, rc, s.ph, box.x0, box.y0, box.x1, box.y1, c);
+    else for (const it of s.drawList) if (it.c === c && it.z !== 2) it.draw(ctx, rc);
+    s.coarseImg.set(c, { el, ver: s.ver });
+    s.coarseDirty.delete(c);
   }
 
   // какие группы квартир горят в час hour; markDirty — пометить куски зданий, где что-то поменялось
@@ -766,6 +952,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       s.lit.set(key, m);
       changed = true;
       if (!markDirty || !s.layerR || !s.ph) continue;
+      if (s.cityAt) s.coarseDirty.add(s.cityAt(b.x, b.y));
       for (let cy = Math.floor(box.y0 / cw); cy <= Math.floor(box.y1 / cw); cy++)
         for (let cx = Math.floor(box.x0 / cw); cx <= Math.floor(box.x1 / cw); cx++) s.dirty.add(`${s.layerR}:${cx}:${cy}`);
     }
@@ -798,6 +985,15 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   function probeCtx(): CanvasRenderingContext2D {
     if (!probe) { const c = document.createElement('canvas'); c.width = 1; c.height = 1; probe = c.getContext('2d')!; }
     return probe;
+  }
+
+  // draw-list устарел. full — вся карта (режим ночи, спрайты, плотность); иначе на карте всех городов
+  // пересоберутся только изменившиеся города, и перерисуются только их куски
+  function listChanged(full: boolean) {
+    const s = state.current;
+    s.listDirty = true;
+    if (full || !s.cityAt) { s.fullList = true; s.ver++; }
+    requestRedraw();
   }
 
   function invalidateLayer() {
@@ -850,13 +1046,28 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const wx0 = cx * cw - 2, wy0 = cy * cw - 2, wx1 = (cx + 1) * cw + 2, wy1 = (cy + 1) * cw + 2;
     ctx.setTransform(r, 0, 0, r, -cx * CHUNK, -cy * CHUNK);
     s.dirty.delete(`${r}:${cx}:${cy}`);
+    // дальний зум карты всех городов: каждый город — готовой картинкой; какой ещё нет, кусок дорисуется позже
+    if (isCoarse(r)) {
+      let ready = true;
+      for (const [c, box] of s.cityBox) {
+        if (box.x1 < wx0 || box.x0 > wx1 || box.y1 < wy0 || box.y0 > wy1) continue;
+        const img = s.coarseImg.get(c);
+        if (!img) { ready = false; continue; }
+        ctx.drawImage(img.el, box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+      }
+      return { el, ver: ready ? s.ver : -1 };
+    }
     if (s.ph) { paintNight(ctx, r, s.ph, wx0, wy0, wx1, wy1); return { el, ver: s.ver }; }
+    const badges = r * TW >= BADGE_PX;
     for (const it of s.drawList) {
       if (it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1) continue;
+      if (it.z === 2 && !badges) continue;
       it.draw(ctx, r);
     }
     return { el, ver: s.ver };
   }
+
+  function isCoarse(r: number) { return !!state.current.cityAt && r * TW < COARSE_PX; }
 
   function evictChunks(limit: number) {
     const s = state.current;
@@ -902,6 +1113,24 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     });
 
     const vr = range(0);
+    // картинки видимых городов: устаревшие и с погасшими/зажёгшимися окнами — в пределах бюджета кадра
+    if (isCoarse(r)) {
+      let made = 0;
+      const vis = { x0: vr.cx0 * cw, y0: vr.cy0 * cw, x1: (vr.cx1 + 1) * cw, y1: (vr.cy1 + 1) * cw };
+      for (const [c, box] of s.cityBox) {
+        if (box.x1 < vis.x0 || box.x0 > vis.x1 || box.y1 < vis.y0 || box.y0 > vis.y1) continue;
+        const img = s.coarseImg.get(c);
+        if (img && img.ver === s.ver && !(allowDirty && s.coarseDirty.has(c))) continue;
+        if (!s.loading && made > 0 && performance.now() - t0 > FRAME_BUDGET_MS) break;
+        const hadOld = !!img;
+        renderCoarse(c); made++;
+        // город перерисован — куски с ним устарели
+        if (hadOld) {
+          for (let cy = Math.floor(box.y0 / cw); cy <= Math.floor(box.y1 / cw); cy++)
+            for (let cx = Math.floor(box.x0 / cw); cx <= Math.floor(box.x1 / cw); cx++) { const ch = s.chunks.get(`${r}:${cx}:${cy}`); if (ch) ch.ver = -1; }
+        }
+      }
+    }
     const need: { cx: number; cy: number; d: number }[] = [];
     let anyMissing = false;
     const ccx = (vr.cx0 + vr.cx1) / 2, ccy = (vr.cy0 + vr.cy1) / 2;
@@ -1115,7 +1344,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // куски и живой слой — в физических пикселях экрана (с поправкой на ступень разрешения)
     const dpr = getDpr();
     if (dpr !== s.dpr) {
-      s.dpr = dpr; s.listDirty = true; s.ver++;
+      s.dpr = dpr; s.listDirty = true; s.fullList = true; s.ver++;
       for (const lr of [...s.layers.keys()]) dropLayer(lr);
       s.layerR = 0;
     }
@@ -1125,8 +1354,31 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       s.needsCenter = true; s.overlayUsed = true;
     }
-    if (s.needsCenter && W > 0 && H > 0) { centerOnBuildings(); s.needsCenter = false; }
     if (!s.cols || !s.rows) return;
+    const cam = camRef.current;
+    if (cam && cam.key !== s.camKey) {
+      s.camKey = cam.key; s.needsCenter = false;
+      if (cam.animate && s.lastCenter) s.anim = { from: viewCenter(W, H), to: { cx: cam.gx, cy: cam.gy, tile: cam.tile }, t0: performance.now() };
+      else { s.anim = null; lookAt(cam.gx, cam.gy, cam.tile, W, H); }
+    }
+    if (s.needsCenter && W > 0 && H > 0) {
+      // карта всех городов при смене размера остаётся на том же месте
+      if (cam && s.lastCenter) lookAt(s.lastCenter.cx, s.lastCenter.cy, s.lastCenter.tile, W, H);
+      else centerOnBuildings();
+      s.needsCenter = false;
+    }
+    if (s.anim) {
+      const p = Math.min(1, (performance.now() - s.anim.t0) / 320), e = 1 - Math.pow(1 - p, 3), f = s.anim.from, t = s.anim.to;
+      lookAt(f.cx + (t.cx - f.cx) * e, f.cy + (t.cy - f.cy) * e, f.tile * Math.pow(t.tile / f.tile, e), W, H);
+      if (p >= 1) s.anim = null;
+      requestRedraw();
+    }
+    if (cb.current.onView) {
+      const v = viewCenter(W, H);
+      s.lastCenter = v;
+      const sig = `${v.cx.toFixed(2)}|${v.cy.toFixed(2)}|${v.tile.toFixed(2)}|${W}|${H}`;
+      if (sig !== s.lastView) { s.lastView = sig; cb.current.onView({ ...v, W, H }); }
+    }
     fpsCtl.current?.frame();
     // стоящая карта перерисовывается раз в секунду: идут отсчёты стройки (тексту минут чаще не нужно),
     // и счётчик кадров честно показывает 1. Пока карта рисуется чаще, тик сбрасывается каждым кадром
@@ -1134,8 +1386,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     s.liveTimer = setTimeout(() => { s.liveTimer = null; redraw(); }, 1000);
 
     // стройка закончилась по времени — здание снова рисуется своим спрайтом и обычным бейджем
-    if (Date.now() >= s.nextEndMs) { s.listDirty = true; s.ver++; }
-    if (s.labelsDirty) { rebuildLabels(); s.listDirty = true; s.ver++; }
+    if (Date.now() >= s.nextEndMs) listChanged(false);
+    if (s.labelsDirty) { rebuildLabels(); listChanged(false); }
     if (s.listDirty) buildDrawList();
 
     // масштаб кусков: сразу точный при первом кадре и при большом скачке зума, иначе — после паузы
@@ -1159,8 +1411,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     // живой слой: прогресс стройки, выбранные клетки, кисть, наведение. Пусто сейчас и было пусто —
     // canvas не трогаем вовсе
     const nowMs = Date.now();
-    const building = s.blist.some(b => b.end && new Date(b.end).getTime() > nowMs && s.labels.get(`${b.x}_${b.y}`) != null);
-    const overlayNeeded = building || s.pickedSet.size > 0 || (s.selDragging && !!s.selCur) || (!!s.hoverTile && s.mode !== 'view');
+    const building = s.underway.some(b => b.end && new Date(b.end).getTime() > nowMs && s.labels.get(`${b.x}_${b.y}`) != null);
+    const overlayNeeded = building || s.fillPaths.length > 0 || s.regionPaths.length > 0 || s.pickedSet.size > 0 || (s.selDragging && !!s.selCur) || (!!s.hoverTile && s.mode !== 'view');
     if (!overlayNeeded && !s.overlayUsed) {
       if (layerPending) requestRedraw();
       return;
@@ -1176,10 +1428,17 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const vx0 = -s.ox / s.scale - TW, vy0 = -s.oy / s.scale - TH;
     const vx1 = (W - s.ox) / s.scale + TW, vy1 = (H - s.oy) / s.scale + TH;
 
+    // проход 1.5 — заливки карты всех городов: города целиком, затем клетки
+    for (const p of s.regionPaths) { ctx.fillStyle = p.fill; ctx.fill(p.path); }
+    for (const p of s.fillPaths) {
+      ctx.fillStyle = p.fill; ctx.fill(p.path);
+      if (p.stroke && TW * s.scale >= 8) { ctx.strokeStyle = p.stroke; ctx.lineWidth = 1 / s.scale; ctx.stroke(p.path); }
+    }
+
     // проход 2 — живой прогресс-бар стройки для зданий, у которых b.end ещё в будущем (обычные
     // бейджи уровней — в неподвижном слое, см. buildDrawList)
     const fsz = Math.max(8, Math.round(TW * 0.13));
-    for (const b of s.blist) {
+    if (TW * desired >= BADGE_PX) for (const b of s.underway) {
       const col = b.x - s.x0, row = b.y - s.y0;
       if (col < 0 || col >= s.cols || row < 0 || row >= s.rows) continue;
       // не рисуем бейдж уровня поверх здания, спрятанного как неприменимое к текущему действию
@@ -1318,8 +1577,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     return () => {
       off();
       if (s.liveTimer) clearTimeout(s.liveTimer);
+      // id обнуляется: иначе после повторного монтирования (StrictMode в разработке) кадры больше не заказываются
       if (s.rafId) cancelAnimationFrame(s.rafId);
+      s.rafId = null; s.liveTimer = null;
       if (s.zoomTimer) clearTimeout(s.zoomTimer);
+      s.zoomTimer = null;
       for (const lr of [...s.layers.keys()]) dropLayer(lr);
     };
   }, []);
@@ -1338,7 +1600,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       }
       if (s.nightOn) updateLit(hourFor(s.dayNight), false);
       applyGround();
-      s.listDirty = true; invalidateLayer();
+      s.listDirty = true; s.fullList = true; invalidateLayer();
     });
     let timer: ReturnType<typeof setInterval> | null = null;
     if (s.nightOn) {
@@ -1354,7 +1616,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       s.ph = null; s.nightHold = false;
       applyGround();
     }
-    s.listDirty = true; invalidateLayer();
+    s.listDirty = true; s.fullList = true; invalidateLayer();
     return () => {
       off();
       if (timer) clearInterval(timer);
@@ -1377,14 +1639,14 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   // (регенерируется download-sprites.js при обновлении игры), кэшируем на уровне модуля.
   useEffect(() => {
     const s = state.current;
-    s.roadMap = ROAD_MAP[type];
-    s.coordsList = COORDS[type];
+    s.roadMap = world?.roadMap ?? ROAD_MAP[type];
+    s.coordsList = world?.coordsList ?? COORDS[type];
     s.coords = new Set(s.coordsList.map(c => `${c.x}_${c.y}`));
-    s.listDirty = true; s.ver++;
+    s.listDirty = true; s.fullList = true; s.ver++;
     if (Object.keys(s.spriteMap).length === 0) {
       if (spriteMapCache) {
         s.spriteMap = spriteMapCache;
-        s.listDirty = true; invalidateLayer();
+        s.listDirty = true; s.fullList = true; invalidateLayer();
       } else {
         fetch('/sprites/sprite-map.json').then(r => r.json()).then(sm => {
           const map: typeof s.spriteMap = {};
@@ -1394,11 +1656,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           spriteMapCache = map;
           s.spriteMap = map;
           s.spriteMapState = 'ready';
-          s.listDirty = true; invalidateLayer();
+          s.listDirty = true; s.fullList = true; invalidateLayer();
         }).catch(() => { s.spriteMapState = 'failed'; }); // без карты спрайтов — плитки-заглушки
       }
     }
-  }, [type, requestRedraw]);
+  }, [type, requestRedraw, world]);
 
   // данные карты (постройки) — центрируем ЗАНОВО только когда реально переключились на другую карту
   // (другой аккаунт/гильдия, либо city<->capital, см. mapKey), НЕ на каждое обновление buildings —
@@ -1419,7 +1681,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     }
 
     // спрайты (в т.ч. общие спрайты стройки) заказываются при сборке draw-list, см. buildDrawList
-    s.listDirty = true; s.labelsDirty = true; s.ver++;
+    s.labelsDirty = true; listChanged(false);
 
     let attempts = 0;
     const waitCenter = () => {
@@ -1428,11 +1690,12 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       else if (attempts++ < 30) setTimeout(waitCenter, 16);
     };
     waitCenter();
-  }, [buildings, type, mapKey]);
+  }, [buildings, type, mapKey, world]);
 
   // режим и valid-set меняют затемнение зданий — это неподвижный слой; picked-set и цели/очередь/
   // план — только подсветку и бейджи поверх него
-  useEffect(() => { state.current.listDirty = true; invalidateLayer(); }, [mode, validSet, lockedCells]);
+  useEffect(() => { listChanged(false); }, [mode, validSet]);
+  useEffect(() => { listChanged(true); }, [lockedCells]);
   useEffect(() => { state.current.labelsDirty = true; requestRedraw(); }, [pickedSet, targets, queue, globalPlan, requestRedraw]);
   // пелена: проявляется сразу, а гаснет с задержкой — переход между соседними строками «Плана» её не трогает
   useEffect(() => {
@@ -1443,6 +1706,32 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     el.style.opacity = on ? '1' : '0';
     requestRedraw();
   }, [focusSet, requestRedraw]);
+
+  // ромб из span×span клеток в путь (заливки городов и клеток)
+  function diamond(p: Path2D, gx: number, gy: number, span: number) {
+    const s = state.current, col = gx - s.x0, row = gy - s.y0;
+    const t = isoToScreen(col, row), r = isoToScreen(col + span - 1, row), b = isoToScreen(col + span - 1, row + span - 1), l = isoToScreen(col, row + span - 1);
+    p.moveTo(t.x + TW / 2, t.y); p.lineTo(r.x + TW, r.y + TH / 2); p.lineTo(b.x + TW / 2, b.y + TH); p.lineTo(l.x, l.y + TH / 2); p.closePath();
+  }
+
+  // заливки клеток и городов собираются в пути по цвету — кадр рисует их одной командой на цвет
+  useEffect(() => {
+    const s = state.current;
+    const fp = new Map<string, { fill: string; stroke?: string; path: Path2D }>();
+    for (const f of fills ?? []) {
+      const i = f.key.indexOf('_'), gx = +f.key.slice(0, i), gy = +f.key.slice(i + 1);
+      const k = `${f.fill}|${f.stroke ?? ''}`;
+      let e = fp.get(k);
+      if (!e) fp.set(k, e = { fill: f.fill, stroke: f.stroke, path: new Path2D() });
+      diamond(e.path, gx, gy, 1);
+    }
+    s.fillPaths = [...fp.values()];
+    const rp = new Map<string, Path2D>();
+    for (const r of regions ?? []) { let p = rp.get(r.fill); if (!p) rp.set(r.fill, p = new Path2D()); diamond(p, r.gx, r.gy, r.span); }
+    s.regionPaths = [...rp].map(([fill, path]) => ({ fill, path }));
+    s.overlayUsed = true;
+    requestRedraw();
+  }, [fills, regions, buildings, requestRedraw]);
 
   useEffect(() => {
     const wrap = wrapRef.current; if (!wrap) return;
@@ -1463,8 +1752,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
       // уже на самом мелком масштабе и крутят наружу — дальше только общая карта
-      if (e.deltaY > 0 && s.scale <= MIN_SCALE * 1.001 && onZoomOutRef.current) { onZoomOutRef.current(); return; }
-      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s.scale * factor));
+      if (e.deltaY > 0 && s.scale <= minRef.current * 1.001 && onZoomOutRef.current) { onZoomOutRef.current(); return; }
+      const newScale = Math.max(minRef.current, Math.min(MAX_SCALE, s.scale * factor));
       s.ox = mx + (s.ox - mx) * (newScale / s.scale);
       s.oy = my + (s.oy - my) * (newScale / s.scale);
       s.scale = newScale;
@@ -1525,6 +1814,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           const inBounds = t.col >= 0 && t.col < s.cols && t.row >= 0 && t.row < s.rows;
           const gx = inBounds ? t.gx : null, gy = inBounds ? t.gy : null;
           if (s.badgeHoverGx !== gx || s.badgeHoverGy !== gy) { s.badgeHoverGx = gx; s.badgeHoverGy = gy; requestRedraw(); }
+          if (s.hoverGx !== t.gx || s.hoverGy !== t.gy) { s.hoverGx = t.gx; s.hoverGy = t.gy; cb.current.onHoverCell?.(t.gx, t.gy); }
         } else if (s.badgeHoverGx !== null || s.badgeHoverGy !== null) { s.badgeHoverGx = null; s.badgeHoverGy = null; requestRedraw(); }
       }
     };
@@ -1544,6 +1834,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           }
         }
         for (const p of picks) onPick(p.x, p.y);
+        // кисть без протяжки — обычный клик: закрытая секция или клик мимо действий
+        if (!picks.length && !s.selDragging) {
+          const sectionId = s.lockedCells.get(`${t1.gx}_${t1.gy}`);
+          if (sectionId) onUnlockCell?.(sectionId); else cb.current.onTap?.(t1.gx, t1.gy);
+        }
         s.selStart = null; s.selCur = null; s.selDragging = false;
         requestRedraw();
       } else if (!moved && e.button === 0 && overMap(e)) {
@@ -1555,9 +1850,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         const sectionId = s.lockedCells.get(key);
         if (sectionId) onUnlockCell?.(sectionId);
         else if (s.mode !== 'view' && s.validSet.has(key)) onPick(t.gx, t.gy);
+        else cb.current.onTap?.(t.gx, t.gy);
       }
     };
     const onLeave = () => {
+      if (s.hoverGx !== null) { s.hoverGx = null; s.hoverGy = null; cb.current.onHoverCell?.(null, null); }
       if (s.hoverTile) { s.hoverTile = null; requestRedraw(); }
       if (s.badgeHoverGx !== null || s.badgeHoverGy !== null) { s.badgeHoverGx = null; s.badgeHoverGy = null; requestRedraw(); }
     };
@@ -1601,9 +1898,9 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         const dist = touchDist(e.touches), mid = touchMid(e.touches, rect);
         const factor = dist / s.pinchDist;
         // упёрлись в самый мелкий масштаб и продолжают сводить пальцы — уход на общую карту
-        s.pinchOut = s.scale <= MIN_SCALE * 1.001 && factor < 1 ? s.pinchOut * factor : 1;
+        s.pinchOut = s.scale <= minRef.current * 1.001 && factor < 1 ? s.pinchOut * factor : 1;
         if (s.pinchOut < 0.75 && onZoomOutRef.current) { s.pinchDist = null; s.pinchOut = 1; onZoomOutRef.current(); return; }
-        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s.scale * factor));
+        const newScale = Math.max(minRef.current, Math.min(MAX_SCALE, s.scale * factor));
         // зум, привязанный к текущей средней точке двух пальцев (она не "уезжает" на экране)
         s.ox = mid.x + (s.ox - mid.x) * (newScale / s.scale);
         s.oy = mid.y + (s.oy - mid.y) * (newScale / s.scale);
@@ -1661,6 +1958,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           }
         }
         for (const p of picks) onPick(p.x, p.y);
+        // кисть без протяжки — обычный клик: закрытая секция или клик мимо действий
+        if (!picks.length && !s.selDragging) {
+          const sectionId = s.lockedCells.get(`${t1.gx}_${t1.gy}`);
+          if (sectionId) onUnlockCell?.(sectionId); else cb.current.onTap?.(t1.gx, t1.gy);
+        }
         s.selStart = null; s.selCur = null; s.selDragging = false;
       } else if (!moved && e.changedTouches.length) {
         const rect = wrap.getBoundingClientRect();
@@ -1670,6 +1972,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         const sectionId = s.lockedCells.get(key);
         if (sectionId) onUnlockCell?.(sectionId);
         else if (s.mode !== 'view' && s.validSet.has(key)) onPick(t.gx, t.gy);
+        else cb.current.onTap?.(t.gx, t.gy);
       }
       s.badgeHoverGx = null; s.badgeHoverGy = null;
       requestRedraw();

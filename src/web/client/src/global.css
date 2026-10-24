@@ -673,4 +673,14 @@ html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(
 /* бегущая строка: не влезающее название карточки на карте под курсором едет влево и обратно (cityMapPanels Row) */
 .tc-marquee { position: relative; animation: tc-marquee ease-in-out infinite; }
 @keyframes tc-marquee { 0%, 6% { left: 0; } 41%, 53% { left: var(--mq); } 88%, 100% { left: 0; } }
+/* затухание края вместо многоточия: правый край (12px) гаснет, пока строка не влезает; при наведении
+   затухание плавно уходит, пока строка бежит, и плавно возвращается, когда курсор ушёл */
+@property --mqr { syntax: '<length>'; inherits: false; initial-value: 12px; }
+.tc-fade {
+  --mqr: 12px;
+  transition: --mqr .3s ease;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--mqr)), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--mqr)), transparent 100%);
+}
+.tc-fade-off { --mqr: 0px; }
 @media (prefers-reduced-motion: reduce) { .tc-marquee { animation: none; } }
