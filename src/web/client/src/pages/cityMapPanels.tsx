@@ -285,7 +285,7 @@ export function Val({ children, color = 'fg.default', mono, className }: { child
   return <Text className={className} sx={{ fontSize: 1, fontWeight: 'semibold', color, flexShrink: 0, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 1, ...num, ...(mono ? { fontFamily: 'mono', fontSize: '13px' } : null) }}>{children}</Text>;
 }
 // число справа, под курсором на его месте крестик (на сенсорных экранах крестик всегда рядом с числом)
-const SWAP = {
+export const SWAP = {
   '& .sw-x': { display: 'none' }, '&:hover .sw-x, &:focus-within .sw-x': { display: 'inline-flex' }, '&:hover .sw-v, &:focus-within .sw-v': { display: 'none' },
   '@media (hover: none)': { '& .sw-x': { display: 'inline-flex' }, '&:hover .sw-v, &:focus-within .sw-v': { display: 'inline-flex' } },
 } as const;

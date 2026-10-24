@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type DragEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } from '@primer/react';
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon, DotFillIcon, PencilIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, DotFillIcon, PlusIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
 import { api, type CityBoosterRow, type CityActiveBooster, type BuildingDef, type CityActionLogRow, type CityWorldRow, type ForecastEvent, type GlobalUpgradeRule, type MapSection } from '../api';
 import { CityActionsCanvas, type CityActionMode, type MapCamera, type MapView, type WorldLayout, type CellFill, type RegionFill } from '../components/CityActionsCanvas';
 import { CityMapCity, buildingName, buildingCat, buildPriceAt, familyId, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
@@ -9,9 +9,10 @@ import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
   MapPalette, MapBrushLevel, PanelShell, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
-  LogPanel, ForecastPanel, QueuePanel, PendingList, DemolishPanel, ReconstructPanel, RenovatePanel, MasterplanBar, ItemIcon, Glyph, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
+  SWAP, LogPanel, ForecastPanel, QueuePanel, PendingList, DemolishPanel, ReconstructPanel, RenovatePanel, MasterplanBar, ItemIcon, Glyph, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
 } from './cityMapPanels';
 import { CoinValue } from '../components/Icons';
+import { upgradeStep, type BuildingParam } from '../cityStats';
 import { LoadError } from '../components/LoadError';
 import { useFlash } from '../hooks/useFlash';
 import { useAsk } from '../hooks/useAsk';
@@ -48,7 +49,7 @@ const topBuilding = (r: CityWorldRow) => [...r.buildings].sort((a, b) => (Number
 const ACT = ' Кликните или проведите кистью по клеткам любых городов, хоть нескольких сразу: каждый город выполнит это по правилам своей карты, справа откроется его панель.';
 const FAR_HINT: Partial<Record<PanelMode, string>> = {
   view: 'Все города по доходу. Порядок меняется перетаскиванием. Клик по городу на карте или в списке открывает его панель, приближение тоже.',
-  upgrade: 'Общий план: целевой уровень по типу здания сразу для всех городов. Личный план: выберите уровень справа от дока и кликайте здания.' + ACT,
+  upgrade: 'Издалека правится только общий план: клик или кисть по зданию ставит правило «этот тип зданий во всех городах — до уровня кисти» (уровень справа от дока). Личный план города — вблизи, когда открыт город.',
   queue: 'Ручные очереди улучшений всех городов. Каждый клик по зданию добавляет уровень в очередь его города.' + ACT,
   forecast: 'Что бот запустит в ближайшие трое суток во всех городах, одной лентой.',
   log: 'Последние действия во всех городах, и бота, и ручные.',
@@ -77,6 +78,9 @@ export function CityWorld() {
   const [catalog, setCatalog] = useState<BuildingDef[]>([]);
   const [globalPlan, setGlobalPlan] = useState<GlobalUpgradeRule[]>([]);
   const [sections, setSections] = useState<MapSection[]>([]);
+  // общий план издалека — черновик: кисть и список правят его, «Сохранить» отправляет целиком
+  const [planDraft, setPlanDraft] = useState<GlobalUpgradeRule[] | null>(null);
+  const plan = planDraft ?? globalPlan;
 
   const load = useCallback(async () => {
     const d = await api.cityWorld();
@@ -462,7 +466,9 @@ export function CityWorld() {
     if (st) deliver(a, st);
     else setTouched(t => t.includes(a) ? t : [...t, a]);
   };
+  const farPlanPick = useRef<((gx: number, gy: number) => boolean) | null>(null);
   const onPick = useCallback((gx: number, gy: number) => {
+    if (farPlanPick.current?.(gx, gy)) return;
     const l = toLocal(gx, gy);
     if (!l) return;
     if (!batch.current) {
@@ -503,6 +509,14 @@ export function CityWorld() {
   const boosterTap = useRef<((a: string) => boolean) | null>(null);
   boosterTap.current = mode === 'boosters' && !cur && boosterPick && !boosterSaving ? (a: string) => {
     if (freeStock(a, boosterPick) > 0) setBoosterAdd(p => [...p, { account: a, name: boosterPick }]);
+    return true;
+  } : null;
+  // «План» издалека правит только общий план: клик или кисть по зданию ставит правило «этот тип — до уровня кисти»
+  farPlanPick.current = mode === 'upgrade' && !cur ? (gx, gy) => {
+    const b = allBuildings.find(o => o.x === gx && o.y === gy);
+    if (!b || catMap.get(b.id)?.category === 'special') return true;
+    const lvl = Math.max(1, Math.floor(Number(addLevel)) || 1);
+    setPlanDraft(p => { const cur = p ?? globalPlan; return cur.some(r => r.family_id === b.id && r.target_level === lvl) ? cur : [...cur.filter(r => r.family_id !== b.id), { family_id: b.id, target_level: lvl }]; });
     return true;
   } : null;
   const onTap = useCallback((gx: number, gy: number) => {
@@ -551,6 +565,8 @@ export function CityWorld() {
 
   // выбор здания без города: цена — от самой дешёвой (по числу уже построенных в каждом городе)
   const [search, setSearch] = useState('');
+  const [planAdd, setPlanAdd] = useState(false);
+  const [planSearch, setPlanSearch] = useState('');
   const [catFilter, setCatFilter] = useState('COM');
   const purchasable = useMemo(() => catalog.filter(b => b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)), [catalog]);
   const buildCats = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean).sort((a, b) => ((['COM', 'RES'].indexOf(a) + 1) || 99) - ((['COM', 'RES'].indexOf(b) + 1) || 99));
@@ -677,6 +693,20 @@ export function CityWorld() {
     <CancelButton disabled={!!runAll} onClick={() => { for (const r of withPending) live(r.account)!.cancelPending(); }} />
   </>;
 
+  const planDirty = planDraft != null && JSON.stringify(planDraft) !== JSON.stringify(globalPlan);
+  const [planSaving, setPlanSaving] = useState(false);
+  const savePlan = async () => {
+    if (!planDraft) return;
+    setPlanSaving(true);
+    const r = await api.saveGlobalUpgradePlan(planDraft).catch(e => ({ ok: false, error: String(e) }));
+    setPlanSaving(false);
+    if (r.ok) { setGlobalPlan(planDraft); setPlanDraft(null); showFlash('Общий план сохранён', true); }
+    else showFlash(r.error ?? 'Ошибка', false);
+  };
+  const planFooter = planDirty && <>
+    <FooterButton label="Сохранить" icon={CheckIcon} count={plan.length} busy={planSaving} onClick={() => { void savePlan(); }} />
+    <CancelButton disabled={planSaving} onClick={() => setPlanDraft(null)} />
+  </>;
   const queueDirtyCities = mode === 'queue' && !cur ? mounted.filter(a => states[a]?.queueDirty) : [];
   const [queueSaving, setQueueSaving] = useState(false);
   const saveQueues = async () => {
@@ -726,36 +756,55 @@ export function CityWorld() {
         r => <Val><CoinValue value={fmt(r.profit)} /></Val>, true)}
     </>;
   } else if (mode === 'upgrade') {
-    const rules = globalPlan.map(g => {
-      let n = 0, done = 0;
-      for (const r of cities) for (const b of r.buildings) if (b.id === g.family_id) { n++; if ((Number(b.level) || 0) >= g.target_level) done++; }
-      return { ...g, n, done };
-    }).filter(g => g.n > 0).sort((a, b) => b.n - a.n);
-    const all = rules.reduce((s, g) => s + g.n, 0), allDone = rules.reduce((s, g) => s + g.done, 0);
-    const withPlan = cities.filter(r => (live(r.account)?.targets ?? r.targets ?? []).length > 0);
+    // по каждому правилу: сколько зданий этого типа во всех городах, сколько уже на цели и монет до цели
+    // (цена улучшения по формуле игры без скидок политик и гильдии — у каждого города они свои)
+    const rules = plan.map(g => {
+      let n = 0, done = 0, cost = 0;
+      const info = catMap.get(g.family_id) as BuildingParam | undefined;
+      for (const r of cities) for (const b of live(r.account)?.buildings ?? r.buildings) if (b.id === g.family_id) {
+        n++;
+        const lvl = (Number(b.level) || 0) - (isBuilding(b) ? 1 : 0);
+        if (lvl >= g.target_level) done++;
+        else if (info) for (let l = Math.max(1, isBuilding(b) ? lvl + 1 : lvl); l < g.target_level; l++) cost += upgradeStep(info, l);
+      }
+      return { ...g, n, done, cost };
+    });
+    const all = rules.reduce((s, g) => s + g.n, 0), allDone = rules.reduce((s, g) => s + g.done, 0), allCost = rules.reduce((s, g) => s + g.cost, 0);
+    const q = planSearch.toLowerCase();
+    const addList = planAdd ? catalog.filter(b => b.category !== 'special' && buildingCat(b.id) === (buildCats.includes(catFilter) ? catFilter : buildCats[0]) && (!q || buildingName(b).toLowerCase().includes(q))) : [];
     side = <>
-      <Button leadingVisual={PencilIcon} block onClick={() => navigate('/global-upgrade-plan')}>Изменить общий план</Button>
-      {draftList}
+      <Button leadingVisual={planAdd ? XIcon : PlusIcon} block onClick={() => setPlanAdd(v => !v)}>{planAdd ? 'Готово' : 'Добавить здание'}</Button>
+      {planAdd && <>
+        <TextInput placeholder="Поиск" value={planSearch} onChange={e => setPlanSearch(e.target.value)} block />
+        <div id="map-cat-tabs">
+          {buildCats.map(c => <span key={c} className={'map-cat-tab' + ((buildCats.includes(catFilter) ? catFilter : buildCats[0]) === c ? ' active' : '')} onClick={() => setCatFilter(c)}>{c}</span>)}
+        </div>
+        {addList.map(b => {
+          const has = plan.find(r => r.family_id === b.id);
+          return <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={!!has} unavailable={false}
+            sub={has ? `в плане до ур. ${has.target_level}` : `до ур. ${Math.max(1, Math.floor(Number(addLevel)) || 1)}`}
+            onClick={() => { const lvl = Math.max(1, Math.floor(Number(addLevel)) || 1); setPlanDraft(p => [...(p ?? globalPlan).filter(r => r.family_id !== b.id), { family_id: b.id, target_level: lvl }]); }} />;
+        })}
+      </>}
       {rules.length > 0 && (
-        <Summary>
+        <Summary tone="success">
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <Tile value={`${all ? Math.round(allDone / all * 100) : 0}%`} label="выполнено" color="success.fg" />
-            <Tile value={`${allDone}/${all}`} label="на цели" />
+            <Tile value={`${all ? Math.round(allDone / all * 100) : 0}%`} label="плана выполнено" color="success.fg" />
+            <Tile value={<CoinValue value={fmt(allCost)} />} label="монет до цели" />
           </Box>
           <PlanBar done={allDone} wip={0} span={all || 1} size="large" bg="canvas.default" />
-          <SumLine left={`${rules.length} ${plural(rules.length, 'правило', 'правила', 'правил')} · все города`} />
+          <SumLine left={`${rules.length} ${plural(rules.length, 'правило', 'правила', 'правил')} · все города`} right={`строится ${buildingNow}`} />
         </Summary>
       )}
-      {rules.length === 0 ? <Empty>Общий план пуст</Empty> : rules.map(g => (
+      {rules.length === 0 ? (!planAdd && <Empty>Общий план пуст</Empty>) : rules.map(g => (
         <Row key={g.family_id} lead={<Thumb id={g.family_id} size={36} bg="canvas.default" />} title={labelFor(g.family_id)}
-          sub={`до ур. ${g.target_level} · ${g.n} шт.`}
-          fill={fillOf([[FILL_DONE, g.done / g.n * 100]])}
-          trail={g.done >= g.n ? <Val><Octicon icon={CheckIcon} /></Val> : <Val color="fg.muted">{g.done}/{g.n}</Val>} />
+          sub={`до ур. ${g.target_level} · ${g.n} ${plural(g.n, 'здание', 'здания', 'зданий')}`} sx={SWAP}
+          fill={g.n ? fillOf([[FILL_DONE, g.done / g.n * 100]]) : undefined}
+          trail={<>
+            <Box as="span" className="sw-v">{g.n && g.done >= g.n ? <Val><Octicon icon={CheckIcon} /></Val> : <Val><CoinValue value={fmtUp(g.cost)} /></Val>}</Box>
+            <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из плана" onClick={() => setPlanDraft(p => (p ?? globalPlan).filter(r => r.family_id !== g.family_id))} /></Box>
+          </>} />
       ))}
-      {withPlan.length > 0 && <>
-        <Caption right={withPlan.length}>Личные планы</Caption>
-        {cityList(withPlan, r => { const n = (live(r.account)?.targets ?? r.targets ?? []).length; return `${n} ${plural(n, 'цель', 'цели', 'целей')}`; }, () => null)}
-      </>}
     </>;
   } else if (mode === 'queue') {
     const groups = cities.filter(r => queueOf(r).length > 0);
@@ -864,7 +913,7 @@ export function CityWorld() {
       pickedSet={mapSets.picked}
       targets={allTargets}
       queue={allQueue}
-      globalPlan={globalPlan}
+      globalPlan={plan}
       catalog={catalog}
       onPick={onPick}
       onUnlockCell={onUnlockCell}
@@ -930,7 +979,7 @@ export function CityWorld() {
         {/* сайдбар: все города или текущий город (его панель встаёт сюда порталом) */}
         <Box ref={setSideEl} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {!cur && (
-            <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={ACTION_TABS.has(mode) ? pendingFooter || undefined : mode === 'boosters' && boosterAdd.length ? boosterFooter : mode === 'queue' ? queueFooter || undefined : undefined}>
+            <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={ACTION_TABS.has(mode) ? pendingFooter || undefined : mode === 'boosters' && boosterAdd.length ? boosterFooter : mode === 'queue' ? queueFooter || undefined : mode === 'upgrade' ? planFooter || undefined : undefined}>
               {side}
             </PanelShell>
           )}
