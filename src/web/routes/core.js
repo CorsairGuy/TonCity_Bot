@@ -66,18 +66,26 @@ module.exports=function(app,ctx){
 
   // статус техработ игры (автопауза запросов) — для баннера в панели
   const PROCESS_STARTED=Date.now()-Math.round(process.uptime()*1000);
-  // версия бота и каналы обновлений с GitHub (кэш 30 мин, ?force=1 — ручная проверка, не чаще раза в минуту)
+  // ответ проверки версии + состояние обновлятеля и настройки автообновления (общий для запроса и рассылки)
+  const versionPayload=v=>{
+    const upd=require('../../utils/selfUpdate');
+    const s=mergeDeep(DEFAULTS,loadSettings());
+    return{...v,canUpdate:upd.isConfigured()&&!upd.updaterInfo().busy,startedAt:PROCESS_STARTED,updater:upd.updaterInfo(),history:upd.history(),auto:!!(s.update&&s.update.auto)};
+  };
+  // версия бота и каналы обновлений с GitHub: проверяет только бот (кэш 30 мин, сам перепроверяет по
+  // истечении), ?force=1 — ручная проверка из панели (кнопка «Проверить» просит бота проверить сейчас)
   app.get('/api/version',async(req,res)=>{
-    try{
-      const upd=require('../../utils/selfUpdate');
-      const s=mergeDeep(DEFAULTS,loadSettings());
-      res.json({...await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'}),
-        canUpdate:upd.isConfigured()&&!upd.updaterInfo().busy,startedAt:PROCESS_STARTED,updater:upd.updaterInfo(),history:upd.history(),auto:!!(s.update&&s.update.auto)});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    try{res.json(versionPayload(await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'})));}
+    catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
-  // лёгкая проверка «какой процесс бота сейчас отвечает» без GitHub: панель опрашивает её с любой
-  // страницы и перезагружается, когда бот перезапустился на новой версии
+  // общий поток событий бота для всех вкладок: новая версия, ход обновления, техработы (lib/panelEvents.js)
+  const panelEvents=require('../lib/panelEvents');
+  panelEvents.hookVersion(versionPayload);
+  app.get('/api/events',panelEvents.handler);
+
+  // лёгкая проверка «какой процесс бота сейчас отвечает» без GitHub: разовая сверка панели при
+  // возврате на вкладку (основной путь — событие build в /api/events)
   app.get('/api/build',(req,res)=>{
     try{
       const u=require('../../utils/selfUpdate').updaterInfo(),l=u.busy&&u.last;

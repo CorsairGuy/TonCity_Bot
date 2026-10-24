@@ -8,7 +8,7 @@ import { LoginGate } from './components/LoginGate';
 import { MaintenanceBanner } from './components/MaintenanceBanner';
 import { OfflineBanner } from './components/OfflineBanner';
 import { VersionBadge } from './components/VersionBadge';
-import { startBuildWatcher, check as checkBuild } from './hooks/useBuildWatcher';
+import { startBuildWatcher } from './hooks/useBuildWatcher';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
 
 // Страницы грузятся лениво, каждая — своим чанком. Раньше все они лежали в одном бандле
@@ -359,13 +359,9 @@ export default function App() {
   // закрываем меню при смене маршрута (на случай навигации не через клик по пункту) и блокируем
   // прокрутку фона, пока открыт полноэкранный оверлей меню
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
-  // бот перезапустился на новой версии — перезагружаем панель на любой странице; переход между
-  // страницами тоже повод проверить сразу (см. hooks/useBuildWatcher)
-  const firstRoute = useRef(true);
-  useEffect(() => {
-    if (firstRoute.current) { firstRoute.current = false; startBuildWatcher(); return; }
-    checkBuild();
-  }, [location.pathname]);
+  // бот перезапустился на новой версии — перезагружаем панель на любой странице (событие build от
+  // бота, см. hooks/useBuildWatcher)
+  useEffect(() => { startBuildWatcher(); }, []);
   // запоминаем каждую реальную страницу (кроме "/", это transient-редирект, а не контент) — читает
   // loadLastPage() ниже при следующем открытии PWA. Невалидный/удалённый путь не страшен: маршрут
   // "*" ниже сам уводит на /accounts.

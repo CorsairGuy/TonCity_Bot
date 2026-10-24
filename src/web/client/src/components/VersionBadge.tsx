@@ -5,12 +5,14 @@ import { SyncIcon, PinIcon, DownloadIcon, CheckCircleFillIcon, XCircleFillIcon, 
 import { api, VersionInfo } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
+import { onServerEvent } from '../serverEvents';
 import { updateStageView, ProgressRing } from './UpdateProgress';
 
 // Блок версии внизу меню: статус (значок в столбце иконок меню), канал и коммит, список того, что
 // придёт с обновлением (названия PR), и кнопка обновления
-// (через обновлятель, см. docker-compose.yml). Выбор канала — Настройки → Обновления. Сервер
-// кэширует ответ GitHub на 30 минут (3 минуты, пока собирается образ) и проверяет его сразу при запуске.
+// (через обновлятель, см. docker-compose.yml). Выбор канала — Настройки → Обновления. Проверяет
+// GitHub только бот: при запуске и дальше сам раз в 30 минут (3 минуты, пока собирается образ), и
+// каждую проверку сразу присылает во все открытые вкладки (событие version, serverEvents.ts).
 const MAX_CHANGES = 5;
 
 // стрелка вверх, вырезанная в залитом кружке, — пара к CheckCircleFillIcon (у octicons такой нет)
@@ -75,12 +77,8 @@ export function VersionBadge() {
     window.addEventListener('tc-version', on);
     return () => window.removeEventListener('tc-version', on);
   }, []);
-  // пока образ собирается на GitHub — чаще (сервер тогда сам держит кэш 3 минуты), иначе раз в 30 минут
-  const building = !!v?.build && v.build.status !== 'completed';
-  useEffect(() => {
-    const id = setInterval(() => load(), (building ? 3 : 30) * 60 * 1000);
-    return () => clearInterval(id);
-  }, [building]);
+  // свежие проверки бота — сами по таймеру, ручные из любой вкладки, автообновление
+  useEffect(() => onServerEvent<VersionInfo>('version', d => { if (d && d.ok) setV(d); }), []);
 
   if (!v) return null;
   const updating = upd.updating || serverBusy;
