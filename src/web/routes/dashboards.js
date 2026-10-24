@@ -459,13 +459,10 @@ module.exports=function(app,ctx){
       return (d?.quests||[]).find(x=>String(x.id)===String(quest_id))||null;
     };
     try{
-      const{withRetry}=require('../../utils/helpers');
-      // живьём подтверждено (30.07.2026): игра иногда отвечает 400 на ПЕРВУЮ попытку заклейма,
-      // хотя оба условия реально выполнены — следующая попытка того же quest_id проходит успешно
-      // (см. modules/capital.js collectReadyQuests, тот же приём) — похоже на race condition
-      // на стороне игры, не в боте, поэтому несколько быстрых ретраев вместо мгновенной ошибки.
-      const result=await withRetry(()=>api.post(`/guild-quests/collect/${quest_id}`,{}),3,2000,`${acc.name} collect ${quest_id}`,{skipOnNoAnswer:true});
-      res.json({ok:true,result,quest:await freshQuest()});
+      // claim() сам разбирает 400 (уже забрано или гонка игры) и, если этот квест уже забирает
+      // автозаклейм или цикл, не шлёт второй запрос, а ждёт их результата
+      const r=await require('../lib/questClaimProgress').claim(api,acc.name,quest_id,'manual');
+      res.json({ok:true,result:r.result,already:!!r.already,quest:await freshQuest()});
     }catch(e){
       // 400 "Предоставлены неверные входные данные" игра отдаёт и на УЖЕ ЗАБРАННУЮ награду —
       // это не ошибка, а гонка: квест успели заклеймить (циклом бота, автозаклеймом после
@@ -509,14 +506,10 @@ module.exports=function(app,ctx){
     let collected=false;
     const ready=q&&!q.is_collected&&(q.personal_progress||0)>=(q.personal_threshold||0)&&(q.guild_progress||0)>=(q.guild_threshold||0);
     if(ready){
-      const claimProgress=require('../lib/questClaimProgress');
       try{
-        const{withRetry}=require('../../utils/helpers');
-        // те же ретраи, что и у ручного заклейма выше — игра иногда отвечает 400 на первую попытку.
-        // track(...) держит квест в реестре идущих автозаклеймов и раздаёт это по SSE, чтобы кнопка
-        // «Заклеймить» на странице показывала «забираем…», а не выглядела как «нажми меня».
-        await claimProgress.track(accountName,questId,'action',()=>
-          withRetry(()=>api.post(`/guild-quests/collect/${questId}`,{}),3,2000,`${accountName} autoclaim ${questId}`,{skipOnNoAnswer:true}));
+        // тот же claim(), что и у ручного заклейма выше: 400 на уже забранную награду — успех, а
+        // реестр идущих заклеймов раздаёт состояние по SSE (кнопка показывает «забираем…»)
+        await require('../lib/questClaimProgress').claim(api,accountName,questId,'action');
         collected=true;
         const after=await resyncGuildQuests(api,accountName);
         q=after?.quests?.find(x=>String(x.id)===String(questId))||q;
