@@ -1105,7 +1105,7 @@ export function CityWorld() {
         </Box>
       </Box>
       {withWarm.map(a => (
-        <CityMapCity key={a} account={a} mode={mode} onModeChange={setMode} onBack={goAll} hidden={a !== cur} seedGuild={rows.find(r => r.account === a)?.guild} tool={tool}
+        <CityMapCity key={a} account={a} mode={mode} onModeChange={setMode} onBack={goAll} hidden={a !== cur} tool={tool}
           slots={slots} onMap={onMap} dayNight={dayNight} onDayNight={setDayNight} panelActions={panelToggle} />
       ))}
     </Box>

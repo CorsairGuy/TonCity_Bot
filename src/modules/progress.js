@@ -609,6 +609,8 @@ async function runProgress(api,name,opts={}){
   // buildingCatalog.js) без всякой кнопки — именно это и было задумано комментарием там же
   // («Устаревшее авто-обновление по TTL... нигде не вызывается»), просто никогда не включено.
   await require('../utils/buildingCatalog').ensureFresh(api).catch(()=>{});
+  // условия построек для панели города — в БД раз в проход (панель в игру не ходит, см. utils/cityLiveData.js)
+  await require('../utils/cityLiveData').syncBuildCriteria(api,name).catch(e=>logger.warn(`[${name}] [progress] критерии построек: ${e.message}`));
   const{upgrading=true}=opts;
   if(isCityPaused()){logger.info(`[${name}] [progress] прокачка на паузе — пропускаю`);return;}
   try{

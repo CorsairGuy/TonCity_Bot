@@ -316,7 +316,6 @@ export interface CityMapCityProps {
   onDayNight?: (m: DayNightMode) => void;
   panelActions?: ReactNode;            // кнопки общей страницы в шапке сайдбара
   hidden?: boolean;                    // город не текущий: панели нет, но черновик и превью на карте живут
-  seedGuild?: { income_boost: number; building_purchases_discount: number; upgrades_discount: number }; // бонусы гильдии из снимка БД, пока не пришли живые
   // выбранное здание для стройки и уровень кисти — общие для всех городов общей карты
   tool?: { buildFamily: string; setBuildFamily: (v: string) => void; addLevel: string; setAddLevel: (v: string) => void };
 }
@@ -491,12 +490,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
 
   const [loadErr, setLoadErr] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
-  const hiddenRef = useRef(!!props.hidden); hiddenRef.current = !!props.hidden;
-  const liveDone = useRef(false);
   useEffect(() => {
-    // во «Городах» живые запросы к игре (скидки гильдии, критерии построек) панель не ждут: она открывается
-    // по данным из БД, а живое догружается сразу следом (эффект ниже)
-    const hiddenAtLoad = hiddenRef.current || !!props.slots;
     let stale = false;
     setLoading(true);
     setDataDone(0);
@@ -508,11 +502,10 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       account ? api.cityStrategy(account) : Promise.resolve({ ok: true, targets: [] as CityStrategyTarget[], queue: [] as CityStrategyQueueItem[], reconstructPlan: [] as CityStrategyQueueItem[], buildPlan: [] as { x: number; y: number; family_id: string }[] }),
       fetch('/api/coords?type=').then(r => r.json()).catch(() => ({ coords: [] })),
       (account ? api.policies(account) : Promise.resolve({ ok: false as const, byAccount: {} })).catch(() => ({ ok: false as const, byAccount: {} })),
-      // скрытый город общей карты (его задела кисть) живые запросы к игре не шлёт: они нужны панели,
-      // и уходят, когда город станет текущим (эффект ниже)
-      account && !hiddenAtLoad ? api.cityGuildBenefits(account).catch(() => ({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 })) : Promise.resolve({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 }),
+      // скидки гильдии и условия построек — из БД: их пишет бот (цикл прокачки, квесты гильдии) и кнопка «Обновить»
+      account ? api.cityGuildBenefits(account).catch(() => ({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 })) : Promise.resolve({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 }),
       (account ? api.accounts(account) : Promise.resolve({ ok: false as const, accounts: [] })).catch(() => ({ ok: false as const, accounts: [] })),
-      account && !hiddenAtLoad ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
+      account ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
       account ? api.cityDiversity(account).catch(() => ({ ok: false as const, income_bonus: 0 })) : Promise.resolve({ ok: false as const, income_bonus: 0 }),
     ], () => { if (!stale) setDataDone(n => n + 1); }).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
       if (stale) return;
@@ -533,30 +526,14 @@ export function CityMapCity(props: CityMapCityProps = {}) {
         build: pol.ok ? computePolicyMultiplier(pol.byAccount[account]?.cabinet, 'build_cost') : 1,
         upgrade: pol.ok ? computePolicyMultiplier(pol.byAccount[account]?.cabinet, 'upgrade_cost') : 1,
       });
-      if (!hiddenAtLoad) setGuildDisc({ build: guild.ok ? guild.building_purchases_discount : 0, upgrade: guild.ok ? guild.upgrades_discount : 0 });
+      setGuildDisc({ build: guild.ok ? guild.building_purchases_discount : 0, upgrade: guild.ok ? guild.upgrades_discount : 0 });
       setPolicyCabinet(pol.ok ? pol.byAccount[account]?.cabinet : undefined);
-      if (!hiddenAtLoad) setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
-      else if (props.seedGuild) {
-        setGuildDisc({ build: props.seedGuild.building_purchases_discount, upgrade: props.seedGuild.upgrades_discount });
-        setGuildIncomeBoost(props.seedGuild.income_boost);
-      }
-      liveDone.current = !hiddenAtLoad;
+      setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
       setDiversityIncomeBoost(diversity.ok ? diversity.income_bonus : 0);
     }).catch(e => { if (!stale) setLoadErr(String(e)); })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
   }, [account, reloadTick]);
-  // город загрузился скрытым (его задела кисть издалека) и стал текущим — догружаем живое для панели
-  useEffect(() => {
-    if (props.hidden || loading || liveDone.current || !account) return;
-    liveDone.current = true;
-    api.cityGuildBenefits(account).then(g => {
-      if (!g.ok || accountRef.current !== account) return;
-      setGuildDisc({ build: g.building_purchases_discount, upgrade: g.upgrades_discount });
-      setGuildIncomeBoost(g.income_boost);
-    }).catch(() => {});
-    api.cityBuildCriteria(account).then(c => { if (c.ok && accountRef.current === account) setBuildCriteria(c.criteria); }).catch(() => {});
-  }, [props.hidden, loading, account]);
 
   // смена аккаунта — сбросить очередь и все незавершённые выборы (вкладка остаётся, если её ведёт общая карта)
   useEffect(() => {
@@ -589,7 +566,12 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     setLiveRefreshing(true);
     try {
       const r = await api.cityRefresh(account);
-      if (r.ok) refreshMap(); else showFlash(r.error ?? 'Ошибка', false);
+      if (r.ok) {
+        refreshMap();
+        // «Обновить» переписал в БД и бонусы гильдии с условиями построек — перечитываем их
+        api.cityGuildBenefits(account).then(g => { if (g.ok && accountRef.current === account) { setGuildDisc({ build: g.building_purchases_discount, upgrade: g.upgrades_discount }); setGuildIncomeBoost(g.income_boost); } }).catch(() => {});
+        api.cityBuildCriteria(account).then(c => { if (c.ok && accountRef.current === account) setBuildCriteria(c.criteria); }).catch(() => {});
+      } else showFlash(r.error ?? 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); } finally { setLiveRefreshing(false); }
   };
 

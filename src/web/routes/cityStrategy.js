@@ -74,6 +74,10 @@ module.exports=function(app,ctx){
         const api=await makeApiForAccount(acc.id,{noLock:true});
         const result=await resyncSnapshot(api,acc.name);
         if(result===null)return{status:500,body:{ok:false,error:'Не удалось получить данные с игры'}};
+        // заодно — условия построек и бонусы гильдии в БД (панель берёт их оттуда)
+        const live=require('../../utils/cityLiveData');
+        await live.syncBuildCriteria(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [refresh] критерии построек: ${e.message}`));
+        await live.syncGuildBenefits(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [refresh] бонусы гильдии: ${e.message}`));
         return{status:200,body:{ok:true,buildings:result.buildings,unlockedSections:result.unlockedSections}};
       });
       res.status(result.status).json(result.body);
@@ -102,14 +106,13 @@ module.exports=function(app,ctx){
   // reference_game_formulas.md — строка "Бонус гильдии" на экране "Обзор доходов" в самой игре)
   app.get('/api/city-strategy/:account/guild-benefits',async(req,res)=>{
     try{
-      const acc=await findAccountByName(req.params.account);
-      const api=await makeApiForAccount(acc.id,{noLock:true});
-      const d=await api.get('/guilds/benefits');
+      // из БД (GuildSnapshot.benefits), игру не трогает — см. utils/cityLiveData.js
+      const b=await require('../../utils/cityLiveData').loadGuildBenefits(req.params.account);
       res.json({
         ok:true,
-        building_purchases_discount:Number(d?.benefits?.building_purchases_discount||0),
-        upgrades_discount:Number(d?.benefits?.upgrades_discount||0),
-        income_boost:Number(d?.benefits?.income_boost||0),
+        building_purchases_discount:Number(b?.building_purchases_discount||0),
+        upgrades_discount:Number(b?.upgrades_discount||0),
+        income_boost:Number(b?.income_boost||0),
       });
     }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
@@ -132,10 +135,8 @@ module.exports=function(app,ctx){
   // config/buildings.txt.
   app.get('/api/city-strategy/:account/build-criteria',async(req,res)=>{
     try{
-      const acc=await findAccountByName(req.params.account);
-      const api=await makeApiForAccount(acc.id,{noLock:true});
-      const d=await api.get('/buildings/criteria');
-      res.json({ok:true,criteria:d});
+      // из БД: пишет цикл прокачки города и «Обновить» — см. utils/cityLiveData.js
+      res.json({ok:true,criteria:await require('../../utils/cityLiveData').loadBuildCriteria(req.params.account)});
     }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
 
