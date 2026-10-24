@@ -195,6 +195,14 @@ const CityReconstructPlan=seq.define('CityReconstructPlan',{
   account:S(255), x:I, y:I,
   updated_at:{type:DataTypes.DATE,defaultValue:DataTypes.NOW},
 },{tableName:'city_reconstruct_plan',timestamps:false});
+// отложенная стройка (общая карта всех городов, вкладка «Строительство»): здание, на которое у
+// города пока не хватает монет. Бот строит его сам, как только монет хватит (modules/progress.js
+// runPendingBuilds), и вычёркивает строку
+const CityBuildPlan=seq.define('CityBuildPlan',{
+  id:{type:I,primaryKey:true,autoIncrement:true},
+  account:S(255), x:I, y:I, family_id:S(255),
+  updated_at:{type:DataTypes.DATE,defaultValue:DataTypes.NOW},
+},{tableName:'city_build_plan',timestamps:false});
 // Доступ к Центральному рынку по аккаунтам. Игра может ограничить рынок за «подозрительную
 
 // активность» (мультиаккаунт, перегон валюты между своими) — и тогда ЛЮБОЙ ответ /market/offers
@@ -846,6 +854,7 @@ async function init(){
     // сравнивается напрямую с уже известным Account.profit (текущая прибыль/час — условие
     // /mjourney/ это НЕ накопительный счётчик, а именно текущая прибыль, сверено живьём), поэтому
     // отдельный снимок/экстраполяция по времени не нужны.
+    `CREATE TABLE IF NOT EXISTS city_build_plan (id INT AUTO_INCREMENT PRIMARY KEY, account VARCHAR(255), x INT, y INT, family_id VARCHAR(255), updated_at DATETIME DEFAULT NULL, UNIQUE KEY uq_city_build_plan (account, x, y))`,
     `CREATE TABLE IF NOT EXISTS journey_level_defs (level INT PRIMARY KEY, required_profit DOUBLE DEFAULT NULL, updated_at DATETIME DEFAULT NULL)`,
     `CREATE TABLE IF NOT EXISTS loyalty_level_defs (level INT PRIMARY KEY, required_days INT DEFAULT NULL, updated_at DATETIME DEFAULT NULL)`,
     `ALTER TABLE city_snapshot ADD COLUMN unlocked_sections TEXT`,
@@ -940,6 +949,7 @@ const UPSERT_KEYS=[
   // очередь — по МЕСТУ в очереди, а не по клетке: одна клетка может стоять несколько раз подряд
   ['city_upgrade_queue',['account','pos']],
   ['city_reconstruct_plan',['account','x','y']],
+  ['city_build_plan',['account','x','y']],
 
   ['market_access',['account']],
 ];
@@ -1014,5 +1024,5 @@ async function ensureUpsertKeys(){
     }
   }
 }
-module.exports={seq,Account,Inventory,FortuneLog,WordleLog,MinigameLog,QuizAnswer,JourneyLevel,DailyLog,DailyRewardSnapshot,TownhallAirdrop,TownhallDiversity,ShopSnapshot,AchievementSnapshot,PromoLog,CitySnapshot,GuildSnapshot,GuildQuestSnapshot,GuildSpecialBuilding,FortuneStatus,CapitalSnapshot,BuilderSnapshot,LoyaltySnapshot,GuildMembersSnapshot,MidSnapshot,DailyAdsSnapshot,StakingEntry,MarketStatsSnapshot,MarketListing,MarketPurchase,MarketSale,MarketAutobuy,MarketSnipe,PolicySnapshot,CivicDrawStatus,PolicyDefCatalog,SatoshiPosition,SatoshiPositionHistory,SatoshiPendingOrder,QuestTierSnapshot,TechFactoryStatus,TechFactoryQueue,AuditoriumStatus,MarketAccess,CityStrategy,CityUpgradeTarget,CityUpgradeQueue,CityReconstructPlan,SchemaMark,GlobalUpgradePlan,BoosterAutomation,BoosterQueue,CityActionLog,
+module.exports={seq,Account,Inventory,FortuneLog,WordleLog,MinigameLog,QuizAnswer,JourneyLevel,DailyLog,DailyRewardSnapshot,TownhallAirdrop,TownhallDiversity,ShopSnapshot,AchievementSnapshot,PromoLog,CitySnapshot,GuildSnapshot,GuildQuestSnapshot,GuildSpecialBuilding,FortuneStatus,CapitalSnapshot,BuilderSnapshot,LoyaltySnapshot,GuildMembersSnapshot,MidSnapshot,DailyAdsSnapshot,StakingEntry,MarketStatsSnapshot,MarketListing,MarketPurchase,MarketSale,MarketAutobuy,MarketSnipe,PolicySnapshot,CivicDrawStatus,PolicyDefCatalog,SatoshiPosition,SatoshiPositionHistory,SatoshiPendingOrder,QuestTierSnapshot,TechFactoryStatus,TechFactoryQueue,AuditoriumStatus,MarketAccess,CityStrategy,CityUpgradeTarget,CityUpgradeQueue,CityReconstructPlan,CityBuildPlan,SchemaMark,GlobalUpgradePlan,BoosterAutomation,BoosterQueue,CityActionLog,
 CapitalStrategy,GlobalCapitalUpgradePlan,CapitalActionLog,JourneyLevelDef,LoyaltyLevelDef,init};

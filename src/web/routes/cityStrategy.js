@@ -351,6 +351,20 @@ module.exports=function(app,ctx){
     }catch(e){res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});}
   });
 
+  // отложенная стройка (общая карта, «Строительство»): add — здания, на которые городу пока не
+  // хватает монет, бот построит их сам (modules/progress.js runPendingBuilds); remove — снять клетки
+  app.post('/api/city-strategy/:account/build-plan',async(req,res)=>{
+    try{
+      const p=require('../../db/cityPlans');
+      if(Array.isArray(req.body?.remove))await p.removeBuildPlan(req.params.account,req.body.remove);
+      if(Array.isArray(req.body?.add)&&req.body.add.length){
+        await p.addBuildPlan(req.params.account,req.body.add);
+        require('../../utils/cityWake').wake(req.params.account);
+      }
+      res.json({ok:true});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   // общий лог всех городов (общая карта, вкладка «Лог» издалека)
   app.get('/api/city-action-log',async(req,res)=>{
     try{

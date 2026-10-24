@@ -55,6 +55,8 @@ interface Props {
   focus?: { account: string; share: number } | null; // поставить город в центр шириной share экрана
   onEnter: (account: string) => void;     // город приблизили до порога З1 или кликнули по нему
   onHover?: (account: string | null) => void;
+  // вкладки действий: клик выбирает клетку в любом городе, а не открывает город
+  onCell?: (account: string, x: number, y: number) => void;
 }
 
 interface CityImg { el: HTMLCanvasElement; complete: boolean; sig: string }
@@ -124,7 +126,7 @@ function renderCity(c: WorldCity, sm: SpriteMap, locked: Set<string>, into?: HTM
 
 const citySig = (c: WorldCity) => `${c.unlockedSections?.join(',') ?? '-'}|${c.buildings.map(b => `${b.x},${b.y},${b.id},${b.end ? new Date(b.end).getTime() > Date.now() ? 1 : 0 : 0}`).join(';')}`;
 
-export function WorldMapCanvas({ cities, sections, tint, cells, dim, focus, onEnter, onHover }: Props) {
+export function WorldMapCanvas({ cities, sections, tint, cells, dim, focus, onEnter, onHover, onCell }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const st = useRef({
@@ -132,10 +134,11 @@ export function WorldMapCanvas({ cities, sections, tint, cells, dim, focus, onEn
     imgs: new Map<string, CityImg>(),
     sm: null as SpriteMap | null,
     hover: null as string | null,
+    hoverCell: null as { i: number; x: number; y: number } | null,
     raf: 0, anim: 0,
   });
-  const props = useRef({ cities, sections, tint, cells, dim, onEnter, onHover });
-  props.current = { cities, sections, tint, cells, dim, onEnter, onHover };
+  const props = useRef({ cities, sections, tint, cells, dim, onEnter, onHover, onCell });
+  props.current = { cities, sections, tint, cells, dim, onEnter, onHover, onCell };
 
   const cols = gridCols(cities.length);
   // обработчики и кадр живут дольше одного рендера — сетку берут отсюда, а не из замыкания
@@ -187,6 +190,14 @@ export function WorldMapCanvas({ cities, sections, tint, cells, dim, focus, onEn
     }
     return -1;
   }
+  // клетка города под точкой экрана (координаты внутри города)
+  function cellAt(mx: number, my: number): { i: number; x: number; y: number } | null {
+    const i = cityAt(mx, my);
+    if (i < 0) return null;
+    const { c, r } = pick(mx, my), p = posOf(i);
+    const x = Math.round(c) - p.c, y = Math.round(r) - p.r;
+    return x >= 0 && y >= 0 && x < SPAN && y < SPAN ? { i, x, y } : null;
+  }
   // город, который сейчас ближе всех к центру экрана
   function centralCity(): number {
     const { W, H } = size(), { c, r } = pick(W / 2, H / 2);
@@ -232,6 +243,13 @@ export function WorldMapCanvas({ cities, sections, tint, cells, dim, focus, onEn
       x.beginPath(); x.moveTo(o.x + s.tw / 2, o.y); x.lineTo(o.x + s.tw, o.y + th / 2); x.lineTo(o.x + s.tw / 2, o.y + th); x.lineTo(o.x, o.y + th / 2); x.closePath();
       x.fillStyle = cell.fill; x.fill();
       if (cell.stroke && s.tw >= 6) { x.lineWidth = 1; x.strokeStyle = cell.stroke; x.stroke(); }
+    }
+    // клетка под курсором на вкладках действий
+    if (s.hoverCell && props.current.onCell) {
+      const p = posOf(s.hoverCell.i), o = iso(p.c + s.hoverCell.x, p.r + s.hoverCell.y);
+      x.beginPath(); x.moveTo(o.x + s.tw / 2, o.y); x.lineTo(o.x + s.tw, o.y + th / 2); x.lineTo(o.x + s.tw / 2, o.y + th); x.lineTo(o.x, o.y + th / 2); x.closePath();
+      x.fillStyle = 'rgba(255,255,255,.35)'; x.fill();
+      x.lineWidth = 2; x.strokeStyle = '#0969da'; x.stroke();
     }
   }
 
@@ -320,16 +338,25 @@ export function WorldMapCanvas({ cities, sections, tint, cells, dim, focus, onEn
       const { mx, my } = local(e);
       const i = cityAt(mx, my);
       setHover(i >= 0 ? props.current.cities[i].account : null);
+      if (props.current.onCell) {
+        const c = cellAt(mx, my), h = s.hoverCell;
+        if (c?.i !== h?.i || c?.x !== h?.x || c?.y !== h?.y) { s.hoverCell = c; redraw(); }
+      }
     };
     const onUp = (e: MouseEvent) => {
       if (!down) return;
       const wasMove = moved; down = null;
       if (wasMove || e.button !== 0) return;
-      const { mx, my } = local(e);
+      tap(local(e));
+    };
+    // клик: на вкладках действий — клетка, иначе наезд на город
+    const tap = ({ mx, my }: { mx: number; my: number }) => {
+      const cb = props.current.onCell;
+      if (cb) { const c = cellAt(mx, my); if (c) cb(props.current.cities[c.i].account, c.x, c.y); return; }
       const i = cityAt(mx, my);
       if (i >= 0) flyTo(i);
     };
-    const onLeave = () => { if (!down) setHover(null); };
+    const onLeave = () => { if (!down) { setHover(null); if (s.hoverCell) { s.hoverCell = null; redraw(); } } };
     const onCtx = (e: MouseEvent) => e.preventDefault();
 
     // сенсор: один палец — пан и тап по городу, два — зум
@@ -355,11 +382,7 @@ export function WorldMapCanvas({ cities, sections, tint, cells, dim, focus, onEn
     };
     const onTEnd = (e: TouchEvent) => {
       if (e.touches.length > 0) { pinch = null; return; }
-      if (t1 && !tMoved && e.changedTouches.length) {
-        const { mx, my } = local(e.changedTouches[0]);
-        const i = cityAt(mx, my);
-        if (i >= 0) flyTo(i);
-      }
+      if (t1 && !tMoved && e.changedTouches.length) tap(local(e.changedTouches[0]));
       t1 = null; pinch = null;
     };
     const ro = new ResizeObserver(() => redraw());
@@ -389,7 +412,7 @@ export function WorldMapCanvas({ cities, sections, tint, cells, dim, focus, onEn
   }, [cols]);
 
   return (
-    <Box ref={wrapRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden', touchAction: 'none', cursor: 'grab', bg: WORLD_BG }}>
+    <Box ref={wrapRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden', touchAction: 'none', cursor: onCell ? 'pointer' : 'grab', bg: WORLD_BG }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
     </Box>
   );

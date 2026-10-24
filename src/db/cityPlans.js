@@ -48,6 +48,25 @@ async function loadAllQueues() {
   return out;
 }
 
+// отложенная стройка: {account: [{x,y,family_id}]} (без account — все города)
+async function loadBuildPlans(account) {
+  const { CityBuildPlan } = db();
+  const rows = await CityBuildPlan.findAll({ where: account ? { account } : undefined, order: [['account', 'ASC'], ['id', 'ASC']], raw: true });
+  const out = {};
+  for (const v of rows) (out[v.account] ||= []).push({ x: num(v.x), y: num(v.y), family_id: v.family_id });
+  return out;
+}
+// добавить клетки в отложенную стройку (занятая планом клетка получает новое здание)
+async function addBuildPlan(account, list) {
+  const { CityBuildPlan } = db();
+  const items = (Array.isArray(list) ? list : []).filter(p => p && p.x != null && p.y != null && p.family_id);
+  if (!items.length) return 0;
+  await removeCells(CityBuildPlan, account, items);
+  await CityBuildPlan.bulkCreate(items.map(p => ({ account, x: Number(p.x), y: Number(p.y), family_id: String(p.family_id), updated_at: new Date() })));
+  return items.length;
+}
+async function removeBuildPlan(account, cells) { return removeCells(db().CityBuildPlan, account, cells); }
+
 // ── сохранение списка целиком (панель присылает весь список) ────────────────────────────────
 // Не «удалить всё и вставить заново», а diff: неизменные клетки не трогаем вообще, поэтому
 // параллельная точечная правка (бот вычёркивает выполненную позицию) не конфликтует с сохранением.
@@ -216,6 +235,6 @@ async function migrateFromBlobs() {
 }
 
 module.exports = {
-  loadPlans, loadAllQueues, saveTargets, saveQueue, saveReconstruct,
+  loadPlans, loadAllQueues, loadBuildPlans, addBuildPlan, removeBuildPlan, saveTargets, saveQueue, saveReconstruct,
   removeReconstruct, removeQueue, removeTargets, moveCell, migrateFromBlobs, MARK,
 };

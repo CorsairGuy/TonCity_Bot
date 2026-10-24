@@ -74,10 +74,12 @@ module.exports=function(app,ctx){
   app.get('/api/city-world',async(req,res)=>{
     try{
       const{CitySnapshot,Account}=require('../../db/index');
-      const[snaps,accs,queues]=await Promise.all([
+      const plansMod=require('../../db/cityPlans');
+      const[snaps,accs,queues,builds]=await Promise.all([
         CitySnapshot.findAll({order:[['account','ASC']]}),
         Account.findAll({attributes:['name','balance','profit','profit_final','population','population_final','happiness']}),
-        require('../../db/cityPlans').loadAllQueues(),
+        plansMod.loadAllQueues(),
+        plansMod.loadBuildPlans(),
       ]);
       const byName=new Map(accs.map(a=>[a.name,a]));
       const n=v=>{const x=Number(v);return isFinite(x)?x:0;};
@@ -85,7 +87,7 @@ module.exports=function(app,ctx){
         const a=byName.get(r.account);
         return{account:r.account,buildings:r.buildings?JSON.parse(r.buildings):[],unlockedSections:r.unlocked_sections?JSON.parse(r.unlocked_sections):null,updated_at:r.updated_at,
           balance:n(a.balance),profit:n(a.profit),profit_final:n(a.profit_final),population:n(a.population),population_final:n(a.population_final),happiness:n(a.happiness),
-          queue:queues[r.account]||[]};
+          queue:queues[r.account]||[],buildPlan:builds[r.account]||[]};
       });
       const order=require('../../config').getConfig().ui?.cityOrder;
       res.json({ok:true,rows,order:Array.isArray(order)?order:[]});
