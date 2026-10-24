@@ -78,7 +78,7 @@ function buildCityStatsMods(cabinet: PolicyCabinet | undefined, incomeBoost: num
 // (цели прокачки) — отдельный, уже существующий персистентный механизм (CityStrategy.targets),
 // в общую очередь не входит, сохраняется своей кнопкой "Сохранить".
 
-function buildingCat(id: string): string {
+export function buildingCat(id: string): string {
   if (id.startsWith('CAP_')) { const m = id.slice(4).match(/^([A-Z]+)_/); return m ? m[1] : ''; }
   const m = id.match(/^([A-Z]+)_/);
   return m ? m[1] : '';
@@ -125,13 +125,13 @@ function criteriaReason(criteria: unknown, buildingId: string): string {
 // buildCostMultiplier — сверено с бандлом игры (get actualBasePrice()). buildCostMultiplier — скидка
 // от надетых политик (см. computeBuildCostMultiplier ниже), без нёе цена не совпадает со скидочной
 // ценой в самой игре (только с "зачёркнутой" базовой, да и то не всегда — там ещё count может отличаться)
-function buildPriceAt(info: BuildingDef, k: number, buildCostMultiplier = 1): number {
+export function buildPriceAt(info: BuildingDef, k: number, buildCostMultiplier = 1): number {
   return Math.round(Math.round((info.base_price || 0) * Math.pow(info.base_price_factor ?? 1, k)) * buildCostMultiplier);
 }
 // множитель цены от надетых политик (build_cost — постройка, upgrade_cost — улучшение) — сверено с
 // бандлом (policyMultiplier: суммируем ВСЕ mult-эффекты с этим stat'ом аддитивно, затем 1+сумма,
 // не ниже 0 — не перемножаем по одной, иначе две политики по -10% дали бы 0.81 вместо верных 0.8)
-function computePolicyMultiplier(cabinet: PolicyCabinet | undefined, stat: string): number {
+export function computePolicyMultiplier(cabinet: PolicyCabinet | undefined, stat: string): number {
   let sum = 0;
   for (const slot of cabinet?.slots ?? []) {
     for (const e of slot.instance?.effects ?? []) {

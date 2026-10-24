@@ -255,7 +255,7 @@ export function fmtUp(n: number): string {
   return String(Math.ceil(n));
 }
 // мини-карточка предмета, как на странице «Предметы»: цвет редкости, количество в синем ярлыке (не хватает — в красном)
-function ItemCard({ tag, count, short, className, src, dim }: { tag: string; count?: ReactNode; short?: boolean; className?: string; src?: string | null; dim?: boolean }) {
+export function ItemCard({ tag, count, short, className, src, dim }: { tag: string; count?: ReactNode; short?: boolean; className?: string; src?: string | null; dim?: boolean }) {
   return (
     // непрозрачная подложка: фон редкости полупрозрачный и иначе окрашивался бы заливкой карточки
     <Box className={className} sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', flexShrink: 0 }}>

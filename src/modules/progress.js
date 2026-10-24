@@ -77,6 +77,8 @@ async function loadGuildBonuses(api){
     const d=await api.get('/guilds/benefits');
     return{
       discount:Number(d?.benefits?.upgrades_discount||0),
+      // скидка гильдии на постройку (building_purchases_discount) — для отложенной стройки
+      buildDiscount:Number(d?.benefits?.building_purchases_discount||0),
       // "Камни Основания" (столичное здание гильдии) — +N строителей всем участникам. Подтверждено
       // реверсом бандла (additional_builder в том же объекте benefits), но НЕ прибавляется клиентом
       // игры к счётчику строителей нигде явно — по факту у аккаунтов с этим бонусом /progress/
@@ -87,7 +89,7 @@ async function loadGuildBonuses(api){
       // применяется к базовой длительности улучшения (см. cityStats.js effectiveUpgradeDuration).
       reducedUpgradeTimes:Number(d?.benefits?.reduced_upgrade_times||0),
     };
-  }catch(_){return{discount:0,additionalBuilder:0,reducedUpgradeTimes:0};}
+  }catch(_){return{discount:0,buildDiscount:0,additionalBuilder:0,reducedUpgradeTimes:0};}
 }
 
 // бонус строителей и множитель цены улучшений от надетых в кабинете мэра политик (/policies/cabinet,
@@ -100,18 +102,19 @@ async function loadGuildBonuses(api){
 async function loadPolicyEffects(api){
   try{
     const cab=await api.get('/policies/cabinet');
-    let builderBonus=0,upgradeCostSum=0,constructionTimeSum=0;
+    let builderBonus=0,upgradeCostSum=0,constructionTimeSum=0,buildCostSum=0;
     for(const slot of cab?.slots||[]){
       for(const e of slot?.instance?.effects||[]){
         if(e?.stat==='concurrent_builders'&&e?.mode==='add')builderBonus+=Number(e.value)||0;
         if(e?.stat==='upgrade_cost'&&e?.mode==='mult')upgradeCostSum+=Number(e.value)||0;
+        if(e?.stat==='build_cost'&&e?.mode==='mult')buildCostSum+=Number(e.value)||0;
         // constructionTimeMultiplier — сверено с бандлом (Gc().constructionTimeMultiplier=
         // policyMultiplier('construction_time')), та же схема, что upgrade_cost/build_cost
         if(e?.stat==='construction_time'&&e?.mode==='mult')constructionTimeSum+=Number(e.value)||0;
       }
     }
-    return{builderBonus:Math.floor(builderBonus),upgradeCostMultiplier:Math.max(0,1+upgradeCostSum),constructionTimeMultiplier:Math.max(0,1+constructionTimeSum)};
-  }catch(_){return{builderBonus:0,upgradeCostMultiplier:1,constructionTimeMultiplier:1};}
+    return{builderBonus:Math.floor(builderBonus),upgradeCostMultiplier:Math.max(0,1+upgradeCostSum),constructionTimeMultiplier:Math.max(0,1+constructionTimeSum),buildCostMultiplier:Math.max(0,1+buildCostSum)};
+  }catch(_){return{builderBonus:0,upgradeCostMultiplier:1,constructionTimeMultiplier:1,buildCostMultiplier:1};}
 }
 
 // текущий активный ускоритель + флаг "стоит автопродление" — для прогноза (вкладка "Прогноз"). Если
@@ -559,6 +562,42 @@ async function runPendingReconstructions(api,name,current,buildingsMap){
   return changed;
 }
 
+// Отложенная стройка (общая карта всех городов → «Строительство», таблица city_build_plan): здания,
+// на которые городу не хватало монет. Цена — как в игре: base_price·factor^k (k — сколько зданий
+// этой семьи уже стоит), затем скидка политик build_cost и скидка гильдии на постройку. Хватает
+// монет — строим и вычёркиваем строку; клетка занята или здания больше нет в каталоге — строка
+// недостижима, вычёркиваем; игра отказала — оставляем до следующего прохода.
+async function runPendingBuilds(api,name,current,coins,buildingsMap,buildMult){
+  let plan;
+  try{plan=(await cityPlans.loadBuildPlans(name))[name]||[];}catch(_){return false;}
+  if(!plan.length)return false;
+  const{familyId,buildPriceAt}=require('../web/cityStats');
+  const done=[];
+  let left=coins,changed=false;
+  const count=fam=>current.filter(b=>familyId(b.id)===fam).length;
+  for(const p of plan){
+    const info=buildingsMap.get(p.family_id);
+    if(!info||current.some(b=>Number(b.x)===p.x&&Number(b.y)===p.y)){done.push(p);continue;}
+    const price=Math.round(buildPriceAt(info,count(familyId(p.family_id)))*buildMult);
+    if(price>left)continue;
+    const ok=await runProgressAction(name,`build ${p.family_id} at (${p.x},${p.y})`,async()=>{
+      await sleep(1000);
+      await api.post('/progress/',[{type:'build',id:p.family_id,x:p.x,y:p.y}]);
+      logger.info(`[${name}] [progress] build ${p.family_id} at (${p.x},${p.y}) — отложенная стройка выполнена`);
+    });
+    if(ok){
+      changed=true;left-=price;done.push(p);
+      current.push({id:p.family_id,x:p.x,y:p.y,level:1});
+      await logAction(name,'build',{x:p.x,y:p.y,building_id:p.family_id});
+    }
+  }
+  if(done.length){
+    try{await cityPlans.removeBuildPlan(name,done);}
+    catch(e){logger.warn(`[${name}] [progress] не удалось обновить отложенную стройку: ${e.message}`);}
+  }
+  return changed;
+}
+
 async function runProgress(api,name,opts={}){
   // Цены берём из локального каталога (config/buildings-live.json). 13.10.2026: кнопки «Обновить»
   // для него в панели НЕТ (бэкенд-ручка /api/refresh/buildings есть, фронт её никогда не вызывал) —
@@ -574,7 +613,7 @@ async function runProgress(api,name,opts={}){
   if(isCityPaused()){logger.info(`[${name}] [progress] прокачка на паузе — пропускаю`);return;}
   try{
     const buildingsMap=cityBuildingsMap();
-    const[{discount,additionalBuilder},{builderBonus:policyBuilderBonus,upgradeCostMultiplier}]=await Promise.all([loadGuildBonuses(api),loadPolicyEffects(api)]);
+    const[{discount,buildDiscount,additionalBuilder},{builderBonus:policyBuilderBonus,upgradeCostMultiplier,buildCostMultiplier}]=await Promise.all([loadGuildBonuses(api),loadPolicyEffects(api)]);
     const builderBonus=additionalBuilder+policyBuilderBonus;
     let prog;
     try{
@@ -607,6 +646,16 @@ async function runProgress(api,name,opts={}){
     // проверяются НЕЗАВИСИМО от builders/targets, поэтому делаем это до всех ранних return ниже
     if(await runPendingReconstructions(api,name,current,buildingsMap)){
       try{await CitySnapshot.upsert(citySnapshotPayload(name,current,prog),{conflictFields:['account']});}catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
+      cityLive.broadcast(name,current);
+    }
+
+    // отложенная стройка — тоже до ранних return: строителя не занимает, ждёт только монет
+    if(await runPendingBuilds(api,name,current,coins,buildingsMap,buildCostMultiplier*(1-buildDiscount))){
+      try{
+        const fresh=await api.get('/progress/');
+        current=Array.isArray(fresh?.progress?.data?.buildings)?fresh.progress.data.buildings:current;
+        await CitySnapshot.upsert(citySnapshotPayload(name,current,fresh),{conflictFields:['account']});
+      }catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
       cityLive.broadcast(name,current);
     }
 

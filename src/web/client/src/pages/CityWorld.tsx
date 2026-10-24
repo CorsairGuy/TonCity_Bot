@@ -6,6 +6,7 @@ import { api, type BuildingDef, type CityActionLogRow, type CityStrategyQueueIte
 import { WorldMapCanvas, LEAVE_SHARE, type WorldCell } from '../components/WorldMapCanvas';
 import type { CityActionMode } from '../components/CityActionsCanvas';
 import { CityMapCity, buildingName, logLabel } from './CityMapCity';
+import { useFarActions } from './cityWorldActions';
 import {
   MapPalette, PanelShell, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf, FooterButton, CancelButton,
   LogPanel, ForecastPanel, FILL_DONE, FILL_WIP, type PanelMode,
@@ -39,9 +40,6 @@ const FAR_HINT: Partial<Record<PanelMode, string>> = {
   queue: 'Ручные очереди улучшений всех городов. Порядок внутри города меняется перетаскиванием, здания добавляются в приближенном городе.',
   forecast: 'Что бот запустит в ближайшие трое суток во всех городах, одной лентой.',
   log: 'Последние действия во всех городах, и бота, и ручные.',
-};
-const CITY_LIST_SUB: Partial<Record<PanelMode, string>> = {
-  build: 'свободных клеток', move: 'зданий', demolish: 'зданий', reconstruct: 'готовы к реконструкции', renovate: 'готовы к реновации',
 };
 
 export function CityWorld() {
@@ -175,15 +173,6 @@ export function CityWorld() {
 
   // ── заливки карты по вкладке ─────────────────────────────────────────────
   const globalMap = useMemo(() => new Map(globalPlan.map(g => [g.family_id, g.target_level])), [globalPlan]);
-  const reconReady = (r: CityWorldRow) => r.buildings.filter(b => { const i = catMap.get(b.id); return i?.is_reconstructible && i.required_lvl != null && !isBuilding(b) && (Number(b.level) || 0) >= i.required_lvl; });
-  const renovReady = (r: CityWorldRow) => r.buildings.filter(b => { const i = catMap.get(b.id); return i?.is_renovatable && i.next_id && i.required_lvl != null && !isBuilding(b) && (Number(b.level) || 0) >= i.required_lvl; });
-  const freeCells = (r: CityWorldRow) => {
-    const busy = new Set(r.buildings.map(b => `${b.x}_${b.y}`));
-    let locked = new Set<string>();
-    if (r.unlockedSections) { const u = new Set(r.unlockedSections); locked = new Set(sections.filter(s => !u.has(s.id)).flatMap(s => s.coordinates.map(c => `${c.x}_${c.y}`))); }
-    return coordsList.filter(c => !busy.has(`${c.x}_${c.y}`) && !locked.has(`${c.x}_${c.y}`));
-  };
-
   const { cells, tint, dim } = useMemo(() => {
     const cells: WorldCell[] = [];
     const tint = new Map<string, string>();
@@ -202,19 +191,12 @@ export function CityWorld() {
       for (const e of mode === 'forecast' ? forecast : log) n.set(e.account, (n.get(e.account) ?? 0) + 1);
       const max = Math.max(1, ...n.values());
       for (const [a, k] of n) tint.set(a, `rgba(130,80,223,${(0.06 + k / max * 0.3).toFixed(2)})`);
-    } else if (mode === 'reconstruct' || mode === 'renovate') {
-      const pick = mode === 'reconstruct' ? reconReady : renovReady;
-      dim = new Set();
-      for (const r of cities) {
-        const list = pick(r);
-        if (list.length) dim.add(r.account);
-        for (const b of list) cells.push({ account: r.account, x: b.x, y: b.y, fill: mode === 'reconstruct' ? 'rgba(74,194,107,.55)' : 'rgba(171,125,248,.55)', stroke: mode === 'reconstruct' ? '#1a7f37' : '#8250df' });
-      }
-    } else if (mode === 'build') {
-      for (const r of cities) for (const c of freeCells(r)) cells.push({ account: r.account, x: c.x, y: c.y, fill: 'rgba(74,194,107,.45)', stroke: '#1a7f37' });
     }
     return { cells, tint, dim };
-  }, [mode, cities, globalMap, queues, forecast, log, catMap, sections]);
+  }, [mode, cities, globalMap, queues, forecast, log]);
+
+  // ── действия прямо на общей карте (стройка, перемещение, снос, реконструкция, реновация, ускорители)
+  const far = useFarActions({ mode: mode as PanelMode, cities, catalog, catMap, sections, labelFor, showFlash, reload: load });
 
   // ── страница города ──────────────────────────────────────────────────────
   if (near) return <CityMapCity key={near} account={near} mode={mode} onModeChange={setMode} onBack={leave} onZoomOut={leave} />;
@@ -324,21 +306,16 @@ export function CityWorld() {
     const boosterLabel = (id: string) => knownItemName(Number(id)) ?? `Ускоритель #${id}`;
     side = <LogPanel rows={log} loading={logLoading} label={r => logLabel(r, labelFor, boosterLabel)} labelFor={labelFor} place={r => r.account} />;
     headActions = <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Обновить лог" disabled={logLoading} onClick={loadLog} />;
-  } else {
-    // вкладки действий: список городов, в котором видно, где есть что делать; клик — в город на этой вкладке
-    const count = (r: CityWorldRow) => mode === 'build' ? freeCells(r).length : mode === 'reconstruct' ? reconReady(r).length : mode === 'renovate' ? renovReady(r).length : r.buildings.length;
-    const list = mode === 'reconstruct' || mode === 'renovate' ? cities.filter(r => count(r) > 0) : cities;
-    side = list.length === 0 ? <Empty>Подходящих зданий нет ни в одном городе</Empty> : <>
-      <Caption right={list.length}>Города</Caption>
-      {cityList(list, r => mode === 'boosters' ? `жителей ${fmt(r.population)}` : `${CITY_LIST_SUB[panelMode]} ${count(r)}`, () => null)}
-    </>;
+  } else if (far.active) {
+    side = far.side;
+    footer = far.footer;
   }
 
   const panelToggle = narrow
     ? <IconButton size="small" variant="invisible" icon={panelCollapsed ? ChevronUpIcon : ChevronDownIcon}
         aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
     : null;
-  const dots: Partial<Record<PanelMode, boolean>> = { upgrade: globalPlan.length > 0, queue: queueTotal > 0 };
+  const dots: Partial<Record<PanelMode, boolean>> = { ...far.dots, upgrade: globalPlan.length > 0, queue: queueTotal > 0 };
 
   return (
     <Box sx={{
@@ -361,7 +338,7 @@ export function CityWorld() {
             ? <Box sx={{ flex: 1, p: 3 }}><LoadError error={loadErr} onRetry={load} /></Box>
             : loaded && cities.length === 0
               ? <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Text sx={{ color: 'fg.muted' }}>Снимков городов ещё нет — нажмите «Обновить»</Text></Box>
-              : <WorldMapCanvas cities={cities} sections={sections} cells={cells} tint={tint} dim={dim} focus={focus} onEnter={enter} />}
+              : <WorldMapCanvas cities={cities} sections={sections} cells={far.active ? far.cells : cells} tint={tint} dim={far.active ? far.dim : dim} focus={focus} onEnter={enter} onCell={far.onCell} />}
           <Box sx={{
             position: 'absolute', left: 2, right: 2, bottom: 3, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', columnGap: 2,
             pointerEvents: 'none', '& > *': { pointerEvents: 'auto' },
@@ -376,7 +353,7 @@ export function CityWorld() {
         borderLeft: '1px solid', borderColor: 'border.default',
         '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },
       }}>
-        <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? 'Выберите город: действия этой вкладки делаются в приближенном городе.'}
+        <PanelShell mode={panelMode} hint={far.active ? far.hint : FAR_HINT[panelMode] ?? ''}
           actions={<>{headActions}{panelToggle}</>} footer={footer}>
           {side}
         </PanelShell>

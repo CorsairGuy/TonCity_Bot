@@ -227,6 +227,9 @@ export const api = {
   city: (account?: string) => req<{ ok: boolean; rows: CityRow[] }>('/api/city-snapshots' + (account ? `?account=${encodeURIComponent(account)}` : '')),
   // общая карта всех городов: снимки, показатели и ручные очереди одним запросом
   cityWorld: () => req<{ ok: boolean; rows: CityWorldRow[]; order: string[]; error?: string }>('/api/city-world'),
+  // отложенная стройка: бот построит, когда городу хватит монет
+  saveBuildPlan: (account: string, body: { add?: { x: number; y: number; family_id: string }[]; remove?: { x: number; y: number }[] }) =>
+    req<{ ok: boolean; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/build-plan`, post(body)),
   cityActionLogAll: (limit = 300) => req<{ ok: boolean; rows: CityActionLogRow[]; error?: string }>(`/api/city-action-log?limit=${limit}`),
 
   // Действия по городу (страница "Города" → "Действия") — заменяет автоматику по эталонному плану
@@ -1178,6 +1181,7 @@ export interface CapitalRow {
 export interface CityWorldRow extends CityRow {
   balance: number; profit: number; profit_final: number; population: number; population_final: number; happiness: number;
   queue: CityStrategyQueueItem[];
+  buildPlan: { x: number; y: number; family_id: string }[]; // отложенная стройка: ждёт монет
 }
 export interface CityRow {
   account: string;
