@@ -10,6 +10,10 @@
 // сверяем их раз в TICK_MS и только пока кто-то подключён, наружу ничего не запрашиваем.
 const logger=require('../../utils/logger');
 
+// время запуска процесса — ОДНО значение на процесс для /api/events, /api/build и /api/version:
+// посчитанные отдельно в разных модулях, они расходились на миллисекунду из-за округления uptime,
+// и панель принимала это за перезапуск бота и перезагружалась
+const STARTED=Date.now()-Math.round(process.uptime()*1000);
 const TICK_MS=1500;
 const PING_MS=25*1000;
 const subs=new Set();
@@ -23,7 +27,6 @@ function snapshot(){
     maintenance:require('../../utils/maintenance').status(),
   };
 }
-const STARTED=Date.now()-Math.round(process.uptime()*1000);
 
 function write(res,type,data){
   try{res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);}catch(_){}
@@ -83,4 +86,4 @@ function handler(req,res){
   });
 }
 
-module.exports={handler,hookVersion};
+module.exports={handler,hookVersion,STARTED};

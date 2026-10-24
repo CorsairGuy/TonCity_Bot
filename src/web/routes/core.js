@@ -65,7 +65,7 @@ module.exports=function(app,ctx){
   const{makeApiForAccount}=ctx;
 
   // статус техработ игры (автопауза запросов) — для баннера в панели
-  const PROCESS_STARTED=Date.now()-Math.round(process.uptime()*1000);
+  const PROCESS_STARTED=require('../lib/panelEvents').STARTED;
   // ответ проверки версии + состояние обновлятеля и настройки автообновления (общий для запроса и рассылки)
   const versionPayload=v=>{
     const upd=require('../../utils/selfUpdate');
