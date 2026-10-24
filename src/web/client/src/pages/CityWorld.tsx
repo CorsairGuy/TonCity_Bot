@@ -979,8 +979,6 @@ export function CityWorld() {
             sub={`${r.account} · ${p.x},${p.y}`} fill={fillOf([[FILL_ATTENTION, 100]])} onClick={() => openCity(r.account)} />
         )))}
       </>}
-      <Caption right={cities.length}>Города</Caption>
-      {cityList(cities, r => { const n = r.buildings.filter(isBuilding).length; return n ? `строится ${n}` : `жителей ${fmt(r.population)}`; }, () => null)}
     </>;
   }
 
