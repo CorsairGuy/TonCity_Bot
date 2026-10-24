@@ -71,6 +71,39 @@ function buildCityStatsMods(cabinet: PolicyCabinet | undefined, incomeBoost: num
   };
 }
 
+// проекция «после всех запланированных»: ручная очередь (+1 за запись), личный план, общий план по семействам
+export function projectBuildings(owned: MapBuilding[], targets: CityStrategyTarget[], manualQueue: CityStrategyQueueItem[], globalPlan: GlobalUpgradeRule[]): MapBuilding[] {
+  const globalMap = new Map(globalPlan.map(g => [g.family_id, g.target_level]));
+  const personalMap = new Map(targets.map(t => [`${t.x},${t.y}`, t.target_level]));
+  const queueCounts = new Map<string, number>();
+  for (const q of manualQueue) { const k = `${q.x},${q.y}`; queueCounts.set(k, (queueCounts.get(k) || 0) + 1); }
+  return owned.map(b => {
+    const key = `${b.x},${b.y}`;
+    const lvl = Number(b.level) || 0;
+    const queueCount = queueCounts.get(key) || 0;
+    const target = personalMap.has(key) ? personalMap.get(key)! : (globalMap.get(b.id) ?? 0);
+    // end: null — проекция "после всех запланированных" считает здание УЖЕ улучшенным целиком, а
+    // не застрявшим в процессе стройки; иначе если здание из очереди прямо сейчас строится
+    // (унаследованный b.end в будущем), computeCityStats зануляет его вклад целиком (см.
+    // isUnderConstruction в cityStats.ts) — здание из очереди тогда просто пропадало бы из проекции
+    return { ...b, level: Math.max(lvl + queueCount, target, lvl), end: null };
+  });
+}
+
+// «Показатели» города по снимку и данным из БД (политики, бонусы гильдии и разнообразия) — без загрузки
+// самого города: «Города» показывают их при наведении и пока город грузится. Те же формулы, что у панели города
+export function cityStatsFor(owned: MapBuilding[], paramMap: Map<string, BuildingDef>, cabinet: PolicyCabinet | undefined,
+  guild: { income_boost: number; building_purchases_discount: number; upgrades_discount: number } | undefined, diversity: number,
+  targets: CityStrategyTarget[], queue: CityStrategyQueueItem[], globalPlan: GlobalUpgradeRule[]) {
+  const mods = buildCityStatsMods(cabinet, guild?.income_boost ?? 0, diversity,
+    computePolicyMultiplier(cabinet, 'build_cost') * (1 - (guild?.building_purchases_discount ?? 0)),
+    computePolicyMultiplier(cabinet, 'upgrade_cost') * (1 - (guild?.upgrades_discount ?? 0)));
+  return {
+    raw: computeCityStats(owned, paramMap), s: computeCityStats(owned, paramMap, mods),
+    projected: computeCityStats(projectBuildings(owned, targets, queue, globalPlan), paramMap, mods), mods,
+  };
+}
+
 // Редактор "Действий" по городу — прямо в странице карты (раньше была отдельная модалка
 // CityActionsModal с выпадающими списками). Строительство/Перемещение/Снос/Реконструкция/Реновация
 // копятся в ОДНУ общую очередь, которая переживает переключение вкладок режима — клик только
@@ -607,23 +640,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // доход" на экране "Обзор доходов" (category_income/building_type_income у нас иначе сворачиваются
   // в per-building сумму ДО happiness — их эффект теперь явно выделяется в "Политики %", см. statsBlock)
   const currentStatsRaw = useMemo(() => computeCityStats(owned, buildingParamMap), [owned, buildingParamMap]);
-  const projectedBuildings = useMemo(() => {
-    const globalMap = new Map(globalPlan.map(g => [g.family_id, g.target_level]));
-    const personalMap = new Map(targets.map(t => [`${t.x},${t.y}`, t.target_level]));
-    const queueCounts = new Map<string, number>();
-    for (const q of manualQueue) { const k = `${q.x},${q.y}`; queueCounts.set(k, (queueCounts.get(k) || 0) + 1); }
-    return owned.map(b => {
-      const key = `${b.x},${b.y}`;
-      const lvl = Number(b.level) || 0;
-      const queueCount = queueCounts.get(key) || 0;
-      const target = personalMap.has(key) ? personalMap.get(key)! : (globalMap.get(b.id) ?? 0);
-      // end: null — проекция "после всех запланированных" считает здание УЖЕ улучшенным целиком, а
-      // не застрявшим в процессе стройки; иначе если здание из очереди прямо сейчас строится
-      // (унаследованный b.end в будущем), computeCityStats зануляет его вклад целиком (см.
-      // isUnderConstruction в cityStats.ts) — здание из очереди тогда просто пропадало бы из проекции
-      return { ...b, level: Math.max(lvl + queueCount, target, lvl), end: null };
-    });
-  }, [owned, targets, manualQueue, globalPlan]);
+  const projectedBuildings = useMemo(() => projectBuildings(owned, targets, manualQueue, globalPlan), [owned, targets, manualQueue, globalPlan]);
   const projectedStats = useMemo(() => computeCityStats(projectedBuildings, buildingParamMap, cityStatsMods), [projectedBuildings, buildingParamMap, cityStatsMods]);
   const boosterLabelFor = (id: string) => { const b = boosters.find(x => x.name === id); return b ? b.label : `#${id}`; };
 

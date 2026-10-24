@@ -2,13 +2,13 @@ import { useState, useEffect, useMemo, useCallback, useRef, type DragEvent, type
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } from '@primer/react';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, DotFillIcon, PlusIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
-import { api, type CityBoosterRow, type CityActiveBooster, type BuildingDef, type CityActionLogRow, type CityWorldRow, type ForecastEvent, type GlobalUpgradeRule, type MapSection } from '../api';
+import { api, type CityBoosterRow, type CityActiveBooster, type BuildingDef, type CityActionLogRow, type CityWorldRow, type ForecastEvent, type GlobalUpgradeRule, type MapSection, type PolicyCabinet } from '../api';
 import { CityActionsCanvas, REGION_FADE, type CityActionMode, type MapCamera, type MapView, type WorldLayout, type CellFill, type RegionFill } from '../components/CityActionsCanvas';
-import { CityMapCity, CityHead, buildingName, buildingCat, buildPriceAt, familyId, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
+import { CityMapCity, CityHead, cityStatsFor, buildingName, buildingCat, buildPriceAt, familyId, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
-  MapPalette, MapBrushLevel, PanelShell, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
+  MapPalette, MapBrushLevel, PanelShell, StatsPanel, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
   SWAP, LogPanel, ForecastPanel, QueuePanel, PendingList, DemolishPanel, ReconstructPanel, RenovatePanel, MasterplanBar, ItemIcon, Glyph, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
 } from './cityMapPanels';
 import { CoinValue } from '../components/Icons';
@@ -51,6 +51,8 @@ const topBuilding = (r: CityWorldRow) => [...r.buildings].sort((a, b) => (Number
 // сводка всех городов (ни один город не выбран). Действия на карте работают на любом масштабе:
 // клик или кисть по клеткам любых городов выполняет код карты города для каждого из них
 const ACT = ' Кликните или проведите кистью по клеткам любых городов, хоть нескольких сразу: каждый город выполнит это по правилам своей карты, справа откроется его панель.';
+// подсказка «Показателей» открытого города — та же, что у его панели
+const HINT_VIEW = 'Цифры города по формулам игры: сейчас и после выполнения всех планов и очереди.';
 const FAR_HINT: Partial<Record<PanelMode, string>> = {
   view: 'Все города по доходу. Порядок меняется перетаскиванием. Клик по городу на карте или в списке открывает его панель, приближение тоже.',
   upgrade: 'Издалека правится только общий план: клик или кисть по зданию ставит правило «этот тип зданий во всех городах — до уровня кисти» (уровень справа от дока). Личный план города — вблизи, когда открыт город.',
@@ -81,6 +83,7 @@ export function CityWorld() {
   const [loadErr, setLoadErr] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [catalog, setCatalog] = useState<BuildingDef[]>([]);
+  const [cabinets, setCabinets] = useState<Record<string, PolicyCabinet | undefined>>({});
   const [globalPlan, setGlobalPlan] = useState<GlobalUpgradeRule[]>([]);
   const [sections, setSections] = useState<MapSection[]>([]);
   // общий план издалека — черновик: кисть и список правят его, «Сохранить» отправляет целиком
@@ -98,6 +101,7 @@ export function CityWorld() {
     api.buildingsList('city').then(d => { if (d.ok) setCatalog(d.buildings); });
     api.globalUpgradePlan().then(d => { if (d.ok) setGlobalPlan(d.plan); });
     api.sections().then(d => { if (d.ok) setSections(d.sections); });
+    api.policies().then(d => { if (d.ok) setCabinets(Object.fromEntries(Object.entries(d.byAccount).map(([a, v]) => [a, v.cabinet]))); });
   }, []);
   // живые постройки: бот шлёт свежий снимок города при каждом старте и конце стройки
   useEffect(() => onServerEvent<{ account: string; buildings: CityWorldRow['buildings'] }>('city', d => {
@@ -132,6 +136,10 @@ export function CityWorld() {
   };
 
   const catMap = useMemo(() => new Map(catalog.map(b => [b.id, b])), [catalog]);
+  // «Показатели» каждого города по снимку и данным из БД — при наведении и пока город грузится его не ждём
+  const statsByCity = useMemo(() => new Map(catalog.length ? cities.map(r => [r.account,
+    cityStatsFor(r.buildings, catMap, cabinets[r.account], r.guild, r.diversity ?? 0, r.targets, r.queue, globalPlan)] as const) : []),
+  [cities, catMap, cabinets, globalPlan]);
   const labelFor = (id: string) => { const b = catMap.get(id); return b ? buildingName(b) : id; };
 
   // ── раскладка: город i в общей сетке стоит со сдвигом (col·STEP, row·STEP) ──────────────────
@@ -561,6 +569,7 @@ export function CityWorld() {
 
   const panelMode = mode as PanelMode;
   const curRow = cur ? cities.find(r => r.account === cur) : undefined;
+  const curStats = cur ? statsByCity.get(cur) : undefined;
   const totalProfit = cities.reduce((s, r) => s + r.profit, 0);
   const totalFinal = cities.reduce((s, r) => s + r.profit_final, 0);
   const totalPop = cities.reduce((s, r) => s + r.population, 0);
@@ -759,19 +768,10 @@ export function CityWorld() {
   let side: ReactNode = null, headActions: ReactNode = undefined;
   const hovered = mode === 'view' && !narrow && hoverCity ? cities.find(r => r.account === hoverCity) : undefined;
   const hoveredSummary = hovered ? `Зданий: ${hovered.buildings.length} · ${fmt(hovered.profit)}/ч · строится ${hovered.buildings.filter(isBuilding).length}` : '';
-  if (hovered) {
-    // Показатели Б: на ПК наведение на город показывает его цифры, увели курсор — снова все города
-    const n = hovered.buildings.filter(isBuilding).length, q = queueOf(hovered).length;
-    side = <>
-      <Summary tone="accent">
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Tile value={<CoinValue value={fmt(hovered.profit)} />} label="доход в час" color="accent.fg" />
-          <Tile value={hovered.profit > 0 ? `+${Math.max(0, (hovered.profit_final / hovered.profit - 1) * 100).toFixed(0)}%` : '—'} label="после планов" color="success.fg" />
-        </Box>
-        <SumLine left={`жителей ${fmt(hovered.population)}`} right={`строится ${n}`} />
-      </Summary>
-      <Row lead={thumb(hovered)} title={`${hovered.buildings.length} ${plural(hovered.buildings.length, 'здание', 'здания', 'зданий')}`} sub={q ? `в очереди ${q}` : 'очередь пуста'} trail={<Val><CoinValue value={fmt(hovered.balance ?? 0)} /></Val>} />
-    </>;
+  const hoveredStats = hovered ? statsByCity.get(hovered.account) : undefined;
+  if (hovered && hoveredStats) {
+    // наведение на город (ПК): в сайдбаре его «Показатели» целиком, как у открытого города; увели курсор — снова все города
+    side = <StatsPanel raw={hoveredStats.raw} s={hoveredStats.s} projected={hoveredStats.projected} mods={hoveredStats.mods} />;
   } else if (mode === 'view') {
     side = <>
       <Summary tone="accent">
@@ -1024,7 +1024,12 @@ export function CityWorld() {
             </PanelShell>
           )}
           {cur && <Box sx={{ ...HIDE_WHEN_FILLED, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={panelToggle} busy />
+            {/* «Показатели» считаются по снимку сразу — вместо спиннера; остальным вкладкам нужны данные города */}
+            {mode === 'view' && curStats
+              ? <PanelShell mode={panelMode} hint={HINT_VIEW} actions={panelToggle}>
+                  <StatsPanel raw={curStats.raw} s={curStats.s} projected={curStats.projected} mods={curStats.mods} />
+                </PanelShell>
+              : <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={panelToggle} busy />}
           </Box>}
         </Box>
       </Box>
