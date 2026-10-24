@@ -316,6 +316,7 @@ export interface CityMapCityProps {
   onDayNight?: (m: DayNightMode) => void;
   panelActions?: ReactNode;            // кнопки общей страницы в шапке сайдбара
   hidden?: boolean;                    // город не текущий: панели нет, но черновик и превью на карте живут
+  seedGuild?: { income_boost: number; building_purchases_discount: number; upgrades_discount: number }; // бонусы гильдии из снимка БД, пока не пришли живые
   // выбранное здание для стройки и уровень кисти — общие для всех городов общей карты
   tool?: { buildFamily: string; setBuildFamily: (v: string) => void; addLevel: string; setAddLevel: (v: string) => void };
 }
@@ -342,6 +343,8 @@ export interface CityMapState {
   pending: PendingView[];
   demolish: { tiles: DemolishTile[]; loss: number; pop: number; income: number };
   balance: number;
+  buildBlock: string | null;           // выбранное здание здесь не построить: причина (лимит, условие игры)
+  buildMult: number;                   // множитель цены постройки (политики · гильдия)
   moving: boolean;                     // перемещение: здание взято, ждёт клетку «куда»
   executing: boolean;
   run: () => Promise<RunResult | null>;
@@ -491,7 +494,9 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const hiddenRef = useRef(!!props.hidden); hiddenRef.current = !!props.hidden;
   const liveDone = useRef(false);
   useEffect(() => {
-    const hiddenAtLoad = hiddenRef.current;
+    // во «Городах» живые запросы к игре (скидки гильдии, критерии построек) панель не ждут: она открывается
+    // по данным из БД, а живое догружается сразу следом (эффект ниже)
+    const hiddenAtLoad = hiddenRef.current || !!props.slots;
     let stale = false;
     setLoading(true);
     setDataDone(0);
@@ -531,6 +536,10 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       if (!hiddenAtLoad) setGuildDisc({ build: guild.ok ? guild.building_purchases_discount : 0, upgrade: guild.ok ? guild.upgrades_discount : 0 });
       setPolicyCabinet(pol.ok ? pol.byAccount[account]?.cabinet : undefined);
       if (!hiddenAtLoad) setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
+      else if (props.seedGuild) {
+        setGuildDisc({ build: props.seedGuild.building_purchases_discount, upgrade: props.seedGuild.upgrades_discount });
+        setGuildIncomeBoost(props.seedGuild.income_boost);
+      }
       liveDone.current = !hiddenAtLoad;
       setDiversityIncomeBoost(diversity.ok ? diversity.income_bonus : 0);
     }).catch(e => { if (!stale) setLoadErr(String(e)); })
@@ -673,6 +682,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     const have = displayBuildings.filter(b => familyId(b.id) === familyId(buildFamily)).length;
     return (info?.limit != null && have >= info.limit) || isCriteriaUnmet(buildCriteria, buildFamily);
   }, [buildFamily, buildingParamMap, displayBuildings, buildCriteria]);
+  const buildBlock = !buildFamily ? null : (() => {
+    const info = buildingParamMap.get(buildFamily);
+    const have = displayBuildings.filter(b => familyId(b.id) === familyId(buildFamily)).length;
+    return info?.limit != null && have >= info.limit ? 'уже построено' : isCriteriaUnmet(buildCriteria, buildFamily) ? criteriaReason(buildCriteria, buildFamily) : null;
+  })();
   const validSet = useMemo(() => executing || (mode === 'build' && buildBlocked) ? new Set<string>() : validCellsFor(mode, sets, buildFamily, moveFrom),
     [executing, mode, buildFamily, buildBlocked, moveFrom, sets]);
   // Esc отменяет начатое перемещение
@@ -1122,11 +1136,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     onMapRef.current?.({
       account, buildings: displayBuildings, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
       focusSet: mode === 'upgrade' ? planFocus : null, onPick: stablePick, onUnlockCell: stableUnlock, draft: draft || executing, dots: dotsKey ? JSON.parse(dotsKey) : {},
-      fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, moving: !!moveFrom, executing,
+      fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, buildBlock, buildMult: buildCostMultiplier, moving: !!moveFrom, executing,
       run: stableRun, removePending: stableRemove, cancelPending: stableCancel, cancelMove: stableCancelMove,
       queuePrices: JSON.parse(queuePricesKey), queueDirty: queueDirtyNow, editQueue: stableEditQueue, saveQueue: stableSaveQueue, resetQueue: stableResetQueue,
     });
-  }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow]);
+  }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow, buildBlock, buildCostMultiplier]);
 
   if (props.hidden) return null;
   // во встроенном виде шапку и спиннер на время загрузки рисуют «Города» — свой лоадер не нужен
@@ -1302,7 +1316,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // кисти встают в места общей страницы, а карта — общая
   if (props.slots) return <>
     {props.slots.head && createPortal(<>{headRow}{flashEl}</>, props.slots.head)}
-    {props.slots.side && createPortal(sidePanel, props.slots.side)}
+    {/* «Строительство»: список зданий один на все города — сайдбар рисуют «Города» */}
+    {props.slots.side && mode !== 'build' && createPortal(sidePanel, props.slots.side)}
     {props.slots.dock && mode === 'upgrade' && createPortal(brush, props.slots.dock)}
   </>;
 

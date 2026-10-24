@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo, useCallback, useRef, type DragEvent, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, startTransition, type DragEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } from '@primer/react';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, DotFillIcon, PlusIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
 import { api, type CityBoosterRow, type CityActiveBooster, type BuildingDef, type CityActionLogRow, type CityWorldRow, type ForecastEvent, type GlobalUpgradeRule, type MapSection, type PolicyCabinet } from '../api';
 import { CityActionsCanvas, REGION_FADE, type CityActionMode, type MapCamera, type MapView, type WorldLayout, type CellFill, type RegionFill } from '../components/CityActionsCanvas';
-import { CityMapCity, CityHead, cityStatsFor, buildingName, buildingCat, buildPriceAt, familyId, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
+import { CityMapCity, CityHead, cityStatsFor, computePolicyMultiplier, buildingName, buildingCat, buildPriceAt, familyId, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
@@ -34,6 +34,8 @@ const ENTER_SHARE = 0.5, LEAVE_SHARE = 0.42;
 // город шире этой доли экрана (или под курсором дольше WARM_HOVER_MS) — его данные грузятся заранее, скрыто
 const WARM_SHARE = 0.3, WARM_HOVER_MS = 250;
 const FADE = REGION_FADE;
+// клетки «Строительства»: монет хватает / стройка подождёт монет (жёлтый как у отложенной стройки, но светлее)
+const CELL_OK = 'rgba(46,160,67,.32)', CELL_SHORT = 'rgba(212,167,44,.42)';
 // заглушка на время загрузки города: видна, только пока в слоте нет ничего, кроме неё
 const HIDE_WHEN_FILLED = { '&:not(:only-child)': { display: 'none' } } as const;
 const ACTION_TABS = new Set<CityActionMode>(['build', 'move', 'demolish', 'reconstruct', 'renovate']);
@@ -182,7 +184,14 @@ export function CityWorld() {
   const curAuto = useRef(false);   // город выбран приближением — отдалились, и он уходит сам
   const choose = useCallback((a: string | null, auto: boolean) => { curAuto.current = auto; setCur(a); }, []);
   const [states, setStates] = useState<Record<string, CityMapState>>({});
-  const onMap = useCallback((m: CityMapState) => setStates(p => ({ ...p, [m.account]: m })), []);
+  // состояние города копится в ref; в общую карту (перерисовка всей страницы и слоёв карты) идёт только
+  // у открытых городов и фоном (startTransition) — пока город догружает вкладки, карта не подтормаживает
+  const latestStates = useRef<Record<string, CityMapState>>({});
+  const activeRef = useRef<Set<string>>(new Set());
+  const onMap = useCallback((m: CityMapState) => {
+    latestStates.current[m.account] = m;
+    if (activeRef.current.has(m.account)) startTransition(() => setStates(p => p[m.account] === m ? p : { ...p, [m.account]: m }));
+  }, []);
   const [touched, setTouched] = useState<string[]>([]);
   // город, к которому идём (курсор или приближение): открыт скрыто, к выбору он уже загружен.
   // Один: ушли к другому — прежний закрывается (без кэша последних городов, решение 24.10.2026)
@@ -197,12 +206,19 @@ export function CityWorld() {
     return [...out].filter(a => offOf.has(a));
   }, [cur, touched, states, offOf, mode, rows]);
   const mountedKey = mounted.join('|');
+  activeRef.current = new Set(mounted);
+  // город стал открытым (выбран, задет кистью) — его уже готовое состояние из предзагрузки идёт в карту сразу
+  useEffect(() => {
+    const add = mounted.filter(a => latestStates.current[a] && states[a] !== latestStates.current[a]);
+    if (add.length) setStates(p => ({ ...p, ...Object.fromEntries(add.map(a => [a, latestStates.current[a]])) }));
+  }, [mountedKey]);
   // предзагружаемый город только грузится: на карту и сводку его состояние не влияет, пока он не открыт
   const withWarm = warm && offOf.has(warm) && !mounted.includes(warm) ? [...mounted, warm] : mounted;
   const withWarmKey = withWarm.join('|');
   // закрытый город больше не рисуется по своему старому состоянию
   useEffect(() => {
     const keep = new Set(withWarm);
+    for (const k of Object.keys(latestStates.current)) if (!keep.has(k)) delete latestStates.current[k];
     setStates(p => Object.keys(p).every(a => keep.has(a)) ? p : Object.fromEntries(Object.entries(p).filter(([a]) => keep.has(a))));
   }, [withWarmKey]);
   const live = useCallback((a: string) => mounted.includes(a) ? states[a] : undefined, [mountedKey, states]);
@@ -412,7 +428,23 @@ export function CityWorld() {
     const f = familyId(id);
     return (live(r.account)?.buildings ?? r.buildings).filter(b => familyId(b.id) === f).length >= info.limit;
   }, [catMap, live]);
-  const buildBlockedIn = useMemo(() => new Set(mode === 'build' && buildFamily ? cities.filter(r => famLimitHit(r, buildFamily)).map(r => r.account) : []), [mode, buildFamily, cities, famLimitHit]);
+  // выбранное здание по каждому городу: причина, почему нельзя, цена и сколько монет не хватает.
+  // Цена — по множителю открытого города, иначе по политикам и гильдии из снимков БД
+  const buildInfo = useMemo(() => {
+    const m = new Map<string, { block: string | null; price: number; short: number }>();
+    const info = mode === 'build' && buildFamily ? catMap.get(buildFamily) : undefined;
+    if (!info) return m;
+    const f = familyId(buildFamily);
+    for (const r of cities) {
+      const st = live(r.account);
+      const block = famLimitHit(r, buildFamily) ? 'уже построено' : st?.buildBlock ?? null;
+      const mult = st?.buildMult ?? computePolicyMultiplier(cabinets[r.account], 'build_cost') * (1 - (r.guild?.building_purchases_discount ?? 0));
+      const price = buildPriceAt(info, (st?.buildings ?? r.buildings).filter(b => familyId(b.id) === f).length, mult);
+      m.set(r.account, { block, price, short: Math.max(0, price - (st?.balance ?? r.balance ?? 0)) });
+    }
+    return m;
+  }, [mode, buildFamily, catMap, cities, live, famLimitHit, cabinets]);
+  const buildBlockedIn = useMemo(() => new Set([...buildInfo].filter(([, v]) => v.block).map(([a]) => a)), [buildInfo]);
   // перемещение идёт внутри одного города: пока здание взято, остальные города гаснут и не принимают клики
   const movingCity = mode === 'move' ? cities.find(c => live(c.account)?.moving)?.account ?? null : null;
   movingRef.current = movingCity;
@@ -443,7 +475,17 @@ export function CityWorld() {
       for (const c of cities) if (c.account !== movingCity) { const o = offOf.get(c.account)!; regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: FADE }); }
       return { fills, regions };
     }
-    if (cur) return { fills, regions };
+    // «Строительство»: свободные клетки зелёные — монет хватает, жёлтые — стройка подождёт монет
+    if (mode === 'build') for (const c of cities) {
+      const bi = buildInfo.get(c.account);
+      if (!bi || bi.block) continue;
+      const st = live(c.account), rs = rowSets.get(c.account);
+      const cells = st ? st.validSet : rs ? validCellsFor(mode, rs, buildFamily, null) : null;
+      if (!cells) continue;
+      const fill = bi.short > 0 ? CELL_SHORT : CELL_OK;
+      for (const k of cells) { const i = k.indexOf('_'); fills.push({ key: shiftKey(c.account, +k.slice(0, i), +k.slice(i + 1)), fill }); }
+    }
+    if (cur) { for (const a of buildBlockedIn) { const o = offOf.get(a); if (o) regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: FADE }); } return { fills, regions }; }
     const n = new Map<string, number>();
     if (mode === 'forecast' || mode === 'log') for (const e of mode === 'forecast' ? forecast : log) n.set(e.account, (n.get(e.account) ?? 0) + 1);
     const max = Math.max(1, ...n.values());
@@ -456,12 +498,22 @@ export function CityWorld() {
       if (fade && hoverCity && hoverCity !== c.account) regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: FADE });
     }
     return { fills, regions };
-  }, [cities, live, mode, cur, forecast, log, offOf, hoverCity, movingCity, buildBlockedIn, boosterDim && [...boosterDim].join()]);
+  }, [cities, live, mode, cur, forecast, log, offOf, hoverCity, movingCity, buildBlockedIn, buildInfo, rowSets, buildFamily, boosterDim && [...boosterDim].join()]);
   // для курсора зазор между городами делится пополам между соседями: подсветка не гаснет на переходе
+  const [buildHover, setBuildHover] = useState<string | null>(null);   // «Строительство»: город под курсором
   const onHoverCell = useCallback((gx: number | null, gy: number | null) => {
+    if (modeRef.current === 'build') { const i = gx == null || gy == null ? -1 : cityAtCell(gx, gy); setBuildHover(i >= 0 ? cities[i].account : null); }
+    if (curRef.current) return;
     const i = gx == null || gy == null ? -1 : nearestCity(gx, gy);
     setHoverCity(i >= 0 ? cities[i].account : null);
-  }, [nearestCity, cities]);
+  }, [nearestCity, cityAtCell, cities]);
+  // подсказка у курсора двигается напрямую, без перерисовки страницы
+  const tipRef = useRef<HTMLDivElement>(null);
+  const onMapMouse = (e: { clientX: number; clientY: number }) => {
+    const el = tipRef.current, box = mapBoxRef.current; if (!el || !box) return;
+    const r = box.getBoundingClientRect();
+    el.style.transform = `translate(${e.clientX - r.left + 16}px, ${e.clientY - r.top + 16}px)`;
+  };
   useEffect(() => {
     if (!hoverCity) return;
     const t = setTimeout(() => setWarm(hoverCity), WARM_HOVER_MS);
@@ -611,7 +663,7 @@ export function CityWorld() {
   const purchasable = useMemo(() => catalog.filter(b => b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)), [catalog]);
   const buildCats = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean).sort((a, b) => ((['COM', 'RES'].indexOf(a) + 1) || 99) - ((['COM', 'RES'].indexOf(b) + 1) || 99));
   const buildCat = buildCats.includes(catFilter) ? catFilter : buildCats[0];
-  const buildPicker = mode === 'build' && !cur && (() => {
+  const buildPicker = mode === 'build' && (() => {
     const q = search.toLowerCase();
     const list = purchasable.filter(b => buildingCat(b.id) === buildCat && (!q || buildingName(b).toLowerCase().includes(q) || b.id.toLowerCase().includes(q))).sort((a, b) =>
       buildCat === 'COM' ? (b.base_profit ?? 0) - (a.base_profit ?? 0) : buildCat === 'RES' ? (b.base_population ?? 0) - (a.base_population ?? 0)
@@ -960,7 +1012,7 @@ export function CityWorld() {
       fills={fills}
       regions={regions}
       onTap={onTap}
-      onHoverCell={cur ? undefined : onHoverCell}
+      onHoverCell={onHoverCell}
     />
   );
 
@@ -992,7 +1044,25 @@ export function CityWorld() {
               narrow={narrow} onBack={goAll} dayNight={dayNight} onDayNight={setDayNight} />
           </Box>}
         </Box>
-        <Box ref={mapBoxRef} sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
+        <Box ref={mapBoxRef} onMouseMove={onMapMouse} sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
+          {/* «Строительство»: цена выбранного здания в городе под курсором и сколько монет не хватает */}
+          {(() => {
+            const bi = buildHover && buildFamily ? buildInfo.get(buildHover) : undefined;
+            return (
+              <Box ref={tipRef} sx={{ position: 'absolute', left: 0, top: 0, zIndex: 2, pointerEvents: 'none', display: bi ? 'flex' : 'none', flexDirection: 'column', gap: '2px',
+                bg: 'canvas.overlay', border: '1px solid', borderColor: 'border.default', borderRadius: 2, boxShadow: 'shadow.medium', px: 2, py: 1, fontSize: 0, whiteSpace: 'nowrap' }}>
+                {bi && <>
+                  <Text sx={{ fontWeight: 'semibold' }}>{buildHover}</Text>
+                  {bi.block
+                    ? <Text sx={{ color: 'danger.fg' }}>Нельзя: {bi.block}</Text>
+                    : <>
+                        <CoinValue value={fmtUp(bi.price)} />
+                        <Text sx={{ color: bi.short > 0 ? 'attention.fg' : 'success.fg' }}>{bi.short > 0 ? `не хватает ${fmtUp(bi.short)} — построится, когда накопит` : 'монет хватает'}</Text>
+                      </>}
+                </>}
+              </Box>
+            );
+          })()}
           {loadErr
             ? <Box sx={{ flex: 1, p: 3 }}><LoadError error={loadErr} onRetry={load} /></Box>
             : loaded && cities.length === 0
@@ -1018,12 +1088,13 @@ export function CityWorld() {
       }}>
         {/* сайдбар: все города или текущий город (его панель встаёт сюда порталом) */}
         <Box ref={setSideEl} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          {!cur && (
+          {/* «Строительство»: список зданий один на все города — и в открытом городе */}
+          {(!cur || mode === 'build') && (
             <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} busy={overviewBusy} footer={ACTION_TABS.has(mode) ? pendingFooter || undefined : mode === 'boosters' && boosterAdd.length ? boosterFooter : mode === 'queue' ? queueFooter || undefined : mode === 'upgrade' ? planFooter || undefined : undefined}>
               {side}
             </PanelShell>
           )}
-          {cur && <Box sx={{ ...HIDE_WHEN_FILLED, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {cur && mode !== 'build' && <Box sx={{ ...HIDE_WHEN_FILLED, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {/* «Показатели» считаются по снимку сразу — вместо спиннера; остальным вкладкам нужны данные города */}
             {mode === 'view' && curStats
               ? <PanelShell mode={panelMode} hint={HINT_VIEW} actions={panelToggle}>
@@ -1034,7 +1105,7 @@ export function CityWorld() {
         </Box>
       </Box>
       {withWarm.map(a => (
-        <CityMapCity key={a} account={a} mode={mode} onModeChange={setMode} onBack={goAll} hidden={a !== cur} tool={tool}
+        <CityMapCity key={a} account={a} mode={mode} onModeChange={setMode} onBack={goAll} hidden={a !== cur} seedGuild={rows.find(r => r.account === a)?.guild} tool={tool}
           slots={slots} onMap={onMap} dayNight={dayNight} onDayNight={setDayNight} panelActions={panelToggle} />
       ))}
     </Box>
