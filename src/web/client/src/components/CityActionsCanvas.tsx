@@ -592,6 +592,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     sig: string; items: DrawItem[]; want: [string, number][]; itemBox: Map<string, { x0: number; y0: number; x1: number; y1: number }>;
     lampGlows: { x: number; y: number }[]; spill: { x: number; y: number; key: string }[]; roadCells: { x: number; y: number }[]; nextEnd: number;
     box: { x0: number; y0: number; x1: number; y1: number } | null;
+    cullBox?: { x0: number; y0: number; x1: number; y1: number } | null;
   }
   const newPart = (sig: string): Part => ({ sig, items: [], want: [], itemBox: new Map(), lampGlows: [], spill: [], roadCells: [], nextEnd: Infinity, box: null });
 
@@ -731,10 +732,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         P.items.push({ x0: bx - hw, y0: by - hh, x1: bx + hw, y1: by + hh, z: 2, c, draw: ctx => drawLevelBadge(ctx, bx, by, label, fsz) });
       }
     };
-    const boxOf = (items: DrawItem[]) => {
+    const boxOf = (items: DrawItem[], badges = false) => {
       let bx: Part['box'] = null;
       for (const it of items) {
-        if (it.z === 2) continue;
+        if (it.z === 2 && !badges) continue;
         if (!bx) bx = { x0: it.x0, y0: it.y0, x1: it.x1, y1: it.y1 };
         else { if (it.x0 < bx.x0) bx.x0 = it.x0; if (it.y0 < bx.y0) bx.y0 = it.y0; if (it.x1 > bx.x1) bx.x1 = it.x1; if (it.y1 > bx.y1) bx.y1 = it.y1; }
       }
@@ -765,6 +766,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         }
         badgesOf(P, list, c);
         P.box = boxOf(P.items);
+        P.cullBox = boxOf(P.items, true);
         if (!full) changed.push({ c, old: prev?.box ?? null, box: P.box });
         return P;
       });
@@ -858,13 +860,29 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     }
   }
 
+  // Сначала отсекаем целые города: стоимость куска не зависит от числа зданий за экраном.
+  // Порядок частей и элементов сохраняется — перекрытия спрайтов остаются прежними.
+  function itemsIn(wx0: number, wy0: number, wx1: number, wy1: number, city?: number): DrawItem[] {
+    const s = state.current;
+    if (!s.cityAt) return s.drawList;
+    if (city != null) return s.cityParts[city]?.items ?? [];
+    const items: DrawItem[] = [];
+    for (const P of s.cityParts) {
+      const b = P.cullBox ?? P.box;
+      if (!b || b.x1 < wx0 || b.x0 > wx1 || b.y1 < wy0 || b.y0 > wy1) continue;
+      items.push(...P.items);
+    }
+    return items;
+  }
+
   // ночной проход куска: земля, пятна света фонарей, здания с окнами, тонирование стороны солнца и
   // дымки у горизонта, бейджи поверх
   function paintNight(ctx: CanvasRenderingContext2D, r: number, ph: Phase, wx0: number, wy0: number, wx1: number, wy1: number, city?: number) {
     const s = state.current;
     const hit = (it: { x0: number; y0: number; x1: number; y1: number; c?: number }) => !(it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1) && (city == null || it.c === city);
     const badges = r * TW >= BADGE_PX;
-    for (const it of s.drawList) if (it.z === 0 && hit(it)) it.draw(ctx, r);
+    const items = itemsIn(wx0, wy0, wx1, wy1, city);
+    for (const it of items) if (it.z === 0 && hit(it)) it.draw(ctx, r);
     if (ph.lamps > 0.01 && s.lampGlows.length) {
       // пятна света — только на земле (дороги, пустые клетки, площадки под зданиями)
       ctx.save();
@@ -900,7 +918,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       ctx.drawImage(gl.canvas, 0, 0, cv.width, cv.height, 0, 0, cv.width, cv.height);
       ctx.restore();
     }
-    for (const it of s.drawList) if ((it.z ?? 1) === 1 && hit(it)) it.draw(ctx, r);
+    for (const it of items) if ((it.z ?? 1) === 1 && hit(it)) it.draw(ctx, r);
     const w = s.world;
     // сторона солнца: освещённый край карты теплее и светлее, противоположный холоднее
     if (ph.sunA > 0.02) {
@@ -918,7 +936,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = g; ctx.fillRect(wx0, wy0, wx1 - wx0, wy1 - wy0);
       ctx.globalCompositeOperation = 'source-over';
     }
-    if (badges) for (const it of s.drawList) if (it.z === 2 && hit(it)) it.draw(ctx, r);
+    if (badges) for (const it of items) if (it.z === 2 && hit(it)) it.draw(ctx, r);
   }
 
   // картинка города для дальнего зума: те же элементы неподвижного слоя, только этого города
@@ -936,7 +954,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'low';
     ctx.setTransform(rc, 0, 0, rc, -box.x0 * rc, -box.y0 * rc);
     if (s.ph) paintNight(ctx, rc, s.ph, box.x0, box.y0, box.x1, box.y1, c);
-    else for (const it of s.drawList) if (it.c === c && it.z !== 2) it.draw(ctx, rc);
+    else for (const it of itemsIn(box.x0, box.y0, box.x1, box.y1, c)) if (it.z !== 2) it.draw(ctx, rc);
     s.coarseImg.set(c, { el, ver: s.ver });
     s.coarseDirty.delete(c);
   }
@@ -1061,7 +1079,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     }
     if (s.ph) { paintNight(ctx, r, s.ph, wx0, wy0, wx1, wy1); return { el, ver: s.ver }; }
     const badges = r * TW >= BADGE_PX;
-    for (const it of s.drawList) {
+    for (const it of itemsIn(wx0, wy0, wx1, wy1)) {
       if (it.x1 < wx0 || it.x0 > wx1 || it.y1 < wy0 || it.y0 > wy1) continue;
       if (it.z === 2 && !badges) continue;
       it.draw(ctx, r);
@@ -1397,7 +1415,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     if (!s.layerR) s.layerR = desired;
     else if (s.layerR !== desired) {
       const k = desired / s.layerR;
-      if (k < 0.5 || k > 1.6) s.layerR = desired;
+      if (!s.anim && (k < 0.5 || k > 1.6)) s.layerR = desired;
       if (s.zoomTimer) clearTimeout(s.zoomTimer);
       s.zoomTimer = setTimeout(() => {
         s.zoomTimer = null;

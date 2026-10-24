@@ -40,6 +40,18 @@ const CELL_OK = 'rgba(46,160,67,.32)', CELL_SHORT = 'rgba(212,167,44,.42)';
 const HIDE_WHEN_FILLED = { '&:not(:only-child)': { display: 'none' } } as const;
 const ACTION_TABS = new Set<CityActionMode>(['build', 'move', 'demolish', 'reconstruct', 'renovate']);
 
+// Панель присылает и цены, и остатки, и состояния кнопок. При этом геометрия мира часто
+// прежняя: сохраняем её ссылки, чтобы эти обновления не пересобирали слои canvas.
+function useStableMapRows<T extends object>(rows: T[]): T[] {
+  const previous = useRef(rows);
+  const old = previous.current;
+  if (old.length !== rows.length || rows.some((row, i) => {
+    const keys = Object.keys(row) as (keyof T)[];
+    return keys.length !== Object.keys(old[i]).length || keys.some(k => row[k] !== old[i][k]);
+  })) previous.current = rows;
+  return previous.current;
+}
+
 // Страница «Города»: одна карта всех городов на движке карты города (CityActionsCanvas), без отдельной
 // страницы города. Издалека сайдбар показывает все города сразу, а когда город у центра экрана шире
 // половины экрана (З1), шапка и сайдбар переходят к нему (CityMapCity без своей карты, через порталы), и
@@ -254,12 +266,18 @@ export function CityWorld() {
   const lookAll = (animate: boolean) => { const f = fitTile(); setCamera({ gx: f.cx, gy: f.cy, tile: f.tile, key: ++camKey.current, animate }); };
   const flyTo = (account: string) => {
     const c = cityCenter(account);
-    if (c) setCamera({ gx: c.cx, gy: c.cy, tile: Math.max(enterTile() * 1.25, viewRef.current?.tile ?? 0), key: ++camKey.current, animate: true });
+    if (c) {
+      cameraMoving.current = true;
+      clearTimeout(viewTimer.current);
+      // Наезд на уже центрированный город может не дать нового onView.
+      viewTimer.current = setTimeout(() => settleView.current(), 140);
+      setCamera({ gx: c.cx, gy: c.cy, tile: Math.max(enterTile() * 1.25, viewRef.current?.tile ?? 0), key: ++camKey.current, animate: true });
+    }
   };
   const flyRef = useRef(flyTo); flyRef.current = flyTo;
   const zoomedIn = () => { const v = viewRef.current; return !!v && SPAN * v.tile / v.W >= LEAVE_SHARE; };
   // «Все города»: снять выбор; если город был крупно — отъехать ко всем
-  const goAll = () => { choose(null, false); if (zoomedIn()) lookAll(true); };
+  const goAll = () => { clickedCity.current = null; choose(null, false); if (zoomedIn()) lookAll(true); };
   // первая расстановка: город из адреса (?account=) крупно, иначе все города
   const placed = useRef(false);
   useEffect(() => {
@@ -275,14 +293,31 @@ export function CityWorld() {
   // когда камеру отдаляют (сдвиг карты на том же масштабе его не закрывает)
   const centreRef = useRef<string | null>(null);
   const shareRef = useRef(0);
-  const onView = useCallback((v: MapView) => {
-    viewRef.current = v;
+  const viewTimer = useRef<ReturnType<typeof setTimeout>>();
+  const cameraMoving = useRef(false);
+  const clickedCity = useRef<string | null>(null);
+  const settleView = useRef<() => void>(() => {});
+  settleView.current = () => {
+    cameraMoving.current = false;
+    const v = viewRef.current;
+    if (!v) return;
     const share = SPAN * v.tile / v.W;
     const zoomingOut = share < shareRef.current - 1e-6;
     shareRef.current = share;
     if (share >= WARM_SHARE) {
       const i = nearestCity(Math.round(v.cx), Math.round(v.cy));
       if (i >= 0) setWarm(cities[i].account);
+    }
+    if (clickedCity.current) {
+      const a = clickedCity.current;
+      clickedCity.current = null;
+      const i = nearestCity(Math.round(v.cx), Math.round(v.cy));
+      // Свайп мог прервать наезд, а пользователь — уже перейти к действию в другом городе.
+      if (i >= 0 && cities[i].account === a && !movingRef.current && modeRef.current === 'view') {
+        centreRef.current = a;
+        choose(a, false);
+        return;
+      }
     }
     if (share >= ENTER_SHARE || (centreRef.current && share >= LEAVE_SHARE)) {
       const i = nearestCity(Math.round(v.cx), Math.round(v.cy));
@@ -292,7 +327,15 @@ export function CityWorld() {
       centreRef.current = null;
       if ((curAuto.current || zoomingOut) && curRef.current && !movingRef.current) choose(null, false);
     }
-  }, [nearestCity, cities, choose]);
+  };
+  const onView = useCallback((v: MapView) => {
+    viewRef.current = v;
+    cameraMoving.current = true;
+    clearTimeout(viewTimer.current);
+    // Ни загрузка следующей панели, ни её React commit не попадают в кадры свайпа/наезда.
+    viewTimer.current = setTimeout(() => settleView.current(), 140);
+  }, []);
+  useEffect(() => () => clearTimeout(viewTimer.current), []);
   // адрес помнит текущий город — ссылку можно открыть сразу на нём
   useEffect(() => {
     if (!placed.current) return;
@@ -401,18 +444,18 @@ export function CityWorld() {
     if (!o || !set) return;
     for (const k of set) { const i = k.indexOf('_'); out.add(`${+k.slice(0, i) + o.ox}_${+k.slice(i + 1) + o.oy}`); }
   };
-  const allBuildings = useMemo(() => cities.flatMap(c => {
+  const allBuildings = useStableMapRows(useMemo(() => cities.flatMap(c => {
     const o = offOf.get(c.account)!;
     return (live(c.account)?.buildings ?? c.buildings).map(b => ({ ...b, x: b.x + o.ox, y: b.y + o.oy }));
-  }), [cities, offOf, live]);
-  const allQueue = useMemo(() => cities.flatMap(c => {
+  }), [cities, offOf, live]));
+  const allQueue = useStableMapRows(useMemo(() => cities.flatMap(c => {
     const o = offOf.get(c.account)!;
     return (live(c.account)?.queue ?? c.queue).map(v => ({ ...v, x: v.x + o.ox, y: v.y + o.oy }));
-  }), [cities, offOf, live]);
-  const allTargets = useMemo(() => cities.flatMap(c => {
+  }), [cities, offOf, live]));
+  const allTargets = useStableMapRows(useMemo(() => cities.flatMap(c => {
     const o = offOf.get(c.account)!;
     return (live(c.account)?.targets ?? c.targets ?? []).map(t => ({ ...t, x: t.x + o.ox, y: t.y + o.oy }));
-  }), [cities, offOf, live]);
+  }), [cities, offOf, live]));
   // клетки для действий: открытый город отдаёт свои, ещё не открытый считается той же функцией по
   // своему снимку (cityCellSets) — клик по ней откроет город, и выполнит его уже код карты города
   const coordKeys = useMemo(() => COORDS.map(c => `${c.x}_${c.y}`), []);
@@ -520,7 +563,7 @@ export function CityWorld() {
   };
   useEffect(() => {
     if (!hoverCity) return;
-    const t = setTimeout(() => setWarm(hoverCity), WARM_HOVER_MS);
+    const t = setTimeout(() => { if (!cameraMoving.current) setWarm(hoverCity); }, WARM_HOVER_MS);
     return () => clearTimeout(t);
   }, [hoverCity]);
   const toLocal = (gx: number, gy: number) => {
@@ -608,11 +651,11 @@ export function CityWorld() {
     const l = toLocal(gx, gy);
     if (movingRef.current) return;
     if (l && boosterTap.current?.(l.account)) return;
-    if (l && l.account !== curRef.current) choose(l.account, false);
+    if (modeRef.current !== 'view' && l && l.account !== curRef.current) choose(l.account, false);
     // «Показатели»: клик по городу ещё и приближает к нему (зазор между городами — к подсвеченному соседу)
     if (modeRef.current === 'view') {
       const i = l ? -1 : nearestCity(gx, gy), a = l?.account ?? (i >= 0 ? cities[i].account : null);
-      if (a) { if (a !== curRef.current) choose(a, false); flyRef.current(a); }
+      if (a) { clickedCity.current = a; flyRef.current(a); }
     }
   }, [offOf, cityAtCell, choose, nearestCity, cities]);
   const minScale = useMemo(() => (cities.length ? fitTile().tile * 0.7 / 90 : 0.05), [cities.length, cols]);
@@ -641,10 +684,10 @@ export function CityWorld() {
   const queueTotal = cities.reduce((s, r) => s + queueOf(r).length, 0);
   const drafts = cities.filter(r => live(r.account)?.draft);
   // клик по городу в списке: открывается его панель, карта подъезжает к нему
-  const openCity = (a: string) => { choose(a, false); flyTo(a); };
+  const openCity = (a: string) => { clickedCity.current = a; flyTo(a); };
   // наведение на строку списка тоже заранее грузит город — к клику он обычно уже готов
   const warmTimer = useRef<ReturnType<typeof setTimeout>>();
-  const warmSoon = (a: string | null) => { clearTimeout(warmTimer.current); if (a) warmTimer.current = setTimeout(() => setWarm(a), WARM_HOVER_MS); };
+  const warmSoon = (a: string | null) => { clearTimeout(warmTimer.current); if (a) warmTimer.current = setTimeout(() => { if (!cameraMoving.current) setWarm(a); }, WARM_HOVER_MS); };
   useEffect(() => () => clearTimeout(warmTimer.current), []);
 
   // список городов: перетаскивание меняет порядок (только на «Показателях»)
