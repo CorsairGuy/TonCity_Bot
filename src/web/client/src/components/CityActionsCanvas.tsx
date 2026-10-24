@@ -480,6 +480,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     s.rafId = requestAnimationFrame(() => { s.rafId = null; redraw(); });
   }, []);
 
+  // Команда камеры должна заказать кадр сама: без этого неподвижная карта ждала
+  // очередного секундного тика стройки, поэтому задержка клика зависела от момента нажатия.
+  useEffect(() => { requestRedraw(); }, [camera, requestRedraw]);
+
   function isoToScreen(col: number, row: number) {
     const { rows } = state.current;
     return { x: (col - row + (rows - 1)) * TW / 2, y: (col + row) * TH / 2 };

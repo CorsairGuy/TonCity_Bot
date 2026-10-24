@@ -365,18 +365,15 @@ const SERVICE_SPRITE: Record<ServiceCat, string> = { hospital: 'SER_city_hospita
 // общий эффект category/type-множителей и глобального множителя относительно raw.profit
 // кошелёк города (или всех городов): монеты, алмазы, вложенное в стейкинг; income — монет в час
 export interface Wallet { coins: number; crystals: number; stakedCoins: number; stakedCrystals: number; income: number }
-const coinRow = (v: ReactNode) => <Box as="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>{v}</Box>;
-// карточка баланса над доходом: монеты и алмазы (сокращённо), ниже — вложенное в стейкинг
+// карточка баланса над доходом: монеты и алмазы (сокращённо)
 export function WalletTop({ w }: { w?: Wallet }) {
   if (!w) return null;
-  const staked = w.stakedCoins > 0 || w.stakedCrystals > 0;
   return (
     <Summary tone="neutral">
       <Box sx={{ display: 'flex', gap: 2 }}>
         <Tile value={<CoinValue value={fmtStat(w.coins)} />} label="монеты" color="attention.fg" />
         <Tile value={<CrystalValue value={fmtStat(w.crystals)} />} label="алмазы" color="accent.fg" />
       </Box>
-      {staked && <SumLine left="в стейкинге" right={<>{coinRow(<CoinValue value={fmtStat(w.stakedCoins)} />)} · {coinRow(<CrystalValue value={fmtStat(w.stakedCrystals)} />)}</>} />}
     </Summary>
   );
 }
