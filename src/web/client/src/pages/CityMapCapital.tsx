@@ -462,16 +462,19 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     </>
   );
   const sameCells = (a: { x: number; y: number; target_level?: number }[], b: typeof a) => a.length === b.length && a.every((v, i) => v.x === b[i].x && v.y === b[i].y && v.target_level === b[i].target_level);
+  const planDirty = planRemoved.size > 0 || !sameCells(targets, savedTargets);
+  const queueDirty = !sameCells(manualQueue, savedManualQueue);
+  // «Сохранить»/«Отменить» — только когда есть несохранённые изменения
   const footer = mode === 'upgrade'
-    ? <>
+    ? (planDirty ? <>
         <PlanSaveButton count={targets.filter(t => !planRemoved.has(`${t.x},${t.y}`)).length} busy={busy} onClick={saveTargets} />
-        <CancelButton disabled={busy || (planRemoved.size === 0 && sameCells(targets, savedTargets))} onClick={() => { setTargets(savedTargets); setPlanRemoved(new Set()); }} />
-      </>
+        <CancelButton disabled={busy} onClick={() => { setTargets(savedTargets); setPlanRemoved(new Set()); }} />
+      </> : undefined)
     : mode === 'queue'
-      ? <>
+      ? (queueDirty ? <>
           <FooterButton label="Сохранить" icon={CheckIcon} count={manualQueue.length} busy={busy} onClick={saveManualQueue} />
-          <CancelButton disabled={busy || sameCells(manualQueue, savedManualQueue)} onClick={() => setManualQueue(savedManualQueue)} />
-        </>
+          <CancelButton disabled={busy} onClick={() => setManualQueue(savedManualQueue)} />
+        </> : undefined)
       : runFooter || undefined;
   const headActions = mode === 'forecast'
     ? <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Пересчитать прогноз" disabled={forecastLoading} onClick={loadForecast} />
