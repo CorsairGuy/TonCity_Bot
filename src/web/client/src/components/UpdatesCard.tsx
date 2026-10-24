@@ -10,7 +10,7 @@ import {
 import { api, VersionInfo, UpdateRelease } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
-import { useVersionFeed, publishVersion } from '../hooks/useVersionFeed';
+import { onServerEvent } from '../serverEvents';
 import { UpdateProgress } from './UpdateProgress';
 
 const SmallSpinner = () => <Spinner size="small" sx={{ width: 14, height: 14 }} />;
@@ -104,8 +104,8 @@ export function UpdatesCard() {
       const d = await api.version(force);
       if (d && d.ok) {
         setV(d); if (!v) applyFrom(d);
-        // плашка версии в меню (и в других вкладках) берёт те же данные, чтобы не показывать устаревшее
-        publishVersion(d);
+        // плашка версии в меню берёт те же данные, чтобы не показывать устаревшее
+        window.dispatchEvent(new CustomEvent('tc-version', { detail: d }));
         if (force) { setNote(checkNote(d)); setTimeout(() => setNote(null), 6000); }
       }
     } catch { if (force) setNote('Панель не отвечает'); }
@@ -113,25 +113,11 @@ export function UpdatesCard() {
   };
 
   useEffect(() => { load(); }, []);
-  // свежие проверки сервера и других вкладок
-  const feed = useVersionFeed();
-  useEffect(() => { if (feed && v && feed.checkedAt >= v.checkedAt) setV(feed); }, [feed]);
-  // обновление идёт (например, страницу перезагрузили посреди него): следим, пока бот не
-  // перезапустится на новой версии, тогда перезагружаем панель — у новой версии свой фронт
-  const busy = !!v?.updater?.busy;
-  useEffect(() => {
-    if (!busy || !v) return;
-    const started = v.startedAt;
-    const t = setInterval(async () => {
-      try {
-        const d = await api.version();
-        if (!d || !d.ok) return;
-        if (started && d.startedAt && d.startedAt !== started) { window.location.reload(); return; }
-        setV(d);
-      } catch { /* бот перезапускается */ }
-    }, 5000);
-    return () => clearInterval(t);
-  }, [busy, v?.startedAt]);
+  // свежие проверки бота приходят сами; перезагрузку после перезапуска на новой версии делает
+  // useBuildWatcher по событию build
+  useEffect(() => onServerEvent<VersionInfo>('version', d => { if (d && d.ok) setV(d); }), []);
+  // обновление идёт — бот сообщает сам (событие build), в том числе начатое из другой вкладки
+  const busy = build.busy || !!v?.updater?.busy;
   useEffect(() => {
     if (v && location.hash === '#updates') ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [!!v, location.hash]);

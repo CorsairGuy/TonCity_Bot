@@ -5,14 +5,14 @@ import { SyncIcon, PinIcon, DownloadIcon, CheckCircleFillIcon, XCircleFillIcon, 
 import { api, VersionInfo } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
-import { useVersionFeed, publishVersion, startVersionFeed } from '../hooks/useVersionFeed';
+import { onServerEvent } from '../serverEvents';
 import { updateStageView, ProgressRing } from './UpdateProgress';
 
 // Блок версии внизу меню: статус (значок в столбце иконок меню), канал и коммит, список того, что
 // придёт с обновлением (названия PR), и кнопка обновления
-// (через обновлятель, см. docker-compose.yml). Выбор канала — Настройки → Обновления. Сервер
-// сам проверяет GitHub при запуске и дальше раз в 30 минут (3 минуты, пока собирается образ) и
-// рассылает каждую проверку во все открытые вкладки (hooks/useVersionFeed.ts) — опроса здесь нет.
+// (через обновлятель, см. docker-compose.yml). Выбор канала — Настройки → Обновления. Проверяет
+// GitHub только бот: при запуске и дальше сам раз в 30 минут (3 минуты, пока собирается образ), и
+// каждую проверку сразу присылает во все открытые вкладки (событие version, serverEvents.ts).
 const MAX_CHANGES = 5;
 
 // стрелка вверх, вырезанная в залитом кружке, — пара к CheckCircleFillIcon (у octicons такой нет)
@@ -31,7 +31,7 @@ function Counter({ n }: { n?: number | null }) {
 const ext = (href: string, text: string) => <Link href={href} target="_blank" rel="noreferrer" muted>{text}</Link>;
 
 export function VersionBadge() {
-  const v = useVersionFeed();
+  const [v, setV] = useState<VersionInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -63,15 +63,22 @@ export function VersionBadge() {
     try {
       const d = await api.version(force);
       if (d && d.ok) {
-        publishVersion(d);
+        setV(d);
         if (force) { setNote(checkNote(d)); setTimeout(() => setNote(null), 6000); }
       }
     } catch { if (force) setNote('Панель не отвечает'); }
     finally { setBusy(false); }
   };
 
-  // свежие проверки сервера (и ручные из других вкладок или карточки «Обновления») приходят сами
-  useEffect(() => { startVersionFeed(); load(); }, []);
+  useEffect(() => { load(); }, []);
+  // свежие данные из карточки «Обновления» в настройках
+  useEffect(() => {
+    const on = (e: Event) => { const d = (e as CustomEvent<VersionInfo>).detail; if (d) setV(d); };
+    window.addEventListener('tc-version', on);
+    return () => window.removeEventListener('tc-version', on);
+  }, []);
+  // свежие проверки бота — сами по таймеру, ручные из любой вкладки, автообновление
+  useEffect(() => onServerEvent<VersionInfo>('version', d => { if (d && d.ok) setV(d); }), []);
 
   if (!v) return null;
   const updating = upd.updating || serverBusy;

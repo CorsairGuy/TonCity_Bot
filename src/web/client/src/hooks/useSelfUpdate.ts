@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { watchUpdate } from './useBuildWatcher';
 
 // Обновление / смена канала бота из панели (плашка версии и Настройки → Обновления).
 // Обновлятель пересоздаёт контейнер, поэтому запрос часто обрывается — это значит «бот
@@ -10,43 +9,30 @@ export function useSelfUpdate() {
   const [msg, setMsg] = useState<string | null>(null);
   // сервер ответил 409: идут операции — спросить, обновлять ли всё равно
   const [busyOps, setBusyOps] = useState<{ ops: string[]; tag?: string } | null>(null);
-  const pollRef = useRef<number | null>(null);
+  const timerRef = useRef<number | null>(null);
 
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
-  const waitForRestart = (oldStart: number | undefined) => {
+  // перезагрузку на новой версии делает useBuildWatcher по событию build от бота; здесь — только
+  // сообщение, если бот так и не поднялся
+  const waitForRestart = () => {
     setUpdating(true);
-    const started = Date.now();
-    pollRef.current = window.setInterval(async () => {
-      if (Date.now() - started > 10 * 60 * 1000) {
-        if (pollRef.current) clearInterval(pollRef.current);
-        setUpdating(false);
-        setMsg('Бот не поднялся за 10 минут. Проверьте docker compose ps и docker logs обновлятеля (…_updater).');
-        return;
-      }
-      try {
-        const d = await api.version();
-        if (d && d.ok && d.startedAt && d.startedAt !== oldStart) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          window.location.reload();
-        }
-      } catch { /* бот ещё перезапускается */ }
-    }, 4000);
+    timerRef.current = window.setTimeout(() => {
+      setUpdating(false);
+      setMsg('Бот не поднялся за 10 минут. Проверьте docker compose ps и docker logs обновлятеля (…_updater).');
+    }, 10 * 60 * 1000);
   };
 
   // tag не задан — свежий образ текущего канала
   const run = async (tag: string | undefined, force = false) => {
     setMsg(null);
     setBusyOps(null);
-    let oldStart: number | undefined;
-    try { oldStart = (await api.version()).startedAt; } catch { /* нет связи */ }
     setUpdating(true);
-    // прогресс скачивания приходит через опрос /api/build (useBuildWatcher)
-    window.setTimeout(watchUpdate, 1000);
+    // этап и прогресс скачивания бот присылает сам (событие build, useBuildWatcher)
     let r: Awaited<ReturnType<typeof api.update>>;
     try { r = await api.update(force, tag); }
-    catch { waitForRestart(oldStart); return; } // соединение оборвалось: бот уже перезапускается
-    if (r.ok && r.updated) { waitForRestart(oldStart); return; }
+    catch { waitForRestart(); return; } // соединение оборвалось: бот уже перезапускается
+    if (r.ok && r.updated) { waitForRestart(); return; }
     setUpdating(false);
     if (r.ok) { setMsg('Эта версия уже установлена. Если только что вышла новая — дождитесь конца сборки образа на GitHub.'); return; }
     if (r.busy?.length) { setBusyOps({ ops: r.busy, tag }); return; }

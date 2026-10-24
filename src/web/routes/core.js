@@ -66,37 +66,26 @@ module.exports=function(app,ctx){
 
   // статус техработ игры (автопауза запросов) — для баннера в панели
   const PROCESS_STARTED=Date.now()-Math.round(process.uptime()*1000);
-  // версия бота и каналы обновлений с GitHub (кэш 30 мин, ?force=1 — ручная проверка, не чаще раза в минуту)
-  // ответ проверки + состояние обновлятеля и настройки автообновления (общий для запроса и рассылки)
+  // ответ проверки версии + состояние обновлятеля и настройки автообновления (общий для запроса и рассылки)
   const versionPayload=v=>{
     const upd=require('../../utils/selfUpdate');
     const s=mergeDeep(DEFAULTS,loadSettings());
     return{...v,canUpdate:upd.isConfigured()&&!upd.updaterInfo().busy,startedAt:PROCESS_STARTED,updater:upd.updaterInfo(),history:upd.history(),auto:!!(s.update&&s.update.auto)};
   };
+  // версия бота и каналы обновлений с GitHub: проверяет только бот (кэш 30 мин, сам перепроверяет по
+  // истечении), ?force=1 — ручная проверка из панели (кнопка «Проверить» просит бота проверить сейчас)
   app.get('/api/version',async(req,res)=>{
     try{res.json(versionPayload(await require('../../utils/versionCheck').getVersionInfo({force:req.query.force==='1'})));}
     catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
-  // рассылка свежих проверок версии всем открытым вкладкам (SSE): как только сервер узнал о новой
-  // версии — сам, ручной проверкой из любой вкладки или автообновлением, — плашка обновляется везде.
-  // Браузер держит одно такое соединение на все вкладки (лидер, см. client hooks/useVersionFeed.ts).
-  app.get('/api/version/stream',(req,res)=>{
-    const vc=require('../../utils/versionCheck');
-    res.setHeader('Content-Type','text/event-stream');
-    res.setHeader('Cache-Control','no-cache');
-    res.setHeader('Connection','keep-alive');
-    res.setHeader('X-Accel-Buffering','no');
-    res.flushHeaders&&res.flushHeaders();
-    const send=v=>{try{res.write(`data: ${JSON.stringify(versionPayload(v))}\n\n`);}catch(_){}};
-    // ping раз в 25 с — прокси не закрывают «молчащее» соединение
-    const ping=setInterval(()=>{try{res.write(': ping\n\n');}catch(_){}},25000);
-    vc.events.on('checked',send);
-    req.on('close',()=>{clearInterval(ping);vc.events.off('checked',send);});
-  });
+  // общий поток событий бота для всех вкладок: новая версия, ход обновления, техработы (lib/panelEvents.js)
+  const panelEvents=require('../lib/panelEvents');
+  panelEvents.hookVersion(versionPayload);
+  app.get('/api/events',panelEvents.handler);
 
-  // лёгкая проверка «какой процесс бота сейчас отвечает» без GitHub: панель опрашивает её с любой
-  // страницы и перезагружается, когда бот перезапустился на новой версии
+  // лёгкая проверка «какой процесс бота сейчас отвечает» без GitHub: разовая сверка панели при
+  // возврате на вкладку (основной путь — событие build в /api/events)
   app.get('/api/build',(req,res)=>{
     try{
       const u=require('../../utils/selfUpdate').updaterInfo(),l=u.busy&&u.last;
