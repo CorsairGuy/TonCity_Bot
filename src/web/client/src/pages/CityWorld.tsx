@@ -271,11 +271,15 @@ export function CityWorld() {
   }, [cities.length > 0]);
 
   // крупный план: текущим становится город у центра экрана (когда центр переезжает в другой город);
-  // отдалились — город, выбранный приближением, уходит, выбранный кликом остаётся
+  // отдалились — город уходит: выбранный приближением при любом движении камеры, выбранный кликом —
+  // когда камеру отдаляют (сдвиг карты на том же масштабе его не закрывает)
   const centreRef = useRef<string | null>(null);
+  const shareRef = useRef(0);
   const onView = useCallback((v: MapView) => {
     viewRef.current = v;
     const share = SPAN * v.tile / v.W;
+    const zoomingOut = share < shareRef.current - 1e-6;
+    shareRef.current = share;
     if (share >= WARM_SHARE) {
       const i = nearestCity(Math.round(v.cx), Math.round(v.cy));
       if (i >= 0) setWarm(cities[i].account);
@@ -286,7 +290,7 @@ export function CityWorld() {
       if (a !== centreRef.current) { centreRef.current = a; if (a && a !== curRef.current && !movingRef.current) choose(a, true); }
     } else {
       centreRef.current = null;
-      if (curAuto.current && curRef.current && !movingRef.current) choose(null, false);
+      if ((curAuto.current || zoomingOut) && curRef.current && !movingRef.current) choose(null, false);
     }
   }, [nearestCity, cities, choose]);
   // адрес помнит текущий город — ссылку можно открыть сразу на нём
@@ -979,8 +983,6 @@ export function CityWorld() {
             sub={`${r.account} · ${p.x},${p.y}`} fill={fillOf([[FILL_ATTENTION, 100]])} onClick={() => openCity(r.account)} />
         )))}
       </>}
-      <Caption right={cities.length}>Города</Caption>
-      {cityList(cities, r => { const n = r.buildings.filter(isBuilding).length; return n ? `строится ${n}` : `жителей ${fmt(r.population)}`; }, () => null)}
     </>;
   }
 

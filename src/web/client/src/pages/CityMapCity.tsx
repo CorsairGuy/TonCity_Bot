@@ -1162,16 +1162,17 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const sameCells = (a: { x: number; y: number; target_level?: number }[], b: typeof a) => a.length === b.length && a.every((v, i) => v.x === b[i].x && v.y === b[i].y && v.target_level === b[i].target_level);
   const planDirty = planRemoved.size > 0 || !sameCells(targets, savedTargets);
   const queueDirty = !sameCells(manualQueue, savedManualQueue);
+  // «Сохранить»/«Отменить» — только когда есть несохранённые изменения
   const footer = mode === 'upgrade'
-    ? <>
+    ? (planDirty ? <>
         <PlanSaveButton count={targets.filter(t => !planRemoved.has(`${t.x},${t.y}`)).length} busy={busy} onClick={saveTargets} />
-        <CancelButton disabled={busy || !planDirty} onClick={() => { setTargets(savedTargets); setPlanRemoved(new Set()); }} />
-      </>
+        <CancelButton disabled={busy} onClick={() => { setTargets(savedTargets); setPlanRemoved(new Set()); }} />
+      </> : undefined)
     : mode === 'queue'
-      ? <>
+      ? (queueDirty ? <>
           <FooterButton label="Сохранить" icon={CheckIcon} count={manualQueue.length} busy={busy} onClick={saveManualQueue} />
-          <CancelButton disabled={busy || !queueDirty} onClick={() => setManualQueue(savedManualQueue)} />
-        </>
+          <CancelButton disabled={busy} onClick={() => setManualQueue(savedManualQueue)} />
+        </> : undefined)
       : mode === 'boosters'
         ? (boosterDirty ? <>
             <FooterButton label="Применить" icon={ZapIcon} count={boosterQueue.length} busy={boosterSaving} onClick={applyBoosterQueue} />
