@@ -11,6 +11,7 @@ const fs=require('fs');
 const path=require('path');
 const axios=require('axios');
 const logger=require('./logger');
+const{EventEmitter}=require('events');
 const{currentTag}=require('./selfUpdate');
 
 const REPO=process.env.UPDATE_REPO||'CorsairGuy/TonCity_Bot';
@@ -45,7 +46,11 @@ const WORKFLOW='.github/workflows/docker.yml';
 
 const BUILD_MS=3*60*1000;         // пока образ собирается — проверяем чаще, чтобы «Обновить» появилась сразу после сборки
 const ERROR_MS=5*60*1000;         // GitHub не ответил — повторим через 5 минут
-let cache=null,cacheAt=0,cacheTtl=CACHE_MS,inFlight=null;
+let cache=null,cacheAt=0,cacheTtl=CACHE_MS,inFlight=null,refreshTimer=null;
+// каждая свежая проверка (не из кэша) — событие 'checked': веб-сервер рассылает его всем открытым
+// вкладкам панели (GET /api/version/stream), чтобы плашка «Новая версия» появилась везде сразу
+const events=new EventEmitter();
+events.setMaxListeners(0);
 
 function readLocalCommit(){
   const env=(process.env.APP_COMMIT||'').trim();
@@ -202,6 +207,7 @@ async function getVersionInfo({force=false,maxAge=CACHE_MS}={}){
   inFlight=check().then(v=>{
     cache=v;cacheAt=Date.now();
     cacheTtl=v.build&&v.build.status!=='completed'?BUILD_MS:CACHE_MS;
+    fresh(v);
     return v;
   }).catch(e=>{
     logger.warn(`[version] проверка обновлений не удалась: ${e.message}`);
@@ -209,15 +215,26 @@ async function getVersionInfo({force=false,maxAge=CACHE_MS}={}){
       branches:[],releases:[],stable:null,branch:null,remote:null,release:null,status:'unknown',behindBy:null,compareUrl:null,build:null,newerReleases:0}),
       checkedAt:Date.now(),error:e.message};
     cache=v;cacheAt=Date.now();cacheTtl=Math.max(ERROR_MS,limitedUntil-Date.now());
+    fresh(v);
     return v;
   }).finally(()=>{inFlight=null;});
   return inFlight;
 }
 
+// свежий результат: разослать подписчикам и назначить следующую проверку по истечении кэша —
+// сервер сам узнаёт о новой версии, вкладкам не нужно опрашивать GitHub через него
+function fresh(v){
+  if(refreshTimer)clearTimeout(refreshTimer);
+  refreshTimer=setTimeout(()=>{refreshTimer=null;getVersionInfo().catch(()=>{});},cacheTtl+1000);
+  if(refreshTimer.unref)refreshTimer.unref();
+  try{events.emit('checked',v);}catch(e){logger.warn(`[version] рассылка: ${e.message}`);}
+}
+
 // после смены канала кэш устарел
 const invalidate=()=>{cache=null;cacheAt=0;};
 
-// сразу после запуска бота: панель, открытая после старта, получает готовый ответ, а не ждёт GitHub
+// сразу после запуска бота: панель, открытая после старта, получает готовый ответ, а не ждёт GitHub;
+// дальше проверка повторяется сама (fresh)
 function warmUp(){getVersionInfo().catch(()=>{});}
 
-module.exports={getVersionInfo,readLocalCommit,invalidate,warmUp,channelOf,branchTag};
+module.exports={getVersionInfo,readLocalCommit,invalidate,warmUp,channelOf,branchTag,events};

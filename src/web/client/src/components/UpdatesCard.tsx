@@ -10,6 +10,7 @@ import {
 import { api, VersionInfo, UpdateRelease } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
+import { useVersionFeed, publishVersion } from '../hooks/useVersionFeed';
 import { UpdateProgress } from './UpdateProgress';
 
 const SmallSpinner = () => <Spinner size="small" sx={{ width: 14, height: 14 }} />;
@@ -103,8 +104,8 @@ export function UpdatesCard() {
       const d = await api.version(force);
       if (d && d.ok) {
         setV(d); if (!v) applyFrom(d);
-        // плашка версии в меню берёт те же данные, чтобы не показывать устаревшее
-        window.dispatchEvent(new CustomEvent('tc-version', { detail: d }));
+        // плашка версии в меню (и в других вкладках) берёт те же данные, чтобы не показывать устаревшее
+        publishVersion(d);
         if (force) { setNote(checkNote(d)); setTimeout(() => setNote(null), 6000); }
       }
     } catch { if (force) setNote('Панель не отвечает'); }
@@ -112,6 +113,9 @@ export function UpdatesCard() {
   };
 
   useEffect(() => { load(); }, []);
+  // свежие проверки сервера и других вкладок
+  const feed = useVersionFeed();
+  useEffect(() => { if (feed && v && feed.checkedAt >= v.checkedAt) setV(feed); }, [feed]);
   // обновление идёт (например, страницу перезагрузили посреди него): следим, пока бот не
   // перезапустится на новой версии, тогда перезагружаем панель — у новой версии свой фронт
   const busy = !!v?.updater?.busy;

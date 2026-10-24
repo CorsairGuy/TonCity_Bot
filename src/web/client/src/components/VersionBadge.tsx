@@ -5,12 +5,14 @@ import { SyncIcon, PinIcon, DownloadIcon, CheckCircleFillIcon, XCircleFillIcon, 
 import { api, VersionInfo } from '../api';
 import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
+import { useVersionFeed, publishVersion, startVersionFeed } from '../hooks/useVersionFeed';
 import { updateStageView, ProgressRing } from './UpdateProgress';
 
 // Блок версии внизу меню: статус (значок в столбце иконок меню), канал и коммит, список того, что
 // придёт с обновлением (названия PR), и кнопка обновления
 // (через обновлятель, см. docker-compose.yml). Выбор канала — Настройки → Обновления. Сервер
-// кэширует ответ GitHub на 30 минут (3 минуты, пока собирается образ) и проверяет его сразу при запуске.
+// сам проверяет GitHub при запуске и дальше раз в 30 минут (3 минуты, пока собирается образ) и
+// рассылает каждую проверку во все открытые вкладки (hooks/useVersionFeed.ts) — опроса здесь нет.
 const MAX_CHANGES = 5;
 
 // стрелка вверх, вырезанная в залитом кружке, — пара к CheckCircleFillIcon (у octicons такой нет)
@@ -29,7 +31,7 @@ function Counter({ n }: { n?: number | null }) {
 const ext = (href: string, text: string) => <Link href={href} target="_blank" rel="noreferrer" muted>{text}</Link>;
 
 export function VersionBadge() {
-  const [v, setV] = useState<VersionInfo | null>(null);
+  const v = useVersionFeed();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -61,26 +63,15 @@ export function VersionBadge() {
     try {
       const d = await api.version(force);
       if (d && d.ok) {
-        setV(d);
+        publishVersion(d);
         if (force) { setNote(checkNote(d)); setTimeout(() => setNote(null), 6000); }
       }
     } catch { if (force) setNote('Панель не отвечает'); }
     finally { setBusy(false); }
   };
 
-  useEffect(() => { load(); }, []);
-  // свежие данные из карточки «Обновления» в настройках
-  useEffect(() => {
-    const on = (e: Event) => { const d = (e as CustomEvent<VersionInfo>).detail; if (d) setV(d); };
-    window.addEventListener('tc-version', on);
-    return () => window.removeEventListener('tc-version', on);
-  }, []);
-  // пока образ собирается на GitHub — чаще (сервер тогда сам держит кэш 3 минуты), иначе раз в 30 минут
-  const building = !!v?.build && v.build.status !== 'completed';
-  useEffect(() => {
-    const id = setInterval(() => load(), (building ? 3 : 30) * 60 * 1000);
-    return () => clearInterval(id);
-  }, [building]);
+  // свежие проверки сервера (и ручные из других вкладок или карточки «Обновления») приходят сами
+  useEffect(() => { startVersionFeed(); load(); }, []);
 
   if (!v) return null;
   const updating = upd.updating || serverBusy;
