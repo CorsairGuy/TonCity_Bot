@@ -854,6 +854,8 @@ async function init(){
     // сравнивается напрямую с уже известным Account.profit (текущая прибыль/час — условие
     // /mjourney/ это НЕ накопительный счётчик, а именно текущая прибыль, сверено живьём), поэтому
     // отдельный снимок/экстраполяция по времени не нужны.
+    // условия построек игры (/buildings/criteria) по аккаунту — см. utils/cityLiveData.js
+    `CREATE TABLE IF NOT EXISTS city_build_criteria (account VARCHAR(255) PRIMARY KEY, criteria LONGTEXT, updated_at DATETIME DEFAULT NULL)`,
     `CREATE TABLE IF NOT EXISTS city_build_plan (id INT AUTO_INCREMENT PRIMARY KEY, account VARCHAR(255), x INT, y INT, family_id VARCHAR(255), updated_at DATETIME DEFAULT NULL, UNIQUE KEY uq_city_build_plan (account, x, y))`,
     `CREATE TABLE IF NOT EXISTS journey_level_defs (level INT PRIMARY KEY, required_profit DOUBLE DEFAULT NULL, updated_at DATETIME DEFAULT NULL)`,
     `CREATE TABLE IF NOT EXISTS loyalty_level_defs (level INT PRIMARY KEY, required_days INT DEFAULT NULL, updated_at DATETIME DEFAULT NULL)`,

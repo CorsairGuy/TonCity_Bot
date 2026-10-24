@@ -73,22 +73,34 @@ module.exports=function(app,ctx){
   // запросом. Порядок городов — config.ui.cityOrder (ручное перетаскивание), остальные по доходу.
   app.get('/api/city-world',async(req,res)=>{
     try{
-      const{CitySnapshot,Account}=require('../../db/index');
+      const{CitySnapshot,Account,GuildSnapshot,TownhallDiversity}=require('../../db/index');
       const plansMod=require('../../db/cityPlans');
-      const[snaps,accs,queues,builds,targets]=await Promise.all([
+      const[snaps,accs,queues,builds,targets,guilds,divs]=await Promise.all([
         CitySnapshot.findAll({order:[['account','ASC']]}),
         Account.findAll({attributes:['name','balance','profit','profit_final','population','population_final','happiness']}),
         plansMod.loadAllQueues(),
         plansMod.loadBuildPlans(),
         plansMod.loadAllTargets(),
+        GuildSnapshot.findAll({attributes:['account','benefits']}),
+        TownhallDiversity.findAll({attributes:['account','income_bonus']}),
       ]);
+      // для «Показателей» любого города без его загрузки: бонусы гильдии и разнообразия из снимков в БД
+      const benefitsOf=new Map();
+      for(const g of guilds){
+        let b=null;try{b=g.benefits?JSON.parse(g.benefits):null;}catch{}
+        b=b&&typeof b==='object'?(b.benefits??b):null;
+        if(b&&typeof b==='object')benefitsOf.set(g.account,b);
+      }
+      const diversityOf=new Map(divs.map(d=>[d.account,Number(d.income_bonus)||0]));
       const byName=new Map(accs.map(a=>[a.name,a]));
       const n=v=>{const x=Number(v);return isFinite(x)?x:0;};
       const rows=snaps.filter(r=>byName.has(r.account)).map(r=>{
         const a=byName.get(r.account);
         return{account:r.account,buildings:r.buildings?JSON.parse(r.buildings):[],unlockedSections:r.unlocked_sections?JSON.parse(r.unlocked_sections):null,updated_at:r.updated_at,
           balance:n(a.balance),profit:n(a.profit),profit_final:n(a.profit_final),population:n(a.population),population_final:n(a.population_final),happiness:n(a.happiness),
-          queue:queues[r.account]||[],targets:targets[r.account]||[],buildPlan:builds[r.account]||[]};
+          queue:queues[r.account]||[],targets:targets[r.account]||[],buildPlan:builds[r.account]||[],
+          guild:(b=>({income_boost:n(b?.income_boost),building_purchases_discount:n(b?.building_purchases_discount),upgrades_discount:n(b?.upgrades_discount)}))(benefitsOf.get(r.account)),
+          diversity:diversityOf.get(r.account)??0};
       });
       const order=require('../../config').getConfig().ui?.cityOrder;
       res.json({ok:true,rows,order:Array.isArray(order)?order:[]});

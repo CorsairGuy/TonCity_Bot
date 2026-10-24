@@ -71,6 +71,39 @@ function buildCityStatsMods(cabinet: PolicyCabinet | undefined, incomeBoost: num
   };
 }
 
+// проекция «после всех запланированных»: ручная очередь (+1 за запись), личный план, общий план по семействам
+export function projectBuildings(owned: MapBuilding[], targets: CityStrategyTarget[], manualQueue: CityStrategyQueueItem[], globalPlan: GlobalUpgradeRule[]): MapBuilding[] {
+  const globalMap = new Map(globalPlan.map(g => [g.family_id, g.target_level]));
+  const personalMap = new Map(targets.map(t => [`${t.x},${t.y}`, t.target_level]));
+  const queueCounts = new Map<string, number>();
+  for (const q of manualQueue) { const k = `${q.x},${q.y}`; queueCounts.set(k, (queueCounts.get(k) || 0) + 1); }
+  return owned.map(b => {
+    const key = `${b.x},${b.y}`;
+    const lvl = Number(b.level) || 0;
+    const queueCount = queueCounts.get(key) || 0;
+    const target = personalMap.has(key) ? personalMap.get(key)! : (globalMap.get(b.id) ?? 0);
+    // end: null — проекция "после всех запланированных" считает здание УЖЕ улучшенным целиком, а
+    // не застрявшим в процессе стройки; иначе если здание из очереди прямо сейчас строится
+    // (унаследованный b.end в будущем), computeCityStats зануляет его вклад целиком (см.
+    // isUnderConstruction в cityStats.ts) — здание из очереди тогда просто пропадало бы из проекции
+    return { ...b, level: Math.max(lvl + queueCount, target, lvl), end: null };
+  });
+}
+
+// «Показатели» города по снимку и данным из БД (политики, бонусы гильдии и разнообразия) — без загрузки
+// самого города: «Города» показывают их при наведении и пока город грузится. Те же формулы, что у панели города
+export function cityStatsFor(owned: MapBuilding[], paramMap: Map<string, BuildingDef>, cabinet: PolicyCabinet | undefined,
+  guild: { income_boost: number; building_purchases_discount: number; upgrades_discount: number } | undefined, diversity: number,
+  targets: CityStrategyTarget[], queue: CityStrategyQueueItem[], globalPlan: GlobalUpgradeRule[]) {
+  const mods = buildCityStatsMods(cabinet, guild?.income_boost ?? 0, diversity,
+    computePolicyMultiplier(cabinet, 'build_cost') * (1 - (guild?.building_purchases_discount ?? 0)),
+    computePolicyMultiplier(cabinet, 'upgrade_cost') * (1 - (guild?.upgrades_discount ?? 0)));
+  return {
+    raw: computeCityStats(owned, paramMap), s: computeCityStats(owned, paramMap, mods),
+    projected: computeCityStats(projectBuildings(owned, targets, queue, globalPlan), paramMap, mods), mods,
+  };
+}
+
 // Редактор "Действий" по городу — прямо в странице карты (раньше была отдельная модалка
 // CityActionsModal с выпадающими списками). Строительство/Перемещение/Снос/Реконструкция/Реновация
 // копятся в ОДНУ общую очередь, которая переживает переключение вкладок режима — клик только
@@ -309,6 +342,8 @@ export interface CityMapState {
   pending: PendingView[];
   demolish: { tiles: DemolishTile[]; loss: number; pop: number; income: number };
   balance: number;
+  buildBlock: string | null;           // выбранное здание здесь не построить: причина (лимит, условие игры)
+  buildMult: number;                   // множитель цены постройки (политики · гильдия)
   moving: boolean;                     // перемещение: здание взято, ждёт клетку «куда»
   executing: boolean;
   run: () => Promise<RunResult | null>;
@@ -455,10 +490,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
 
   const [loadErr, setLoadErr] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
-  const hiddenRef = useRef(!!props.hidden); hiddenRef.current = !!props.hidden;
-  const liveDone = useRef(false);
   useEffect(() => {
-    const hiddenAtLoad = hiddenRef.current;
     let stale = false;
     setLoading(true);
     setDataDone(0);
@@ -470,11 +502,10 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       account ? api.cityStrategy(account) : Promise.resolve({ ok: true, targets: [] as CityStrategyTarget[], queue: [] as CityStrategyQueueItem[], reconstructPlan: [] as CityStrategyQueueItem[], buildPlan: [] as { x: number; y: number; family_id: string }[] }),
       fetch('/api/coords?type=').then(r => r.json()).catch(() => ({ coords: [] })),
       (account ? api.policies(account) : Promise.resolve({ ok: false as const, byAccount: {} })).catch(() => ({ ok: false as const, byAccount: {} })),
-      // скрытый город общей карты (его задела кисть) живые запросы к игре не шлёт: они нужны панели,
-      // и уходят, когда город станет текущим (эффект ниже)
-      account && !hiddenAtLoad ? api.cityGuildBenefits(account).catch(() => ({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 })) : Promise.resolve({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 }),
+      // скидки гильдии и условия построек — из БД: их пишет бот (цикл прокачки, квесты гильдии) и кнопка «Обновить»
+      account ? api.cityGuildBenefits(account).catch(() => ({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 })) : Promise.resolve({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 }),
       (account ? api.accounts(account) : Promise.resolve({ ok: false as const, accounts: [] })).catch(() => ({ ok: false as const, accounts: [] })),
-      account && !hiddenAtLoad ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
+      account ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
       account ? api.cityDiversity(account).catch(() => ({ ok: false as const, income_bonus: 0 })) : Promise.resolve({ ok: false as const, income_bonus: 0 }),
     ], () => { if (!stale) setDataDone(n => n + 1); }).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
       if (stale) return;
@@ -495,26 +526,14 @@ export function CityMapCity(props: CityMapCityProps = {}) {
         build: pol.ok ? computePolicyMultiplier(pol.byAccount[account]?.cabinet, 'build_cost') : 1,
         upgrade: pol.ok ? computePolicyMultiplier(pol.byAccount[account]?.cabinet, 'upgrade_cost') : 1,
       });
-      if (!hiddenAtLoad) setGuildDisc({ build: guild.ok ? guild.building_purchases_discount : 0, upgrade: guild.ok ? guild.upgrades_discount : 0 });
+      setGuildDisc({ build: guild.ok ? guild.building_purchases_discount : 0, upgrade: guild.ok ? guild.upgrades_discount : 0 });
       setPolicyCabinet(pol.ok ? pol.byAccount[account]?.cabinet : undefined);
-      if (!hiddenAtLoad) setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
-      liveDone.current = !hiddenAtLoad;
+      setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
       setDiversityIncomeBoost(diversity.ok ? diversity.income_bonus : 0);
     }).catch(e => { if (!stale) setLoadErr(String(e)); })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
   }, [account, reloadTick]);
-  // город загрузился скрытым (его задела кисть издалека) и стал текущим — догружаем живое для панели
-  useEffect(() => {
-    if (props.hidden || loading || liveDone.current || !account) return;
-    liveDone.current = true;
-    api.cityGuildBenefits(account).then(g => {
-      if (!g.ok || accountRef.current !== account) return;
-      setGuildDisc({ build: g.building_purchases_discount, upgrade: g.upgrades_discount });
-      setGuildIncomeBoost(g.income_boost);
-    }).catch(() => {});
-    api.cityBuildCriteria(account).then(c => { if (c.ok && accountRef.current === account) setBuildCriteria(c.criteria); }).catch(() => {});
-  }, [props.hidden, loading, account]);
 
   // смена аккаунта — сбросить очередь и все незавершённые выборы (вкладка остаётся, если её ведёт общая карта)
   useEffect(() => {
@@ -547,7 +566,12 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     setLiveRefreshing(true);
     try {
       const r = await api.cityRefresh(account);
-      if (r.ok) refreshMap(); else showFlash(r.error ?? 'Ошибка', false);
+      if (r.ok) {
+        refreshMap();
+        // «Обновить» переписал в БД и бонусы гильдии с условиями построек — перечитываем их
+        api.cityGuildBenefits(account).then(g => { if (g.ok && accountRef.current === account) { setGuildDisc({ build: g.building_purchases_discount, upgrade: g.upgrades_discount }); setGuildIncomeBoost(g.income_boost); } }).catch(() => {});
+        api.cityBuildCriteria(account).then(c => { if (c.ok && accountRef.current === account) setBuildCriteria(c.criteria); }).catch(() => {});
+      } else showFlash(r.error ?? 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); } finally { setLiveRefreshing(false); }
   };
 
@@ -607,23 +631,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // доход" на экране "Обзор доходов" (category_income/building_type_income у нас иначе сворачиваются
   // в per-building сумму ДО happiness — их эффект теперь явно выделяется в "Политики %", см. statsBlock)
   const currentStatsRaw = useMemo(() => computeCityStats(owned, buildingParamMap), [owned, buildingParamMap]);
-  const projectedBuildings = useMemo(() => {
-    const globalMap = new Map(globalPlan.map(g => [g.family_id, g.target_level]));
-    const personalMap = new Map(targets.map(t => [`${t.x},${t.y}`, t.target_level]));
-    const queueCounts = new Map<string, number>();
-    for (const q of manualQueue) { const k = `${q.x},${q.y}`; queueCounts.set(k, (queueCounts.get(k) || 0) + 1); }
-    return owned.map(b => {
-      const key = `${b.x},${b.y}`;
-      const lvl = Number(b.level) || 0;
-      const queueCount = queueCounts.get(key) || 0;
-      const target = personalMap.has(key) ? personalMap.get(key)! : (globalMap.get(b.id) ?? 0);
-      // end: null — проекция "после всех запланированных" считает здание УЖЕ улучшенным целиком, а
-      // не застрявшим в процессе стройки; иначе если здание из очереди прямо сейчас строится
-      // (унаследованный b.end в будущем), computeCityStats зануляет его вклад целиком (см.
-      // isUnderConstruction в cityStats.ts) — здание из очереди тогда просто пропадало бы из проекции
-      return { ...b, level: Math.max(lvl + queueCount, target, lvl), end: null };
-    });
-  }, [owned, targets, manualQueue, globalPlan]);
+  const projectedBuildings = useMemo(() => projectBuildings(owned, targets, manualQueue, globalPlan), [owned, targets, manualQueue, globalPlan]);
   const projectedStats = useMemo(() => computeCityStats(projectedBuildings, buildingParamMap, cityStatsMods), [projectedBuildings, buildingParamMap, cityStatsMods]);
   const boosterLabelFor = (id: string) => { const b = boosters.find(x => x.name === id); return b ? b.label : `#${id}`; };
 
@@ -656,6 +664,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     const have = displayBuildings.filter(b => familyId(b.id) === familyId(buildFamily)).length;
     return (info?.limit != null && have >= info.limit) || isCriteriaUnmet(buildCriteria, buildFamily);
   }, [buildFamily, buildingParamMap, displayBuildings, buildCriteria]);
+  const buildBlock = !buildFamily ? null : (() => {
+    const info = buildingParamMap.get(buildFamily);
+    const have = displayBuildings.filter(b => familyId(b.id) === familyId(buildFamily)).length;
+    return info?.limit != null && have >= info.limit ? 'уже построено' : isCriteriaUnmet(buildCriteria, buildFamily) ? criteriaReason(buildCriteria, buildFamily) : null;
+  })();
   const validSet = useMemo(() => executing || (mode === 'build' && buildBlocked) ? new Set<string>() : validCellsFor(mode, sets, buildFamily, moveFrom),
     [executing, mode, buildFamily, buildBlocked, moveFrom, sets]);
   // Esc отменяет начатое перемещение
@@ -1105,11 +1118,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     onMapRef.current?.({
       account, buildings: displayBuildings, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
       focusSet: mode === 'upgrade' ? planFocus : null, onPick: stablePick, onUnlockCell: stableUnlock, draft: draft || executing, dots: dotsKey ? JSON.parse(dotsKey) : {},
-      fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, moving: !!moveFrom, executing,
+      fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, buildBlock, buildMult: buildCostMultiplier, moving: !!moveFrom, executing,
       run: stableRun, removePending: stableRemove, cancelPending: stableCancel, cancelMove: stableCancelMove,
       queuePrices: JSON.parse(queuePricesKey), queueDirty: queueDirtyNow, editQueue: stableEditQueue, saveQueue: stableSaveQueue, resetQueue: stableResetQueue,
     });
-  }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow]);
+  }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow, buildBlock, buildCostMultiplier]);
 
   if (props.hidden) return null;
   // во встроенном виде шапку и спиннер на время загрузки рисуют «Города» — свой лоадер не нужен
@@ -1285,7 +1298,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // кисти встают в места общей страницы, а карта — общая
   if (props.slots) return <>
     {props.slots.head && createPortal(<>{headRow}{flashEl}</>, props.slots.head)}
-    {props.slots.side && createPortal(sidePanel, props.slots.side)}
+    {/* «Строительство»: список зданий один на все города — сайдбар рисуют «Города» */}
+    {props.slots.side && mode !== 'build' && createPortal(sidePanel, props.slots.side)}
     {props.slots.dock && mode === 'upgrade' && createPortal(brush, props.slots.dock)}
   </>;
 

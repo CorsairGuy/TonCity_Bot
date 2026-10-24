@@ -1183,6 +1183,9 @@ export interface CityWorldRow extends CityRow {
   queue: CityStrategyQueueItem[];
   targets: CityStrategyTarget[];
   buildPlan: { x: number; y: number; family_id: string }[]; // отложенная стройка: ждёт монет
+  // для «Показателей» без загрузки города: бонусы гильдии и разнообразия из снимков в БД
+  guild: { income_boost: number; building_purchases_discount: number; upgrades_discount: number };
+  diversity: number;
 }
 export interface CityRow {
   account: string;
