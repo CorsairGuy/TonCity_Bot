@@ -1,21 +1,24 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
-import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon, ZapIcon } from '@primer/octicons-react';
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronUpIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
 import { api, type CityRow, type CapitalRow, type BuildingDef, type CityStrategyTarget, type CityStrategyQueueItem, type MapBuilding, type PolicyCabinet, type CityBoosterRow, type CityActiveBooster, type CityActionLogRow, type ForecastEvent, type GlobalUpgradeRule, type CityStats, type ServiceCat, type MapSection } from '../api';
-import { CityActionsCanvas, type CityActionMode } from '../components/CityActionsCanvas';
+import { CityActionsCanvas, type CityActionMode, type CellFill } from '../components/CityActionsCanvas';
 import { MapLoader, DATA_SHARE, allCounted } from '../components/MapLoader';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import { DayNightMenu } from '../components/DayNightMenu';
+import type { DayNightMode } from '../components/mapNight';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, CancelButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, type PanelMode, type ReconGroup } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, CancelButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, Caption, Row, Thumb, fillOf, FILL_ATTENTION, type PanelMode, type ReconGroup } from './cityMapPanels';
 import { useAsk } from '../hooks/useAsk';
 import { useNarrow } from '../hooks/useNarrow';
 import { LoadError } from '../components/LoadError';
+import { onServerEvent } from '../serverEvents';
 
 // ключ карты эффектов политики: та же схема, что cw(stat,scopeKind,target) в бандле игры —
 // scope_kind==="global" (или без target) — суффикса нет, иначе "scopeKind:target"
@@ -88,7 +91,7 @@ export function buildingName(b: BuildingDef): string {
 }
 // та же семья, что и familyId() в web/cityStats.js — звёздные варианты одного здания считаются
 // одной семьёй ("_2_star.png" и т.п. -> ".png")
-const familyId = (id: string) => id.replace(/_\d+_star\.png$/i, '.png');
+export const familyId = (id: string) => id.replace(/_\d+_star\.png$/i, '.png');
 
 // живой критерий доступности постройки (GET /buildings/criteria в самой игре) — форма ответа
 // подтверждена по логу бота (logger.info в cityStrategy.js): {criteria: [{criteria_id, criteria_met,
@@ -225,6 +228,43 @@ export function logLabel(r: CityActionLogRow, labelFor: (id: string) => string, 
   }
 }
 
+const isUnderway = (b: { end?: string | null }) => !!b.end && new Date(b.end).getTime() > Date.now();
+
+// Какие клетки города годятся для каждого действия — одна функция для карты города и для городов
+// общей карты, которые ещё не открывались (их клик потом выполняет этот же код города).
+// Реконструкция/реновация сверены с бандлом (BuildingMenu.js): флаг здания + required_lvl достигнут +
+// здание НЕ в стройке (игра повышает уровень сразу, а само здание до конца стройки занято). Наличие
+// компонентов/мастерпланов не проверяем — это скажет сама игра. Для плана реконструкции уровень не
+// нужен: бот отправит её сам, когда здание дорастёт (progress.js runPendingReconstructions).
+// Закрытые секции и клетки отложенной стройки — не «пусто».
+export interface CityCellSets { occupied: Set<string>; upgradeable: Set<string>; reconstructable: Set<string>; renovatable: Set<string>; reconstructPlannable: Set<string>; empty: Set<string> }
+export function cityCellSets(display: MapBuilding[], catMap: Map<string, BuildingDef>, coords: Iterable<string>, locked: Set<string>, deferred: Set<string>): CityCellSets {
+  const out: CityCellSets = { occupied: new Set(), upgradeable: new Set(), reconstructable: new Set(), renovatable: new Set(), reconstructPlannable: new Set(), empty: new Set() };
+  for (const b of display) {
+    const k = `${b.x}_${b.y}`, info = catMap.get(b.id), lvl = Number(b.level) || 0, busy = isUnderway(b);
+    out.occupied.add(k);
+    if (info?.category !== 'special') out.upgradeable.add(k);
+    if (info?.is_reconstructible && info.required_lvl != null) {
+      out.reconstructPlannable.add(k);
+      if (lvl >= info.required_lvl && !busy) out.reconstructable.add(k);
+    }
+    if (info?.is_renovatable && info.next_id != null && info.required_lvl != null && lvl >= info.required_lvl && !busy) out.renovatable.add(k);
+  }
+  for (const k of coords) if (!out.occupied.has(k) && !locked.has(k) && !deferred.has(k)) out.empty.add(k);
+  return out;
+}
+export function validCellsFor(mode: CityActionMode, s: CityCellSets, buildFamily: string, moveFrom: { x: number; y: number } | null): Set<string> {
+  switch (mode) {
+    case 'upgrade': case 'queue': return s.upgradeable;
+    case 'build': return buildFamily ? s.empty : new Set<string>();
+    case 'move': return moveFrom ? s.empty : s.occupied;
+    case 'demolish': return s.occupied;
+    case 'reconstruct': return s.reconstructPlannable;
+    case 'renovate': return s.renovatable;
+    default: return new Set<string>();
+  }
+}
+
 // Город крупным планом. Открывается с общей карты всех городов (pages/CityWorld.tsx): account,
 // вкладка и выход обратно приходят оттуда. Без пропсов (старый адрес /city-map?account=) аккаунт
 // берётся из адреса.
@@ -234,6 +274,44 @@ export interface CityMapCityProps {
   onModeChange?: (m: CityActionMode) => void;
   onBack?: () => void;     // «Все города»
   onZoomOut?: () => void;  // колесо наружу на самом мелком масштабе — обратно на общую карту
+  // ── город на общей карте всех городов (pages/CityWorld.tsx): своей карты и страницы нет ──
+  slots?: { head: HTMLElement | null; side: HTMLElement | null; dock: HTMLElement | null };
+  onMap?: (m: CityMapState) => void;   // что рисовать на общей карте в этом городе (координаты города)
+  dayNight?: DayNightMode;
+  onDayNight?: (m: DayNightMode) => void;
+  panelActions?: ReactNode;            // кнопки общей страницы в шапке сайдбара
+  hidden?: boolean;                    // город не текущий: панели нет, но черновик и превью на карте живут
+  // выбранное здание для стройки и уровень кисти — общие для всех городов общей карты
+  tool?: { buildFamily: string; setBuildFamily: (v: string) => void; addLevel: string; setAddLevel: (v: string) => void };
+}
+
+export interface RunResult { ok: number; fail: number; deferred: number; error?: string }
+export interface PendingView { id: number; kind: string; label: string; sprite?: string; price?: number; over?: boolean }
+
+// город на общей карте: его постройки с превью действий и всё, что карта выделяет в его клетках
+export interface CityMapState {
+  account: string;
+  buildings: MapBuilding[];
+  mode: CityActionMode;
+  validSet: Set<string>;
+  pickedSet: Set<string>;
+  targets: CityStrategyTarget[];
+  queue: CityStrategyQueueItem[];
+  focusSet: Set<string> | null;
+  onPick: (x: number, y: number) => void;
+  onUnlockCell: (sectionId: string) => void;
+  draft: boolean;                      // есть несохранённые действия: город держится на карте и не теряет их
+  dots: Partial<Record<PanelMode, boolean>>;
+  fills: CellFill[];                   // отложенная стройка («ждёт монет»)
+  // «Ждут выполнения» для сводки всех городов: строки, деньги и запуск без своей панели
+  pending: PendingView[];
+  balance: number;
+  moving: boolean;                     // перемещение: здание взято, ждёт клетку «куда»
+  executing: boolean;
+  run: () => Promise<RunResult | null>;
+  removePending: (id: number) => void;
+  cancelPending: () => void;
+  cancelMove: () => void;
 }
 
 export function CityMapCity(props: CityMapCityProps = {}) {
@@ -247,7 +325,9 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const account = props.account ?? searchParams.get('account') ?? '';
   const goBack = props.onBack ?? (() => navigate('/city'));
   const mapType = 'city' as const;
-  const [dayNight, setDayNight] = useMapDayNight();
+  const [ownDayNight, setOwnDayNight] = useMapDayNight();
+  const dayNight = props.dayNight ?? ownDayNight;
+  const setDayNight = props.onDayNight ?? setOwnDayNight;
 
   const [rows, setRows] = useState<CityRow[] | CapitalRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -295,6 +375,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // здесь только обновляем исходные данные, откуда он берётся.
   useEffect(() => {
     if (!account) return;
+    // на общей карте городов открыто сразу несколько: свой SSE на каждый упёрся бы в лимит соединений
+    // браузера, поэтому там постройки приходят из общего потока событий бота
+    if (props.slots) return onServerEvent<{ account: string; buildings: MapBuilding[] }>('city', d => {
+      if (d.account === account) setRows(prev => (prev as CityRow[]).map(r => r.account === account ? { ...r, buildings: d.buildings } : r));
+    });
     const es = new EventSource(`/api/city-strategy/${encodeURIComponent(account)}/live-stream`);
     es.onmessage = (e) => {
       const data = JSON.parse(e.data) as { buildings: MapBuilding[] };
@@ -321,8 +406,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const [forecastEvents, setForecastEvents] = useState<ForecastEvent[]>([]);
   const [forecastLoading, setForecastLoading] = useState(false);
   const [coordsSet, setCoordsSet] = useState<Set<string>>(new Set());
-  const [buildCostMultiplier, setBuildCostMultiplier] = useState(1);
-  const [upgradeCostMultiplier, setUpgradeCostMultiplier] = useState(1);
+  // множители цены: политики (из БД) · скидка гильдии (живой запрос) — перемножаются
+  const [policyMults, setPolicyMults] = useState({ build: 1, upgrade: 1 });
+  const [guildDisc, setGuildDisc] = useState({ build: 0, upgrade: 0 });
+  const buildCostMultiplier = policyMults.build * (1 - guildDisc.build);
+  const upgradeCostMultiplier = policyMults.upgrade * (1 - guildDisc.upgrade);
   // для показателей города (computeCityStats mods) — политики этого аккаунта + гильдийский income_boost
   const [policyCabinet, setPolicyCabinet] = useState<PolicyCabinet | undefined>(undefined);
   const [guildIncomeBoost, setGuildIncomeBoost] = useState(0);
@@ -341,8 +429,14 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   // ── переходное состояние выбора (само действие ещё не добавлено в очередь) ──
-  const [addLevel, setAddLevel] = useState('20');
-  const [buildFamily, setBuildFamily] = useState('');
+  const [ownAddLevel, setOwnAddLevel] = useState('20');
+  const [ownBuildFamily, setOwnBuildFamily] = useState('');
+  const addLevel = props.tool?.addLevel ?? ownAddLevel;
+  const setAddLevel = props.tool?.setAddLevel ?? setOwnAddLevel;
+  const buildFamily = props.tool?.buildFamily ?? ownBuildFamily;
+  const setBuildFamily = props.tool?.setBuildFamily ?? setOwnBuildFamily;
+  // отложенная стройка: здания, на которые не хватило монет; бот построит сам (progress.js runPendingBuilds)
+  const [buildPlan, setBuildPlan] = useState<{ x: number; y: number; family_id: string }[]>([]);
   const [moveFrom, setMoveFrom] = useState<{ x: number; y: number } | null>(null);
   const [search, setSearch] = useState('');
   // вкладки категорий без «ВСЕ»: по умолчанию COM
@@ -350,7 +444,10 @@ export function CityMapCity(props: CityMapCityProps = {}) {
 
   const [loadErr, setLoadErr] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
+  const hiddenRef = useRef(!!props.hidden); hiddenRef.current = !!props.hidden;
+  const liveDone = useRef(false);
   useEffect(() => {
+    const hiddenAtLoad = hiddenRef.current;
     let stale = false;
     setLoading(true);
     setDataDone(0);
@@ -359,19 +456,21 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     allCounted([
       account ? api.city(account) : Promise.resolve({ ok: true, rows: [] as CityRow[] }),
       api.buildingsList('city'),
-      account ? api.cityStrategy(account) : Promise.resolve({ ok: true, targets: [] as CityStrategyTarget[], queue: [] as CityStrategyQueueItem[], reconstructPlan: [] as CityStrategyQueueItem[] }),
+      account ? api.cityStrategy(account) : Promise.resolve({ ok: true, targets: [] as CityStrategyTarget[], queue: [] as CityStrategyQueueItem[], reconstructPlan: [] as CityStrategyQueueItem[], buildPlan: [] as { x: number; y: number; family_id: string }[] }),
       fetch('/api/coords?type=').then(r => r.json()).catch(() => ({ coords: [] })),
       (account ? api.policies(account) : Promise.resolve({ ok: false as const, byAccount: {} })).catch(() => ({ ok: false as const, byAccount: {} })),
-      account ? api.cityGuildBenefits(account).catch(() => ({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 })) : Promise.resolve({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 }),
+      // скрытый город общей карты (его задела кисть) живые запросы к игре не шлёт: они нужны панели,
+      // и уходят, когда город станет текущим (эффект ниже)
+      account && !hiddenAtLoad ? api.cityGuildBenefits(account).catch(() => ({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 })) : Promise.resolve({ ok: false as const, building_purchases_discount: 0, upgrades_discount: 0, income_boost: 0 }),
       (account ? api.accounts(account) : Promise.resolve({ ok: false as const, accounts: [] })).catch(() => ({ ok: false as const, accounts: [] })),
-      account ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
+      account && !hiddenAtLoad ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
       account ? api.cityDiversity(account).catch(() => ({ ok: false as const, income_bonus: 0 })) : Promise.resolve({ ok: false as const, income_bonus: 0 }),
     ], () => { if (!stale) setDataDone(n => n + 1); }).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
       if (stale) return;
       if (c.ok) setRows(c.rows);
       else setLoadErr((c as { error?: string }).error || 'снимок города не загрузился');
       if (b.ok) setBuildingsCatalog(b.buildings);
-      if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setSavedManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); }
+      if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setSavedManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); setBuildPlan(t.buildPlan ?? []); }
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
       const accRow = accs.ok ? accs.accounts.find(a => a.name === account) : undefined;
       setBalance(accRow?.balance ?? 0);
@@ -381,24 +480,35 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       // а поверх — applyBuildingPurchaseDiscount из composable "benefits", building_purchases_discount).
       // Цена улучшения — та же схема, но своя пара полей (upgrade_cost политик · upgrades_discount
       // гильдии, см. modules/progress.js loadPolicyEffects)
-      const policyBuildMult = pol.ok ? computePolicyMultiplier(pol.byAccount[account]?.cabinet, 'build_cost') : 1;
-      const guildBuildMult = 1 - (guild.ok ? guild.building_purchases_discount : 0);
-      setBuildCostMultiplier(policyBuildMult * guildBuildMult);
-      const policyUpgradeMult = pol.ok ? computePolicyMultiplier(pol.byAccount[account]?.cabinet, 'upgrade_cost') : 1;
-      const guildUpgradeMult = 1 - (guild.ok ? guild.upgrades_discount : 0);
-      setUpgradeCostMultiplier(policyUpgradeMult * guildUpgradeMult);
+      setPolicyMults({
+        build: pol.ok ? computePolicyMultiplier(pol.byAccount[account]?.cabinet, 'build_cost') : 1,
+        upgrade: pol.ok ? computePolicyMultiplier(pol.byAccount[account]?.cabinet, 'upgrade_cost') : 1,
+      });
+      if (!hiddenAtLoad) setGuildDisc({ build: guild.ok ? guild.building_purchases_discount : 0, upgrade: guild.ok ? guild.upgrades_discount : 0 });
       setPolicyCabinet(pol.ok ? pol.byAccount[account]?.cabinet : undefined);
-      setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
+      if (!hiddenAtLoad) setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
+      liveDone.current = !hiddenAtLoad;
       setDiversityIncomeBoost(diversity.ok ? diversity.income_bonus : 0);
     }).catch(e => { if (!stale) setLoadErr(String(e)); })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
   }, [account, reloadTick]);
+  // город загрузился скрытым (его задела кисть издалека) и стал текущим — догружаем живое для панели
+  useEffect(() => {
+    if (props.hidden || loading || liveDone.current || !account) return;
+    liveDone.current = true;
+    api.cityGuildBenefits(account).then(g => {
+      if (!g.ok || accountRef.current !== account) return;
+      setGuildDisc({ build: g.building_purchases_discount, upgrade: g.upgrades_discount });
+      setGuildIncomeBoost(g.income_boost);
+    }).catch(() => {});
+    api.cityBuildCriteria(account).then(c => { if (c.ok && accountRef.current === account) setBuildCriteria(c.criteria); }).catch(() => {});
+  }, [props.hidden, loading, account]);
 
   // смена аккаунта — сбросить очередь и все незавершённые выборы (вкладка остаётся, если её ведёт общая карта)
   useEffect(() => {
     if (!props.mode) setOwnMode('view');
-    setQueue([]); setMoveFrom(null); setBuildFamily(''); setSearch(''); setCatFilter('');
+    setQueue([]); setMoveFrom(null); setOwnBuildFamily(''); setSearch(''); setCatFilter('');
   }, [account]);
 
   // убирает ОДНУ конкретную запись по позиции в массиве — та же клетка может стоять в очереди
@@ -512,60 +622,38 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     if (m !== 'build') { setBuildFamily(''); setSearch(''); setCatFilter(''); }
   }
 
+  // на общей карте вкладку переключает док общей страницы — сброс выбора тот же, что у switchMode
+  const embedded = !!props.slots;
+  useEffect(() => {
+    if (!embedded) return;
+    setMoveFrom(null);
+    if (mode !== 'build') { setOwnBuildFamily(''); setSearch(''); setCatFilter(''); }
+  }, [mode, embedded]);
+
   // ── множества клеток по режимам (на основе ОПТИМИСТИЧНОГО состояния — с учётом очереди) ───────
-  const occupiedSet = useMemo(() => new Set(displayBuildings.map(b => `${b.x}_${b.y}`)), [displayBuildings]);
-
-  const upgradeableSet = useMemo(() => new Set(
-    displayBuildings.filter(b => buildingParamMap.get(b.id)?.category !== 'special').map(b => `${b.x}_${b.y}`)
-  ), [displayBuildings, buildingsCatalog]);
-
-  // eligibility подтверждена реверсом бандла (BuildingMenu.js): is_reconstructible/is_renovatable +
-  // required_lvl достигнут + здание НЕ в стройке (в бандле условие ровно такое:
-  // is_reconstructible && !isUnderConstruction && level >= required_lvl). Про стройку мы забыли, и
-  // клетка светилась доступной, пока шло улучшение — игра такое действие не принимает: уровень она
-  // повышает сразу, а само здание до конца стройки занято.
-  // Наличие component/masterplan по-прежнему не проверяем — это скажет сама игра.
-  const underConstruction = (b: { end?: string | null }) => !!b.end && new Date(b.end).getTime() > Date.now();
-
-  const reconstructableSet = useMemo(() => new Set(displayBuildings.filter(b => {
-    const info = buildingParamMap.get(b.id);
-    return !!info?.is_reconstructible && info.required_lvl != null
-      && (Number(b.level) || 0) >= info.required_lvl && !underConstruction(b);
-  }).map(b => `${b.x}_${b.y}`)), [displayBuildings, buildingsCatalog]);
-
-  const renovatableSet = useMemo(() => new Set(displayBuildings.filter(b => {
-    const info = buildingParamMap.get(b.id);
-    return !!info?.is_renovatable && info.next_id != null && info.required_lvl != null
-      && (Number(b.level) || 0) >= info.required_lvl && !underConstruction(b);
-  }).map(b => `${b.x}_${b.y}`)), [displayBuildings, buildingsCatalog]);
-
-  // для "Запланировать" в режиме реконструкции — здание ЕЩЁ не обязано быть на required_lvl прямо
-  // сейчас (это и есть смысл планирования: назначить заранее, бот сам отправит реконструкцию, как
-  // только уровень будет достигнут и стройка завершится, см. modules/progress.js
-  // runPendingReconstructions) — единственное условие: здание вообще умеет реконструироваться
-  const reconstructPlannableSet = useMemo(() => new Set(displayBuildings.filter(b => {
-    const info = buildingParamMap.get(b.id);
-    return !!info?.is_reconstructible && info.required_lvl != null;
-  }).map(b => `${b.x}_${b.y}`)), [displayBuildings, buildingsCatalog]);
-
-  // закрытые секции исключаем из "пусто, можно строить" — их разблокировка отдельное действие
-  // (клик по такой клетке ловит CityActionsCanvas и предлагает открыть секцию, см. onUnlockCell)
-  const emptySet = useMemo(() => new Set([...coordsSet].filter(k => !occupiedSet.has(k) && !lockedCellKeys.has(k))), [coordsSet, occupiedSet, lockedCellKeys]);
-
-  const validSet = useMemo(() => {
-    if (executing) return new Set<string>();
-    switch (mode) {
-      // наведение на клетку/здание в «Плане» — видны только они (как в реконструкции)
-      case 'upgrade': return upgradeableSet;
-      case 'queue': return upgradeableSet;
-      case 'build': return buildFamily ? emptySet : new Set<string>();
-      case 'move': return moveFrom ? emptySet : occupiedSet;
-      case 'demolish': return occupiedSet;
-      case 'reconstruct': return reconstructPlannableSet;
-      case 'renovate': return renovatableSet;
-      default: return new Set<string>();
-    }
-  }, [executing, mode, buildFamily, moveFrom, emptySet, occupiedSet, upgradeableSet, reconstructableSet, reconstructPlannableSet, renovatableSet]);
+  // клетки отложенной стройки тоже заняты: здание туда уже назначено
+  const deferredSet = useMemo(() => new Set(buildPlan.map(p => `${p.x}_${p.y}`)), [buildPlan]);
+  const sets = useMemo(() => cityCellSets(displayBuildings, buildingParamMap, coordsSet, lockedCellKeys, deferredSet),
+    [displayBuildings, buildingParamMap, coordsSet, lockedCellKeys, deferredSet]);
+  const { occupied: occupiedSet, reconstructable: reconstructableSet } = sets;
+  const underConstruction = isUnderway;
+  // выбранное здание этому городу не построить (лимит или условие игры) — его клетки не принимают
+  // стройку; на общей карте здание выбирают сразу для всех городов
+  const buildBlocked = useMemo(() => {
+    if (!buildFamily) return false;
+    const info = buildingParamMap.get(buildFamily);
+    const have = displayBuildings.filter(b => familyId(b.id) === familyId(buildFamily)).length;
+    return (info?.limit != null && have >= info.limit) || isCriteriaUnmet(buildCriteria, buildFamily);
+  }, [buildFamily, buildingParamMap, displayBuildings, buildCriteria]);
+  const validSet = useMemo(() => executing || (mode === 'build' && buildBlocked) ? new Set<string>() : validCellsFor(mode, sets, buildFamily, moveFrom),
+    [executing, mode, buildFamily, buildBlocked, moveFrom, sets]);
+  // Esc отменяет начатое перемещение
+  useEffect(() => {
+    if (!moveFrom) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoveFrom(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [moveFrom]);
 
   // подсветка нужна только для переходного "откуда" при перемещении — всё остальное уже видно по
   // самому превью (построенное/снесённое/перемещённое здание меняется прямо на карте)
@@ -755,33 +843,59 @@ export function CityMapCity(props: CityMapCityProps = {}) {
 
   // выполнение очереди — по одному действию в секунду (рейтлимит), последовательно, не прерываясь
   // на ошибках отдельных действий (остальные всё равно выполняются)
-  const runQueue = async () => {
-    if (!queue.length || executing) return;
+  // quiet — запуск со сводки всех городов: подтверждение и итог показывает она, одним на все города
+  const runQueue = async (quiet = false): Promise<RunResult | null> => {
+    if (!queue.length || executing) return null;
+    const demolishN = queue.filter(a => a.kind === 'demolish').length;
+    if (!quiet && demolishN && !await ask('Снести здания?', `${demolishN} зд. в ${account}. Монеты за снос не возвращаются.`, { ok: 'Снести', danger: true })) return null;
     setExecuting(true);
-    setProgress({ done: 0, total: queue.length });
-    let ok = 0, fail = 0;
-    for (let i = 0; i < queue.length; i++) {
-      const a = queue[i];
+    // стройка сверх баланса не теряется: по порядку постановки, что не влезает в монеты, уходит в
+    // отложенную стройку, и бот строит сам, когда монет хватит
+    const prices = buildPrices();
+    const defer: { x: number; y: number; family_id: string }[] = [];
+    let sum = 0;
+    const run = queue.filter(a => {
+      if (a.kind !== 'build') return true;
+      sum += prices.get(a.id) ?? 0;
+      if (sum <= balance) return true;
+      defer.push({ x: a.x, y: a.y, family_id: a.family_id });
+      return false;
+    });
+    const total = run.length + (defer.length ? 1 : 0);
+    setProgress({ done: 0, total });
+    let ok = 0, fail = 0, deferred = 0, error: string | undefined;
+    for (let i = 0; i < run.length; i++) {
+      const a = run[i];
       try {
-        let r: { ok: boolean };
+        let r: { ok: boolean; error?: string };
         if (a.kind === 'build') r = await api.cityActionBuild(account, a.family_id, a.x, a.y);
         else if (a.kind === 'move') r = await api.cityActionMove(account, a.from, a.to);
         else if (a.kind === 'demolish') r = await api.cityActionDemolish(account, a.x, a.y);
         else if (a.kind === 'reconstruct') r = await api.cityActionReconstruct(account, a.x, a.y);
         else r = await api.cityActionRenovate(account, a.x, a.y);
-        if (r.ok) ok++; else fail++;
-      } catch { fail++; }
-      setProgress({ done: i + 1, total: queue.length });
-      if (i < queue.length - 1) await new Promise(res => setTimeout(res, 1000));
+        if (r.ok) ok++; else { fail++; error ??= r.error; }
+      } catch (e) { fail++; error ??= String(e); }
+      setProgress({ done: i + 1, total });
+      if (i < run.length - 1) await new Promise(res => setTimeout(res, 1000));
+    }
+    if (defer.length) {
+      const r = await api.saveBuildPlan(account, { add: defer }).catch(() => ({ ok: false }));
+      if (r.ok) deferred = defer.length; else fail += defer.length;
     }
     setQueue([]);
     setExecuting(false);
     setProgress(null);
-    showFlash(`Выполнено: ${ok}${fail ? `, ошибок: ${fail}` : ''}`, fail === 0);
+    if (!quiet) showFlash(`Выполнено: ${ok}${deferred ? `, ждут монет: ${deferred}` : ''}${fail ? `, ошибок: ${fail}${error ? ` (${error})` : ''}` : ''}`, fail === 0);
     refreshMap();
     // перемещение переносит координату цели улучшения вместе со зданием (см. cityStrategy.js) —
     // подтягиваем свежий список целей, чтобы бейдж "цур→цель" не остался на старой клетке
-    api.cityStrategy(account).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); } });
+    api.cityStrategy(account).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setBuildPlan(t.buildPlan ?? []); } });
+    return { ok, fail, deferred, error };
+  };
+  const removeDeferred = async (x: number, y: number) => {
+    setBuildPlan(prev => prev.filter(p => !(p.x === x && p.y === y)));
+    const r = await api.saveBuildPlan(account, { remove: [{ x, y }] }).catch(() => ({ ok: false, error: 'нет связи' }));
+    if (!r.ok) { showFlash(r.error ?? 'Ошибка', false); api.cityStrategy(account).then(t => { if (t.ok) setBuildPlan(t.buildPlan ?? []); }); }
   };
 
   // цена каждого апгрейда в ручной очереди — та же формула, что использует бот (upgradeStep ·
@@ -812,6 +926,28 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     for (const b of displayBuildings) m.set(familyId(b.id), (m.get(familyId(b.id)) ?? 0) + 1);
     return m;
   }, [displayBuildings]);
+
+  // цена каждой постройки из действий по порядку постановки: следующая того же семейства дороже
+  const pendingBuildPrices = useMemo(() => {
+    const out = new Map<number, number>(), have = new Map<string, number>();
+    for (const b of owned) have.set(familyId(b.id), (have.get(familyId(b.id)) ?? 0) + 1);
+    for (const a of queue) {
+      if (a.kind !== 'build') continue;
+      const info = buildingParamMap.get(a.family_id), fam = familyId(a.family_id), k = have.get(fam) ?? 0;
+      have.set(fam, k + 1);
+      out.set(a.id, info ? buildPriceAt(info, k, buildCostMultiplier) : 0);
+    }
+    return out;
+  }, [owned, queue, buildingParamMap, buildCostMultiplier]);
+  const buildPrices = () => pendingBuildPrices;
+  // постройки, на которые монет уже не хватит: при выполнении уйдут в отложенную стройку
+  const overBudget = useMemo(() => {
+    const s = new Set<number>();
+    let sum = 0;
+    for (const a of queue) if (a.kind === 'build') { sum += pendingBuildPrices.get(a.id) ?? 0; if (sum > balance) s.add(a.id); }
+    return s;
+  }, [queue, pendingBuildPrices, balance]);
+  const deferFills = useMemo<CellFill[]>(() => mode === 'build' ? buildPlan.map(p => ({ key: `${p.x}_${p.y}`, fill: 'rgba(212,167,44,.8)', stroke: '#9a6700' })) : [], [mode, buildPlan]);
 
   // условие покупки не выполнено — семья уже построена в количестве, равном лимиту (напр.
   // спецздания вроде "Оплот мудрости" — лимит 1 на город); живой критерий игры (/buildings/criteria)
@@ -911,7 +1047,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const pendingRows = queue.map(a => {
     const at = a.kind === 'move' ? a.from : a.kind === 'build' ? null : { x: a.x, y: a.y };
     const sprite = a.kind === 'build' ? a.family_id : at ? ownedAt(at.x, at.y)?.id : undefined;
-    return { id: a.id, kind: a.kind, label: actionLabel(a, labelFor, findInfoAt), sprite };
+    return { id: a.id, kind: a.kind, label: actionLabel(a, labelFor, findInfoAt) + (overBudget.has(a.id) ? ' · когда накопит' : ''), sprite };
   });
   const pendingKinds = new Set(queue.map(a => a.kind));
   const dots: Partial<Record<PanelMode, boolean>> = {
@@ -923,6 +1059,35 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const moveRows = queue.flatMap(a => a.kind === 'move' ? [{ id: a.id, from: a.from, to: a.to, sprite: ownedAt(a.from.x, a.from.y)?.id }] : []);
   const moveQueued = (from: number, to: number) => setManualQueue(prev => { const n = [...prev]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; });
 
+  // общая карта: состояние города наверх; обработчики через ref, чтобы не гонять лишние обновления
+  const pickRef = useRef(handlePick); pickRef.current = handlePick;
+  const unlockRef = useRef(onUnlockCell); unlockRef.current = onUnlockCell;
+  const stablePick = useCallback((x: number, y: number) => pickRef.current(x, y), []);
+  const runRef = useRef(runQueue); runRef.current = runQueue;
+  const stableRun = useCallback(() => runRef.current(true), []);
+  const stableRemove = useCallback((id: number) => setQueue(prev => prev.filter(a => a.id !== id)), []);
+  const stableCancel = useCallback(() => setQueue([]), []);
+  const stableCancelMove = useCallback(() => setMoveFrom(null), []);
+  const pendingKey = JSON.stringify(pendingRows.map(r => ({ ...r, price: pendingBuildPrices.get(r.id), over: overBudget.has(r.id) })));
+  const stableUnlock = useCallback((id: string) => { void unlockRef.current(id); }, []);
+  const cellsKey = (a: { x: number; y: number; target_level?: number }[]) => a.map(v => `${v.x},${v.y},${v.target_level ?? ''}`).join(';');
+  const draft = queue.length > 0 || !!moveFrom || planRemoved.size > 0 || cellsKey(targets) !== cellsKey(savedTargets) || cellsKey(manualQueue) !== cellsKey(savedManualQueue)
+    || boosterQueue.map(b => b.name).join() !== boosterQueueSaved.map(b => b.name).join();
+  const onMapRef = useRef(props.onMap); onMapRef.current = props.onMap;
+  const dotsKey = JSON.stringify(dots);
+  // пока город грузится, наверх ничего не уходит: общая карта рисует его по своему снимку
+  useEffect(() => {
+    if (loading) return;
+    onMapRef.current?.({
+      account, buildings: displayBuildings, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
+      focusSet: mode === 'upgrade' ? planFocus : null, onPick: stablePick, onUnlockCell: stableUnlock, draft: draft || executing, dots: dotsKey ? JSON.parse(dotsKey) : {},
+      fills: deferFills, pending: JSON.parse(pendingKey), balance, moving: !!moveFrom, executing,
+      run: stableRun, removePending: stableRemove, cancelPending: stableCancel, cancelMove: stableCancelMove,
+    });
+  }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, balance, moveFrom]);
+
+  if (props.hidden) return null;
+  if (loading && props.slots) return <>{props.slots.side && createPortal(<Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><MapLoader pct={DATA_SHARE * dataDone / 9} text={`Данные города ${dataDone} / 9`} /></Box>, props.slots.side)}</>;
   if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><MapLoader pct={DATA_SHARE * dataDone / 9} text={`Данные города ${dataDone} / 9`} /></Box>;
 
   const panelMode = mode as PanelMode;
@@ -949,7 +1114,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const runFooter = queue.length > 0 && (
     <>
       <FooterButton label={executing && progress ? `Выполняется ${progress.done} из ${progress.total}` : runLabel} tone={runTone}
-        icon={CheckIcon} count={queue.length} busy={executing} onClick={runQueue} />
+        icon={CheckIcon} count={queue.length} busy={executing} onClick={() => { void runQueue(); }} />
       <CancelButton disabled={executing} onClick={() => setQueue([])} />
     </>
   );
@@ -987,6 +1152,137 @@ export function CityMapCity(props: CityMapCityProps = {}) {
         aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
     : null;
 
+  const headRow = (
+    <Box sx={{
+      p: 2, bg: 'canvas.subtle',
+      borderBottom: '1px solid', borderColor: 'border.default',
+      display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0,
+    }}>
+      {/* телефон: шапка в одну строку — кнопки иконками, сводка уходит в подсказку заголовка */}
+      {narrow
+        ? <IconButton icon={ChevronLeftIcon} aria-label="Все города" onClick={goBack} />
+        : <Button leadingVisual={ChevronLeftIcon} onClick={goBack}>Все города</Button>}
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }}
+        title={noSnapshot ? undefined : summary}>
+        <Heading as="h3" sx={{ fontSize: 2, m: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rowName}</Heading>
+        {(noSnapshot || !narrow) && <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
+          {noSnapshot ? (narrow ? 'Нет снимка' : 'Снимка города ещё нет — нажмите «Обновить»') : summary}
+        </Text>}
+      </Box>
+      <DayNightMenu value={dayNight} onChange={setDayNight} />
+      {narrow
+        ? <IconButton icon={SyncIcon} aria-label="Обновить" disabled={liveRefreshing} onClick={doLiveRefresh} />
+        : <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>}
+    </Box>
+  );
+  const flashEl = flash && (
+      <Box sx={{ px: 3, pt: 2, flexShrink: 0 }}>
+        <Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash>
+      </Box>
+  );
+  const sidePanel = (
+    <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{props.slots ? props.panelActions : panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}>
+      {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
+
+      {mode === 'upgrade' && (
+        <PlanPanel targets={targets} owned={owned} labelFor={labelFor} sortKey={planSortKey}
+          upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
+      )}
+
+      {mode === 'queue' && (
+        <QueuePanel queue={manualQueue} owned={owned} labelFor={labelFor} prices={manualQueuePrices} balance={balance}
+          onReorder={moveQueued} onRemove={removeQueuedManual} />
+      )}
+
+      {mode === 'forecast' && <ForecastPanel events={forecastEvents} loading={forecastLoading} labelFor={labelFor} />}
+
+      {mode === 'build' && (
+        <>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
+            <div id="map-cat-tabs">
+              {paletteCats.map(cat => (
+                <span key={cat} className={'map-cat-tab' + (catFilter === cat ? ' active' : '')} onClick={() => setCatFilter(cat)}>
+                  {cat}
+                </span>
+              ))}
+            </div>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {paletteFiltered.map(b => {
+                const k = familyCounts.get(familyId(b.id)) ?? 0;
+                const limitReached = b.limit != null && k >= b.limit;
+                const criteriaUnmet = !limitReached && isCriteriaUnmet(buildCriteria, b.id);
+                const price = buildPriceAt(b, k, buildCostMultiplier);
+                const unaffordable = !limitReached && !criteriaUnmet && price > balance;
+                // монет не хватает — выбрать всё равно можно: стройка подождёт монет (отложенная стройка)
+                const unavailable = limitReached || criteriaUnmet;
+                return (
+                  <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
+                    sub={limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : unaffordable ? 'построится, когда накопит' : undefined}
+                    trail={limitReached || criteriaUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmtUp(price)} /></Val>} />
+                );
+              })}
+            </Box>
+          </Box>
+          <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
+          {buildPlan.length > 0 && <>
+            <Caption right={buildPlan.length}>Ждут монет</Caption>
+            {buildPlan.map(p => (
+              <Row key={`${p.x},${p.y}`} lead={<Thumb id={p.family_id} size={36} bg="canvas.default" />} title={labelFor(p.family_id)}
+                sub={`${p.x},${p.y}`} fill={fillOf([[FILL_ATTENTION, 100]])}
+                trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Снять" onClick={() => removeDeferred(p.x, p.y)} />} />
+            ))}
+          </>}
+        </>
+      )}
+
+      {mode === 'move' && (
+        <>
+          <MovePanel from={moveFromInfo} moves={moveRows} labelFor={labelFor} disabled={executing} onCancel={() => setMoveFrom(null)} onRemove={removeQueued} />
+          <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'move')} disabled={executing} onRemove={removeQueued} />
+        </>
+      )}
+
+      {mode === 'demolish' && (
+        <>
+          <DemolishPanel tiles={demolishTiles} lossPerHour={demolish.loss} popLoss={demolish.pop} income={currentStats.profitFinal} disabled={executing} onRemove={removeQueued} />
+          <PendingList labelFor={labelFor} rows={pendingNoDemolish} disabled={executing} onRemove={removeQueued} />
+        </>
+      )}
+
+      {mode === 'reconstruct' && (
+        <>
+          <ReconstructPanel groups={reconGroups} components={components} disabled={executing} onToggle={toggleReconstruct} />
+          <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'reconstruct')} disabled={executing} onRemove={removeQueued} />
+        </>
+      )}
+
+      {mode === 'renovate' && (
+        <>
+          <RenovatePanel masterplans={masterplans} items={renovateItems} onToggle={toggleRenovate} disabled={executing} />
+          <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'renovate')} disabled={executing} onRemove={removeQueued} />
+        </>
+      )}
+
+      {mode === 'boosters' && (
+        <BoostersPanel boosters={boosters} active={boosterActive} loading={boostersLoading} queue={boosterQueue}
+          onAdd={queueAdd} onReorder={queueReorder} onRemoveAt={queueRemoveAt} />
+      )}
+
+      {mode === 'log' && <LogPanel rows={actionLog} loading={actionLogLoading} label={r => logLabel(r, labelFor, boosterLabelFor)} labelFor={labelFor} />}
+
+      {mode === 'skip' && <Empty>—</Empty>}
+    </PanelShell>
+  );
+  const brush = <MapBrushLevel value={Math.max(1, Math.floor(Number(addLevel)) || 1)} onChange={v => setAddLevel(String(v))} />;
+  // на общей карте всех городов (pages/CityWorld.tsx) у города нет своей страницы: шапка, сайдбар и плашка
+  // кисти встают в места общей страницы, а карта — общая
+  if (props.slots) return <>
+    {props.slots.head && createPortal(<>{headRow}{flashEl}</>, props.slots.head)}
+    {props.slots.side && createPortal(sidePanel, props.slots.side)}
+    {props.slots.dock && mode === 'upgrade' && createPortal(brush, props.slots.dock)}
+  </>;
+
   return (
     <Box sx={{
       display: 'flex', height: 'calc(100vh - var(--header-h))',
@@ -994,34 +1290,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       '@media (max-width: 768px)': { flexDirection: 'column', height: 'calc(100dvh - 52px)' },
     }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
-        {/* toolbar */}
-        <Box sx={{
-          p: 2, bg: 'canvas.subtle',
-          borderBottom: '1px solid', borderColor: 'border.default',
-          display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0,
-        }}>
-          {/* телефон: шапка в одну строку — кнопки иконками, сводка уходит в подсказку заголовка */}
-          {narrow
-            ? <IconButton icon={ChevronLeftIcon} aria-label="Все города" onClick={goBack} />
-            : <Button leadingVisual={ChevronLeftIcon} onClick={goBack}>Все города</Button>}
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }}
-            title={noSnapshot ? undefined : summary}>
-            <Heading as="h3" sx={{ fontSize: 2, m: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rowName}</Heading>
-            {(noSnapshot || !narrow) && <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
-              {noSnapshot ? (narrow ? 'Нет снимка' : 'Снимка города ещё нет — нажмите «Обновить»') : summary}
-            </Text>}
-          </Box>
-          <DayNightMenu value={dayNight} onChange={setDayNight} />
-          {narrow
-            ? <IconButton icon={SyncIcon} aria-label="Обновить" disabled={liveRefreshing} onClick={doLiveRefresh} />
-            : <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>}
-        </Box>
-
-        {flash && (
-          <Box sx={{ px: 3, pt: 2, flexShrink: 0 }}>
-            <Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash>
-          </Box>
-        )}
+        {headRow}
+        {flashEl}
 
         {/* canvas + палитра инструментов поверх него, по центру снизу */}
         <Box sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
@@ -1047,6 +1317,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
                 unlockedSections={unlockedSections ?? undefined}
                 onUnlockCell={onUnlockCell}
                 focusSet={mode === 'upgrade' ? planFocus : null}
+                fills={deferFills}
                 dayNight={dayNight}
                 onZoomOut={props.onZoomOut}
               />
@@ -1058,7 +1329,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
             '@media (max-width: 768px)': { display: 'flex', flexDirection: 'column-reverse', alignItems: 'center', gap: 2 },
           }}>
             <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><MapPalette mode={panelMode} onSelect={switchMode} dots={dots} /></Box>
-            {mode === 'upgrade' && <Box sx={{ gridColumn: 3, justifySelf: 'start' }}><MapBrushLevel value={Math.max(1, Math.floor(Number(addLevel)) || 1)} onChange={v => setAddLevel(String(v))} /></Box>}
+            {mode === 'upgrade' && <Box sx={{ gridColumn: 3, justifySelf: 'start' }}>{brush}</Box>}
           </Box>
         </Box>
       </Box>
@@ -1069,91 +1340,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
         borderLeft: '1px solid', borderColor: 'border.default',
         '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },
       }}>
-        <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
->
-
-          {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
-
-          {mode === 'upgrade' && (
-            <PlanPanel targets={targets} owned={owned} labelFor={labelFor} sortKey={planSortKey}
-              upgradeCost={planUpgradeCost} onHover={setPlanHover} removed={planRemoved} onMarkRemoved={markPlanRemoved} />
-          )}
-
-          {mode === 'queue' && (
-            <QueuePanel queue={manualQueue} owned={owned} labelFor={labelFor} prices={manualQueuePrices} balance={balance}
-              onReorder={moveQueued} onRemove={removeQueuedManual} />
-          )}
-
-          {mode === 'forecast' && <ForecastPanel events={forecastEvents} loading={forecastLoading} labelFor={labelFor} />}
-
-          {mode === 'build' && (
-            <>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextInput placeholder="Поиск" value={search} onChange={e => setSearch(e.target.value)} block />
-                <div id="map-cat-tabs">
-                  {paletteCats.map(cat => (
-                    <span key={cat} className={'map-cat-tab' + (catFilter === cat ? ' active' : '')} onClick={() => setCatFilter(cat)}>
-                      {cat}
-                    </span>
-                  ))}
-                </div>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {paletteFiltered.map(b => {
-                    const k = familyCounts.get(familyId(b.id)) ?? 0;
-                    const limitReached = b.limit != null && k >= b.limit;
-                    const criteriaUnmet = !limitReached && isCriteriaUnmet(buildCriteria, b.id);
-                    const price = buildPriceAt(b, k, buildCostMultiplier);
-                    const unaffordable = !limitReached && !criteriaUnmet && price > balance;
-                    const unavailable = limitReached || criteriaUnmet || unaffordable;
-                    return (
-                      <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={unavailable} onClick={() => setBuildFamily(b.id)}
-                        sub={limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : undefined}
-                        trail={limitReached || criteriaUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmtUp(price)} /></Val>} />
-                    );
-                  })}
-                </Box>
-              </Box>
-              <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
-            </>
-          )}
-
-          {mode === 'move' && (
-            <>
-              <MovePanel from={moveFromInfo} moves={moveRows} labelFor={labelFor} disabled={executing} onCancel={() => setMoveFrom(null)} onRemove={removeQueued} />
-              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'move')} disabled={executing} onRemove={removeQueued} />
-            </>
-          )}
-
-          {mode === 'demolish' && (
-            <>
-              <DemolishPanel tiles={demolishTiles} lossPerHour={demolish.loss} popLoss={demolish.pop} income={currentStats.profitFinal} disabled={executing} onRemove={removeQueued} />
-              <PendingList labelFor={labelFor} rows={pendingNoDemolish} disabled={executing} onRemove={removeQueued} />
-            </>
-          )}
-
-          {mode === 'reconstruct' && (
-            <>
-              <ReconstructPanel groups={reconGroups} components={components} disabled={executing} onToggle={toggleReconstruct} />
-              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'reconstruct')} disabled={executing} onRemove={removeQueued} />
-            </>
-          )}
-
-          {mode === 'renovate' && (
-            <>
-              <RenovatePanel masterplans={masterplans} items={renovateItems} onToggle={toggleRenovate} disabled={executing} />
-              <PendingList labelFor={labelFor} rows={pendingRows.filter(r => r.kind !== 'renovate')} disabled={executing} onRemove={removeQueued} />
-            </>
-          )}
-
-          {mode === 'boosters' && (
-            <BoostersPanel boosters={boosters} active={boosterActive} loading={boostersLoading} queue={boosterQueue}
-              onAdd={queueAdd} onReorder={queueReorder} onRemoveAt={queueRemoveAt} />
-          )}
-
-          {mode === 'log' && <LogPanel rows={actionLog} loading={actionLogLoading} label={r => logLabel(r, labelFor, boosterLabelFor)} labelFor={labelFor} />}
-
-          {mode === 'skip' && <Empty>—</Empty>}
-        </PanelShell>
+        {sidePanel}
       </Box>
     </Box>
   );

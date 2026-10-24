@@ -606,11 +606,11 @@ export interface PendingRow { id: number; kind: string; label: string; sprite?: 
 const PENDING_ICON: Record<string, React.ElementType> = { build: PlusIcon, move: ArrowBothIcon, demolish: TrashIcon, reconstruct: IterationsIcon, renovate: StarIcon, skip: RocketIcon };
 const PENDING_BADGE: Record<string, string> = { build: 'accent.emphasis', move: 'accent.emphasis', demolish: 'danger.emphasis', reconstruct: 'done.emphasis', renovate: 'done.emphasis', skip: 'attention.emphasis' };
 // как у остальных карточек: сверху здание, второй строкой «действие · клетка», значок действия — бейджем на картинке
-export function PendingList({ rows, labelFor, disabled, onRemove }: { rows: PendingRow[]; labelFor: (id: string) => string; disabled: boolean; onRemove: (id: number) => void }) {
+export function PendingList({ rows, labelFor, disabled, onRemove, caption, right }: { rows: PendingRow[]; labelFor: (id: string) => string; disabled: boolean; onRemove: (id: number) => void; caption?: ReactNode; right?: ReactNode }) {
   if (!rows.length) return null;
   return (
     <>
-      <Caption right={`всего ${rows.length}`}>Ждут выполнения</Caption>
+      <Caption right={right ?? `всего ${rows.length}`}>{caption ?? 'Ждут выполнения'}</Caption>
       {rows.map(r => {
         const cut = r.label.indexOf(': ');
         const action = cut > 0 ? r.label.slice(0, cut) : r.label;
@@ -763,6 +763,11 @@ export function RenovatePanel({ masterplans, items, onToggle, disabled }: {
 }
 
 // ── Ускорители: активный жёлтой карточкой, очередь и склад карточками ───────
+// ускоритель карточкой предмета: рамка цвета редкости
+export function boosterCard(name: string, count?: number, dim?: boolean) {
+  const tag = ITEMS_BY_ID[Number(name)]?.tag?.replace(/_booster$/, '') ?? 'common';
+  return <ItemCard tag={tag} src={catalogItemImg(Number(name))} count={count} dim={dim} />;
+}
 export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReorder, onRemoveAt }: {
   boosters: CityBoosterRow[]; active: CityActiveBooster[]; loading: boolean; queue: { name: string; label: string }[];
   onAdd: (name: string) => void; onReorder: (from: number, to: number) => void; onRemoveAt: (i: number) => void;

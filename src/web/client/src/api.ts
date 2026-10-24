@@ -236,7 +236,7 @@ export const api = {
   buildingsList: (type: 'city' | 'capital' = 'city') =>
     req<{ ok: boolean; buildings: BuildingDef[] }>(`/api/buildingslist?type=${type}`),
   cityStrategy: (account: string) =>
-    req<{ ok: boolean; targets: CityStrategyTarget[]; queue: CityStrategyQueueItem[]; reconstructPlan: CityStrategyQueueItem[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}`),
+    req<{ ok: boolean; targets: CityStrategyTarget[]; queue: CityStrategyQueueItem[]; reconstructPlan: CityStrategyQueueItem[]; buildPlan?: { x: number; y: number; family_id: string }[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}`),
   saveCityStrategy: (account: string, targets: CityStrategyTarget[]) =>
     req<{ ok: boolean; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}`, post({ targets })),
   // ручная приоритетная очередь улучшений — разбирается строителями ПЕРЕД личным/общим планом
@@ -1181,6 +1181,7 @@ export interface CapitalRow {
 export interface CityWorldRow extends CityRow {
   balance: number; profit: number; profit_final: number; population: number; population_final: number; happiness: number;
   queue: CityStrategyQueueItem[];
+  targets: CityStrategyTarget[];
   buildPlan: { x: number; y: number; family_id: string }[]; // отложенная стройка: ждёт монет
 }
 export interface CityRow {

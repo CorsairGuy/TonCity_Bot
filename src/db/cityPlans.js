@@ -48,6 +48,15 @@ async function loadAllQueues() {
   return out;
 }
 
+// личные цели всех городов разом (общая карта): {account: [{x,y,target_level}, ...]}
+async function loadAllTargets() {
+  const { CityUpgradeTarget } = db();
+  const rows = await CityUpgradeTarget.findAll({ order: [['account', 'ASC'], ['id', 'ASC']], raw: true });
+  const out = {};
+  for (const v of rows) (out[v.account] ||= []).push({ x: num(v.x), y: num(v.y), target_level: Number(v.target_level) || 0 });
+  return out;
+}
+
 // отложенная стройка: {account: [{x,y,family_id}]} (без account — все города)
 async function loadBuildPlans(account) {
   const { CityBuildPlan } = db();
@@ -235,6 +244,6 @@ async function migrateFromBlobs() {
 }
 
 module.exports = {
-  loadPlans, loadAllQueues, loadBuildPlans, addBuildPlan, removeBuildPlan, saveTargets, saveQueue, saveReconstruct,
+  loadPlans, loadAllQueues, loadAllTargets, loadBuildPlans, addBuildPlan, removeBuildPlan, saveTargets, saveQueue, saveReconstruct,
   removeReconstruct, removeQueue, removeTargets, moveCell, migrateFromBlobs, MARK,
 };
