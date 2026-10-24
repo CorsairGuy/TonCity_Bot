@@ -3,7 +3,7 @@ const axios=require('axios');
 const {GuildSnapshot,GuildQuestSnapshot,CapitalSnapshot,GuildMembersSnapshot,MidSnapshot}=require('../db/index');
 const logger=require('../utils/logger');
 const {globalLock}=require('../utils/lock');
-const {sleep,fmt,withRetry}=require('../utils/helpers');
+const {sleep,fmt}=require('../utils/helpers');
 const accountLoops=require('../utils/accountLoops');
 
 const QUESTS_URL='https://toncityquests.ru/ajax/quests.php';
@@ -67,13 +67,14 @@ async function collectReadyQuests(api,name,qList){
         // фоновый заклейм тоже светим в реестр идущих автозаклеймов (web/lib/questClaimProgress) —
         // страница «Квесты» по SSE покажет на кнопке «забираем…», чтобы пользователь не жал её
         // параллельно с циклом
-        const claimProgress=require('../web/lib/questClaimProgress');
-        await claimProgress.track(name,q.id,'loop',()=>withRetry(async()=>{
-          await globalLock.run(async()=>{await sleep(500);await api.post(`/guild-quests/collect/${q.id}`,{});});
-        },3,2000,`${name} collect ${q.id}`,{skipOnNoAnswer:true}));
-        return true;
+        // claim() там же: 400 на уже забранную награду (её мог забрать автозаклейм после кнопки)
+        // считается успехом, а идущий параллельно заклейм того же квеста не дублируется
+        const r=await require('../web/lib/questClaimProgress').claim(api,name,q.id,'loop',{
+          post:()=>globalLock.run(async()=>{await sleep(500);return api.post(`/guild-quests/collect/${q.id}`,{});})});
+        return r.already?'already':true;
       }catch(e){logger.warn(`[${name}] [quest] collect ${q.id} failed: ${e.message}`);return false;}
     })();
+    if(ok==='already'){logger.info(`[${name}] [quest] ${q.name?.ru||q.id}: награда уже забрана`);continue;}
     if(ok){
       logger.info(`[${name}] [quest] collected: ${q.name?.ru||q.id}`);
       collectedAny=true;

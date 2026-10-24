@@ -336,7 +336,7 @@ module.exports=function(app,ctx){
 
   // Покупка бустов под квест. Одно нажатие закрывает ОДНО условие целиком: пока не выполнено
   // личное — добираем личное, дальше тем же нажатием добираем общее (просьба пользователя).
-  app.post('/api/guild-quests/:accountId/guild-boost',async(req,res)=>{
+  app.post('/api/guild-quests/:accountId/guild-boost',(req,res)=>withQuestAction(req,res,async()=>{
     const{quest_id}=req.body||{};
     if(quest_id==null)return res.status(400).json({ok:false,error:'quest_id обязателен'});
     const{Account}=require('../../db/index');
@@ -379,7 +379,7 @@ module.exports=function(app,ctx){
       await resyncGuildQuests(api,acc.name);
       res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});
     }
-  });
+  }));
 
   // SSE-поток идущих автозаклеймов (см. web/lib/questClaimProgress.js): страница «Квесты» слушает
   // его, чтобы кнопка «Заклеймить» показывала «забираем…», когда награду уже забирает автоматика
@@ -459,13 +459,10 @@ module.exports=function(app,ctx){
       return (d?.quests||[]).find(x=>String(x.id)===String(quest_id))||null;
     };
     try{
-      const{withRetry}=require('../../utils/helpers');
-      // живьём подтверждено (30.07.2026): игра иногда отвечает 400 на ПЕРВУЮ попытку заклейма,
-      // хотя оба условия реально выполнены — следующая попытка того же quest_id проходит успешно
-      // (см. modules/capital.js collectReadyQuests, тот же приём) — похоже на race condition
-      // на стороне игры, не в боте, поэтому несколько быстрых ретраев вместо мгновенной ошибки.
-      const result=await withRetry(()=>api.post(`/guild-quests/collect/${quest_id}`,{}),3,2000,`${acc.name} collect ${quest_id}`,{skipOnNoAnswer:true});
-      res.json({ok:true,result,quest:await freshQuest()});
+      // claim() сам разбирает 400 (уже забрано или гонка игры) и, если этот квест уже забирает
+      // автозаклейм или цикл, не шлёт второй запрос, а ждёт их результата
+      const r=await require('../lib/questClaimProgress').claim(api,acc.name,quest_id,'manual');
+      res.json({ok:true,result:r.result,already:!!r.already,quest:await freshQuest()});
     }catch(e){
       // 400 "Предоставлены неверные входные данные" игра отдаёт и на УЖЕ ЗАБРАННУЮ награду —
       // это не ошибка, а гонка: квест успели заклеймить (циклом бота, автозаклеймом после
@@ -503,20 +500,28 @@ module.exports=function(app,ctx){
   // Возвращает СВЕЖИЙ объект квеста, чтобы фронт применил его сразу, не дожидаясь отдельной
   // перезагрузки списка (раньше данные обновлялись только со второго нажатия — ответ приходил
   // раньше, чем снимок успевал стать актуальным).
+  // Одно действие по квесту на аккаунт за раз. Живой случай 24.10.2026: три нажатия «Забустить»
+  // ушли параллельно (каждый запрос длится 7–15 с, пока ждём, что игра учтёт прогресс), каждое
+  // прочитало ещё старый прогресс и купило бусты заново — лишние алмазы, а три автозаклейма
+  // потом подрались за одну награду. Второе нажатие, пока первое не закончилось, отклоняем.
+  const questActionsBusy=new Set();
+  async function withQuestAction(req,res,fn){
+    const k=`${req.params.accountId}:${req.body?.quest_id}`;
+    if(questActionsBusy.has(k))return res.status(409).json({ok:false,busy:true,error:'По этому квесту уже идёт действие — дождитесь его окончания'});
+    questActionsBusy.add(k);
+    try{return await fn();}finally{questActionsBusy.delete(k);}
+  }
+
   async function finishQuestAction(api,accountName,questId,prevProgress){
     const fresh=await resyncUntilProgressChanges(api,accountName,questId,prevProgress);
     let q=fresh?.quests?.find(x=>String(x.id)===String(questId))||null;
     let collected=false;
     const ready=q&&!q.is_collected&&(q.personal_progress||0)>=(q.personal_threshold||0)&&(q.guild_progress||0)>=(q.guild_threshold||0);
     if(ready){
-      const claimProgress=require('../lib/questClaimProgress');
       try{
-        const{withRetry}=require('../../utils/helpers');
-        // те же ретраи, что и у ручного заклейма выше — игра иногда отвечает 400 на первую попытку.
-        // track(...) держит квест в реестре идущих автозаклеймов и раздаёт это по SSE, чтобы кнопка
-        // «Заклеймить» на странице показывала «забираем…», а не выглядела как «нажми меня».
-        await claimProgress.track(accountName,questId,'action',()=>
-          withRetry(()=>api.post(`/guild-quests/collect/${questId}`,{}),3,2000,`${accountName} autoclaim ${questId}`,{skipOnNoAnswer:true}));
+        // тот же claim(), что и у ручного заклейма выше: 400 на уже забранную награду — успех, а
+        // реестр идущих заклеймов раздаёт состояние по SSE (кнопка показывает «забираем…»)
+        await require('../lib/questClaimProgress').claim(api,accountName,questId,'action');
         collected=true;
         const after=await resyncGuildQuests(api,accountName);
         q=after?.quests?.find(x=>String(x.id)===String(questId))||q;
@@ -532,7 +537,7 @@ module.exports=function(app,ctx){
   // questAutomation.js extractRarity), сама активация + правило "пока активен другой тип — нельзя"
   // — modules/boosterAutomation.js activateBoosterForRarity, тот же код, что использует фоновый
   // цикл вкладки "Ускорители".
-  app.post('/api/guild-quests/:accountId/activate-booster',async(req,res)=>{
+  app.post('/api/guild-quests/:accountId/activate-booster',(req,res)=>withQuestAction(req,res,async()=>{
     const{quest_id}=req.body||{};
     if(quest_id==null)return res.status(400).json({ok:false,error:'quest_id обязателен'});
     const{Account}=require('../../db/index');
@@ -558,7 +563,7 @@ module.exports=function(app,ctx){
       await resyncGuildQuests(api,acc.name);
       res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});
     }
-  });
+  }));
 
   // ручное комбинирование ускорителей под квест booster_combine (кнопка "Комбинировать" на
   // странице "Квесты") — раньше ничего подобного не было (тип квеста был в списке сознательно НЕ
@@ -569,7 +574,7 @@ module.exports=function(app,ctx){
   // Для квеста комбинируем МИНИМУМ — ровно один required_amount (одна конверсия) — не тратим
   // ускорители игрока сверх необходимого для выполнения условия квеста (тот же принцип, что и у
   // остальной автоматики: не сжигать ресурсы больше, чем реально нужно для конкретной цели).
-  app.post('/api/guild-quests/:accountId/combine-booster',async(req,res)=>{
+  app.post('/api/guild-quests/:accountId/combine-booster',(req,res)=>withQuestAction(req,res,async()=>{
     const{quest_id}=req.body||{};
     if(quest_id==null)return res.status(400).json({ok:false,error:'quest_id обязателен'});
     const{Account}=require('../../db/index');
@@ -595,7 +600,7 @@ module.exports=function(app,ctx){
       await resyncGuildQuests(api,acc.name);
       res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});
     }
-  });
+  }));
 
   // спец-здания гильдий (Аудиториум / Фабрика) — из капитала. Читаем из БД.
   const SPECIAL_BUILDINGS={auditorium:'CAP_SPE_timeless_market.png',factory:'CAP_SPE_tech_factory.png',ministry:'CAP_SPE_foreign_ministry.png'};
