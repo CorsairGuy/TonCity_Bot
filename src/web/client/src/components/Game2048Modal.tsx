@@ -258,14 +258,27 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
   return (
     // ширина задана через sx, а не пресетом width: поле 320px + по 8px с боков = 336px,
     // такого пресета у Primer нет (296/320/480/640), а поле ужимать нельзя
-    // под именем аккаунта — счёт, итог партии и (пока играет бот) сколько он думал над последним ходом
+    // шапка своя (renderHeader): у стандартной подзаголовок с большим отступом и шапка выходит
+    // высокой; здесь имя и строка «Счёт · ход бота N мс · итог» плотно, как в выбранном макете
     <Dialog
       title={accountName}
-      subtitle={loading ? undefined : <>
-        Счёт <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{score}</Text>
-        {solving && thinkMs != null && <> · ход бота <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{thinkMs} мс</Text></>}
-        {status !== 'ongoing' && <> · <Text sx={{ fontWeight: 'bold', color: status === 'won' ? 'success.fg' : 'danger.fg' }}>{status === 'won' ? 'Победа!' : 'Игра окончена'}</Text></>}
-      </>}
+      renderHeader={({ dialogLabelId, onClose: close }) => (
+        <Dialog.Header sx={{ p: 2, pl: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Dialog.Title id={dialogLabelId} sx={{ fontSize: 1, lineHeight: 1.3 }}>{accountName}</Dialog.Title>
+              {!loading && (
+                <Text as="div" sx={{ fontSize: 0, color: 'fg.muted', lineHeight: 1.35, mt: '2px' }}>
+                  Счёт <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{score}</Text>
+                  {solving && thinkMs != null && <> · ход бота <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{thinkMs} мс</Text></>}
+                  {status !== 'ongoing' && <> · <Text sx={{ fontWeight: 'bold', color: status === 'won' ? 'success.fg' : 'danger.fg' }}>{status === 'won' ? 'Победа!' : 'Игра окончена'}</Text></>}
+                </Text>
+              )}
+            </Box>
+            <Dialog.CloseButton onClose={() => close('close-button')} />
+          </Box>
+        </Dialog.Header>
+      )}
       onClose={onClose}
       width="medium"
       sx={{ '@media (min-width: 768px)': { width: BOARD + PAD_MODAL * 2 } }}
