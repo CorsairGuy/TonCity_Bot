@@ -548,7 +548,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
         '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },
       }}>
         <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
->
+          busy={mode === 'forecast' ? forecastLoading : mode === 'log' ? actionLogLoading && actionLog.length === 0 : false}>
 
           {mode === 'view' && (
             <CapitalStatsPanel coins={row?.coins ?? 0} crystals={row?.crystals ?? 0}

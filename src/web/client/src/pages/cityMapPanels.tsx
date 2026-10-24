@@ -116,7 +116,8 @@ export function MapBrushLevel({ value, onChange }: { value: number; onChange: (v
 
 // ── каркас сайдбара ─────────────────────────────────────────────────────────
 // gap — зазор между блоками содержимого: 8px, как отступы по бокам (Строительство — 16px)
-export function PanelShell({ mode, title, hint, actions, footer, gap = 2, children }: { mode: PanelMode; title?: ReactNode; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; gap?: number; children: ReactNode }) {
+// busy — данные вкладки ещё грузятся: шапка остаётся, спиннер ровно по центру свободного места
+export function PanelShell({ mode, title, hint, actions, footer, gap = 2, busy, children }: { mode: PanelMode; title?: ReactNode; hint: ReactNode; actions?: ReactNode; footer?: ReactNode; gap?: number; busy?: boolean; children?: ReactNode }) {
   const [help, setHelp] = useState(false);
   const t = toolFor(mode);
   return (
@@ -127,6 +128,7 @@ export function PanelShell({ mode, title, hint, actions, footer, gap = 2, childr
         <IconButton size="small" variant="invisible" icon={QuestionIcon} aria-label="Подсказка" aria-pressed={help} onClick={() => setHelp(h => !h)}
           sx={help ? { bg: 'accent.subtle', '& svg': { color: 'accent.fg' } } : undefined} />
       </Box>
+      {busy ? <PanelSpinner /> : <>
       {/* полоса прокрутки поверх содержимого (как в прежнем сайдбаре) — отступ ровно 8px со всех сторон */}
       <Scrollable>
         {/* подпись группы при ритме 8px идёт вплотную к своему блоку, при 16px — с прежним отступом */}
@@ -137,8 +139,13 @@ export function PanelShell({ mode, title, hint, actions, footer, gap = 2, childr
         </Box>
       </Scrollable>
       {footer && <Box sx={{ flexShrink: 0, p: 2, display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid', borderColor: 'border.default' }}>{footer}</Box>}
+      </>}
     </Box>
   );
+}
+// спиннер загрузки сайдбара: занимает всё место под шапкой и стоит по центру по обеим осям
+export function PanelSpinner() {
+  return <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner size="medium" /></Box>;
 }
 
 const muted = { fontSize: 0, color: 'fg.muted' } as const;
@@ -147,11 +154,13 @@ const sub2 = { fontSize: 0, color: 'var(--fg-sub)', lineHeight: '16px' } as cons
 const num = { fontVariantNumeric: 'tabular-nums' } as const;
 // строка обрезается до высоты заглавных — подпись встаёт ровно по центру между карточками
 const CAP_TRIM = { textBox: 'trim-both cap alphabetic' } as const;
+// обрезка по высоте заглавных срезала бы верх букв при overflow:hidden — clip с запасом рисует их целиком, не сдвигая строку
+const CAP_ELL = { whiteSpace: 'nowrap', overflow: 'clip', overflowClipMargin: '4px', textOverflow: 'ellipsis' } as const;
 // подпись группы: 8px от краёв карточек слева и справа, число справа — без значков
 export function Caption({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
     <Box className="panel-caption" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, px: 2, my: 1 }}>
-      <Text sx={{ fontSize: 0, lineHeight: 1, fontWeight: 'semibold', color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.04em', minWidth: 0, ...ell, ...CAP_TRIM }}>{children}</Text>
+      <Text sx={{ fontSize: 0, lineHeight: 1, fontWeight: 'semibold', color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.04em', minWidth: 0, ...CAP_ELL, ...CAP_TRIM }}>{children}</Text>
       {right != null && <Text sx={{ ...muted, lineHeight: 1, flexShrink: 0, ...num, ...CAP_TRIM }}>{right}</Text>}
     </Box>
   );
