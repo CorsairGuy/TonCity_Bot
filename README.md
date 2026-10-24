@@ -488,4 +488,4 @@ scripts/              служебные скрипты
 
 ## Сторонний код
 
-- **[nneonneo/2048-ai](https://github.com/nneonneo/2048-ai)** — алгоритм ходов в 2048 (expectimax), © 2014–2019 Robert Xiao и контрибьюторы, лицензия MIT. Исходники и текст лицензии — `vendor/game2048/`, собранный модуль — `src/modules/game2048.wasm`.
+- **[nneonneo/2048-ai](https://github.com/nneonneo/2048-ai)** — алгоритм ходов в 2048 (expectimax), © 2014–2019 Robert Xiao и контрибьюторы, лицензия MIT. Исходники и текст лицензии — `vendor/game2048/`, собранный модуль — `src/modules/game2048.wasm`. Изменено для бота: таблица транспозиций заменена на свою (`fast_table.h`, ветка `FAST_TRANS_TABLE` в `2048.cpp`) — ходы те же, считаются быстрее.

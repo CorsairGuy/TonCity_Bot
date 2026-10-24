@@ -3,6 +3,7 @@
 
 #define main cli_main
 #define HAVE_UNORDERED_MAP 1
+#define FAST_TRANS_TABLE 1
 #include "2048.cpp"
 #undef main
 

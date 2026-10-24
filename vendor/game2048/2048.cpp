@@ -10,7 +10,10 @@
 #include "2048.h"
 
 #include "config.h"
-#if defined(HAVE_UNORDERED_MAP)
+#if defined(FAST_TRANS_TABLE) /* изменение для бота: см. fast_table.h */
+    #include "fast_table.h"
+    typedef fast_trans_table trans_table_t;
+#elif defined(HAVE_UNORDERED_MAP)
     #include <unordered_map>
     typedef std::unordered_map<board_t, trans_table_entry_t> trans_table_t;
 #elif defined(HAVE_TR1_UNORDERED_MAP)
