@@ -14,8 +14,8 @@ import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, 
 import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
 import { Scrollable } from '../components/Scrollable';
-import { CoinValue, CrystalValue } from '../components/Icons';
-import { fmt, ITEMS_BY_ID } from '../utils';
+import { CoinValue, CrystalValue, CoinIcon, CrystalIcon } from '../components/Icons';
+import { fmt, fmtInt, ITEMS_BY_ID } from '../utils';
 import { catalogItemImg } from '../hooks/useItemCatalog';
 
 export type PanelMode = CityActionMode;
@@ -363,7 +363,50 @@ const SERVICE_LABEL: Record<ServiceCat, string> = { hospital: 'Больницы'
 const SERVICE_SPRITE: Record<ServiceCat, string> = { hospital: 'SER_city_hospital.png', 'police-station': 'SER_city_police.png', 'fire-station': 'SER_fire_station.png', park: 'SER_central_park.png' };
 // "Базовый доход" — доход совсем без политик (raw, как на экране "Обзор доходов" в игре), "Политики" —
 // общий эффект category/type-множителей и глобального множителя относительно raw.profit
-export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: CityStats; projected: CityStats; mods: CityStatsMods }) {
+// кошелёк города (или всех городов): монеты, алмазы, вложенное в стейкинг; income — монет в час
+export interface Wallet { coins: number; crystals: number; stakedCoins: number; stakedCrystals: number; income: number }
+// ВРЕМЕННО: вариант вида для сравнения (?wv=A|B|C), после выбора остаётся один
+export const WALLET_V = (() => { try { return new URLSearchParams(location.search).get('wv') || 'A'; } catch { return 'A'; } })();
+const coinRow = (v: ReactNode) => <Box as="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>{v}</Box>;
+// А — своя карточка над доходом; Б — строка внутри карточки дохода; В — строки как «жители»
+export function WalletTop({ w }: { w?: Wallet }) {
+  if (!w || WALLET_V !== 'A') return null;
+  const staked = w.stakedCoins > 0 || w.stakedCrystals > 0;
+  return (
+    <Summary tone="neutral">
+      <Box sx={{ display: 'flex', gap: 2 }}>
+        <Tile value={<CoinValue value={fmtStat(w.coins)} />} label="монеты" color="attention.fg" />
+        <Tile value={<CrystalValue value={fmtInt(w.crystals)} />} label="алмазы" color="accent.fg" />
+      </Box>
+      {staked && <SumLine left="в стейкинге" right={<>{coinRow(<CoinValue value={fmtStat(w.stakedCoins)} />)} · {coinRow(<CrystalValue value={fmtInt(w.stakedCrystals)} />)}</>} />}
+    </Summary>
+  );
+}
+export function WalletInline({ w }: { w?: Wallet }) {
+  if (!w || WALLET_V !== 'B') return null;
+  return (
+    <Box sx={{ display: 'flex', gap: 2, p: 2, borderRadius: '8px', bg: 'canvas.default', alignItems: 'center', ...num }}>
+      <Text sx={{ ...muted, flex: 1 }}>баланс</Text>
+      <Text sx={{ fontWeight: 'semibold' }}><CoinValue value={fmtStat(w.coins)} /></Text>
+      <Text sx={{ fontWeight: 'semibold' }}><CrystalValue value={fmtInt(w.crystals)} /></Text>
+    </Box>
+  );
+}
+export function WalletRows({ w }: { w?: Wallet }) {
+  if (!w || WALLET_V !== 'C') return null;
+  const hours = w.income > 0 ? w.coins / w.income : 0;
+  return <>
+    <Row lead={<IconThumbImg><CoinIcon size={20} /></IconThumbImg>} title={fmtStat(w.coins)} sub={w.stakedCoins > 0 ? 'монеты · в стейке' : 'монеты'}
+      trail={w.stakedCoins > 0 ? <Val color="fg.muted">+{fmtStat(w.stakedCoins)}</Val> : hours ? <Val color="fg.muted">{hours < 1 ? '< 1 ч дохода' : `${fmtStat(hours)} ч дохода`}</Val> : undefined} />
+    <Row lead={<IconThumbImg><CrystalIcon size={20} /></IconThumbImg>} title={fmtInt(w.crystals)} sub={w.stakedCrystals > 0 ? 'алмазы · в стейке' : 'алмазы'}
+      trail={w.stakedCrystals > 0 ? <Val color="fg.muted">+{fmtInt(w.stakedCrystals)}</Val> : undefined} />
+  </>;
+}
+function IconThumbImg({ children }: { children: ReactNode }) {
+  return <Box sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{children}</Box>;
+}
+
+export function StatsPanel({ raw, s, projected, mods, wallet }: { raw: CityStats; s: CityStats; projected: CityStats; mods: CityStatsMods; wallet?: Wallet }) {
   const base = raw.profit * raw.happiness;
   const guild = mods.incomeBoost ?? 0;
   const policyMult = raw.profit > 0 ? (s.profit / raw.profit) * (mods.globalIncomeMult ?? 1) : (mods.globalIncomeMult ?? 1);
@@ -385,6 +428,7 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
   ];
   return (
     <>
+      <WalletTop w={wallet} />
       <Summary tone="accent">
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Tile value={fmtStat(s.profitFinal)} label="доход в час" color="accent.fg" />
@@ -401,7 +445,9 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
             </Box>
           ))}
         </Box>
+        <WalletInline w={wallet} />
       </Summary>
+      <WalletRows w={wallet} />
       {people.map(([ic, c, v, k, after]) => (
         <Row key={k} lead={<IconThumb icon={ic} color={c} />} title={v} sub={k}
           trail={after !== v ? <Val color="fg.muted">→ {after}</Val> : undefined} />

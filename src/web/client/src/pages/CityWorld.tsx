@@ -8,7 +8,7 @@ import { CityMapCity, CityHead, cityStatsFor, computePolicyMultiplier, buildingN
 import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
-  MapPalette, MapBrushLevel, PanelShell, StatsPanel, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
+  MapPalette, MapBrushLevel, PanelShell, StatsPanel, WalletTop, WalletInline, WalletRows, type Wallet, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
   SWAP, LogPanel, ForecastPanel, QueuePanel, PendingList, DemolishPanel, ReconstructPanel, RenovatePanel, MasterplanBar, ItemIcon, Glyph, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
 } from './cityMapPanels';
 import { CoinValue } from '../components/Icons';
@@ -622,9 +622,14 @@ export function CityWorld() {
   const panelMode = mode as PanelMode;
   const curRow = cur ? cities.find(r => r.account === cur) : undefined;
   const curStats = cur ? statsByCity.get(cur) : undefined;
+  const walletOf = (r: CityWorldRow, income: number): Wallet => ({ coins: live(r.account)?.balance ?? r.balance ?? 0, crystals: r.crystals ?? 0, stakedCoins: r.staked_coins ?? 0, stakedCrystals: r.staked_crystals ?? 0, income });
   const totalProfit = cities.reduce((s, r) => s + r.profit, 0);
   const totalFinal = cities.reduce((s, r) => s + r.profit_final, 0);
   const totalPop = cities.reduce((s, r) => s + r.population, 0);
+  const walletAll: Wallet = {
+    coins: cities.reduce((s, r) => s + (live(r.account)?.balance ?? r.balance ?? 0), 0), crystals: cities.reduce((s, r) => s + (r.crystals ?? 0), 0),
+    stakedCoins: cities.reduce((s, r) => s + (r.staked_coins ?? 0), 0), stakedCrystals: cities.reduce((s, r) => s + (r.staked_crystals ?? 0), 0), income: totalProfit,
+  };
   const buildingNow = cities.reduce((s, r) => s + r.buildings.filter(isBuilding).length, 0);
   const summary = `${cities.length} ${plural(cities.length, 'город', 'города', 'городов')} · ${fmt(totalProfit)}/ч · строится ${buildingNow}`;
   const thumb = (r: CityWorldRow, dim?: boolean) => { const id = topBuilding(r); return id ? <Thumb id={id} size={36} bg="canvas.default" dim={dim} /> : <Box sx={{ width: 36, height: 36, flexShrink: 0 }} />; };
@@ -823,16 +828,19 @@ export function CityWorld() {
   const hoveredStats = hovered ? statsByCity.get(hovered.account) : undefined;
   if (hovered && hoveredStats) {
     // наведение на город (ПК): в сайдбаре его «Показатели» целиком, как у открытого города; увели курсор — снова все города
-    side = <StatsPanel raw={hoveredStats.raw} s={hoveredStats.s} projected={hoveredStats.projected} mods={hoveredStats.mods} />;
+    side = <StatsPanel raw={hoveredStats.raw} s={hoveredStats.s} projected={hoveredStats.projected} mods={hoveredStats.mods} wallet={walletOf(hovered, hoveredStats.s.profitFinal)} />;
   } else if (mode === 'view') {
     side = <>
+      <WalletTop w={walletAll} />
       <Summary tone="accent">
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Tile value={<CoinValue value={fmt(totalProfit)} />} label="доход в час" color="accent.fg" />
           <Tile value={totalProfit > 0 ? `+${Math.max(0, (totalFinal / totalProfit - 1) * 100).toFixed(0)}%` : '—'} label="потенциал" color="success.fg" />
         </Box>
         <SumLine left={`жителей ${fmt(totalPop)}`} right={`строится ${buildingNow}`} />
+        <WalletInline w={walletAll} />
       </Summary>
+      <WalletRows w={walletAll} />
       {draftList}
       <Caption right={cities.length}>Города</Caption>
       {cityList(cities, r => { const n = r.buildings.filter(isBuilding).length; return n ? `строится ${n}` : `жителей ${fmt(r.population)}`; },
@@ -1098,7 +1106,7 @@ export function CityWorld() {
             {/* «Показатели» считаются по снимку сразу — вместо спиннера; остальным вкладкам нужны данные города */}
             {mode === 'view' && curStats
               ? <PanelShell mode={panelMode} hint={HINT_VIEW} actions={panelToggle}>
-                  <StatsPanel raw={curStats.raw} s={curStats.s} projected={curStats.projected} mods={curStats.mods} />
+                  <StatsPanel raw={curStats.raw} s={curStats.s} projected={curStats.projected} mods={curStats.mods} wallet={curRow && walletOf(curRow, curStats.s.profitFinal)} />
                 </PanelShell>
               : <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={panelToggle} busy />}
           </Box>}

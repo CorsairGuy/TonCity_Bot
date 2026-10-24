@@ -462,6 +462,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const [guildIncomeBoost, setGuildIncomeBoost] = useState(0);
   const [diversityIncomeBoost, setDiversityIncomeBoost] = useState(0);
   const [balance, setBalance] = useState(0);
+  const [walletRest, setWalletRest] = useState({ crystals: 0, stakedCoins: 0, stakedCrystals: 0 });
   const [buildCriteria, setBuildCriteria] = useState<unknown>(null);
   const [ownMode, setOwnMode] = useState<CityActionMode>(props.mode ?? 'view');
   const mode = props.mode ?? ownMode;
@@ -516,6 +517,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
       const accRow = accs.ok ? accs.accounts.find(a => a.name === account) : undefined;
       setBalance(accRow?.balance ?? 0);
+      setWalletRest({ crystals: accRow?.crystals ?? 0, stakedCoins: accRow?.staked_coins ?? 0, stakedCrystals: accRow?.staked_crystals ?? 0 });
       setBuildCriteria(crit.ok ? crit.criteria : null);
       // цена постройки = базовая формула · скидка политик · скидка гильдии — ДВА независимых
       // источника, перемножаются (сверено с бандлом: get actualBasePrice()·Gc().buildCostMultiplier,
@@ -1201,7 +1203,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const sidePanel = (
     <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{props.slots ? props.panelActions : panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
       busy={mode === 'forecast' ? forecastLoading : mode === 'boosters' ? boostersLoading && boosters.length === 0 : mode === 'log' ? actionLogLoading && actionLog.length === 0 : false}>
-      {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
+      {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} wallet={{ coins: balance, ...walletRest, income: currentStats.profitFinal }} />}
 
       {mode === 'upgrade' && (
         <PlanPanel targets={targets} owned={owned} labelFor={labelFor} sortKey={planSortKey}

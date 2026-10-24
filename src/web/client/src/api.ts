@@ -1180,6 +1180,7 @@ export interface CapitalRow {
 
 export interface CityWorldRow extends CityRow {
   balance: number; profit: number; profit_final: number; population: number; population_final: number; happiness: number;
+  crystals: number; staked_coins: number; staked_crystals: number;
   queue: CityStrategyQueueItem[];
   targets: CityStrategyTarget[];
   buildPlan: { x: number; y: number; family_id: string }[]; // отложенная стройка: ждёт монет
