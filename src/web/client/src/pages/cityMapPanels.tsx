@@ -1,7 +1,7 @@
 // Правый сайдбар карты города: палитра инструментов внизу карты переключает его содержимое,
 // сам сайдбар всегда открыт. Здесь — оформление страниц сайдбара, данные и действия приходят из
 // CityMapCity.tsx (там же остались Строительство/Перемещение/Реконструкция в прежнем виде).
-import { useEffect, useMemo, useRef, useState, type ReactNode, type DragEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type DragEvent } from 'react';
 import { Box, Button, CounterLabel, IconButton, Octicon, ProgressBar, Spinner, Text, TextInput, Timeline } from '@primer/react';
 import { Tooltip } from '@primer/react/experimental';
 import {
@@ -205,8 +205,19 @@ export function SumLine({ left, right }: { left: ReactNode; right?: ReactNode })
 // без курсора сразу встаёт на место. Слушатели — на самой карточке, поэтому работает и в шапках внутри map
 function MarqueeTitle({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLElement>(null);
+  const span = useRef<HTMLSpanElement>(null);
   const [run, setRun] = useState<{ d: number; t: number } | null>(null);
-  const [over, setOver] = useState(false);   // не влезает — край затухает вместо многоточия
+  const [over, setOver] = useState(false);   // не влезает — правый край затухает вместо многоточия
+  const back = useRef<string | null>(null);  // где была строка, когда курсор ушёл
+  // анимация снята — ставим строку туда, где она была, и плавно возвращаем к началу
+  useLayoutEffect(() => {
+    const sp = span.current, from = back.current;
+    if (run || !sp || from == null) return;
+    back.current = null;
+    sp.style.transition = 'none'; sp.style.left = from;
+    sp.getBoundingClientRect();
+    sp.style.transition = 'left .4s ease-out'; sp.style.left = '0px';
+  }, [run]);
   useEffect(() => {
     const el = ref.current, host = el?.closest('[data-mq-host]');
     if (!el) return;
@@ -215,17 +226,17 @@ function MarqueeTitle({ children }: { children: ReactNode }) {
     const ro = new ResizeObserver(() => setOver(overflow() > 0));
     ro.observe(el);
     if (el.firstElementChild) ro.observe(el.firstElementChild);
-    const enter = () => { const d = overflow(); if (d > 0) setRun({ d, t: 2 * d / 40 + 2.4 }); };
-    const leave = () => setRun(null);
+    const enter = () => { const sp = span.current; if (sp) { sp.style.transition = ''; sp.style.left = ''; } const d = overflow(); if (d > 0) setRun({ d, t: 2 * d / 40 + 2.4 }); };
+    // курсор ушёл: строка плавно едет обратно с того места, где была, а не прыгает
+    const leave = () => { if (span.current) back.current = getComputedStyle(span.current).left; setRun(null); };
     host?.addEventListener('mouseenter', enter); host?.addEventListener('mouseleave', leave);
     return () => { ro.disconnect(); host?.removeEventListener('mouseenter', enter); host?.removeEventListener('mouseleave', leave); };
   }, []);
-  // пока строка бежит, затухание идёт в такт с ней: слева появляется, как только текст тронулся,
-  // справа гаснет, когда показался конец (tc-fade в global.css)
+  // при наведении затухание плавно уходит и строка бежит, без курсора затухание плавно возвращается (tc-fade в global.css)
   return (
-    <Text ref={ref} className={over ? (run ? 'tc-fade tc-fade-run' : 'tc-fade') : undefined} style={run ? { animationDuration: `${run.t}s` } : undefined}
+    <Text ref={ref} className={over ? (run ? 'tc-fade tc-fade-off' : 'tc-fade') : undefined}
       sx={{ fontWeight: 'semibold', lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-      <span className={run ? 'tc-marquee' : undefined} style={run ? { ['--mq' as string]: `-${run.d}px`, animationDuration: `${run.t}s` } : undefined}>{children}</span>
+      <span ref={span} className={run ? 'tc-marquee' : undefined} style={run ? { ['--mq' as string]: `-${run.d}px`, animationDuration: `${run.t}s` } : { position: 'relative' }}>{children}</span>
     </Text>
   );
 }
