@@ -117,7 +117,7 @@ function reconcileTiles(predicted: TileState[], serverBoard: number[][], nextId:
 
 const SLIDE_MS = 150; // должно совпадать с CSS-переходом .g2048-tile (см. global.css) — тайминг из бандла
 
-interface BoardMsg { type: 'snapshot' | 'move' | 'done'; board?: number[][]; score?: number; max_tile?: number; game_status?: Game2048Status; direction?: Game2048Direction; reward?: number; error?: string }
+interface BoardMsg { type: 'snapshot' | 'move' | 'done'; board?: number[][]; score?: number; max_tile?: number; game_status?: Game2048Status; direction?: Game2048Direction; reward?: number; ms?: number; error?: string }
 
 interface Props {
   accountId: number;
@@ -143,7 +143,7 @@ interface Props {
 export function Game2048Modal({ accountId, accountName, solving, onStartSolve, onStopSolve, onSubscribeBoard, onClose, onResult }: Props) {
   const [tiles, setTiles] = useState<TileState[]>([]);
   const [score, setScore] = useState(0);
-  const [maxTile, setMaxTile] = useState(0);
+  const [thinkMs, setThinkMs] = useState<number | null>(null); // сколько бот думал над последним ходом
   const [status, setStatus] = useState<Game2048Status>('ongoing');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -176,13 +176,14 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
       const unsubscribe = onSubscribeBoardRef.current(data => {
         if (data.type === 'snapshot' && data.board) {
           setTiles(boardToTiles(data.board, nextIdRef));
-          setScore(data.score ?? 0); setMaxTile(data.max_tile ?? 0); setStatus(data.game_status ?? 'ongoing');
+          setScore(data.score ?? 0); setStatus(data.game_status ?? 'ongoing');
         } else if (data.type === 'move' && data.board && data.direction) {
           const predicted = slideTiles(tilesRef.current, data.direction);
           setTiles(predicted);
+          if (data.ms != null) setThinkMs(data.ms);
           setTimeout(() => {
             setTiles(reconcileTiles(predicted, data.board!, nextIdRef));
-            setScore(data.score ?? 0); setMaxTile(data.max_tile ?? 0); setStatus(data.game_status ?? 'ongoing');
+            setScore(data.score ?? 0); setStatus(data.game_status ?? 'ongoing');
           }, SLIDE_MS);
         } else if (data.type === 'done' && data.error) setError(data.error);
       });
@@ -190,7 +191,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
     }
     api.game2048State(accountId).then(d => {
       if (cancelled) return;
-      if (d.ok) { setTiles(boardToTiles(d.board, nextIdRef)); setScore(d.score); setMaxTile(d.max_tile); setStatus(d.game_status); }
+      if (d.ok) { setTiles(boardToTiles(d.board, nextIdRef)); setScore(d.score); setStatus(d.game_status); }
       else setError(d.error ?? 'Ошибка загрузки');
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -209,7 +210,7 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
       if (r.ok) {
         setTimeout(() => {
           setTiles(reconcileTiles(predicted, r.board, nextIdRef));
-          setScore(r.score); setMaxTile(r.max_tile); setStatus(r.game_status);
+          setScore(r.score); setStatus(r.game_status);
           if (r.game_status !== 'ongoing') onResultRef.current({ won: r.game_status === 'won', reward: r.reward, score: r.score });
         }, SLIDE_MS);
       } else setError(r.error ?? 'Ошибка хода');
@@ -257,8 +258,14 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
   return (
     // ширина задана через sx, а не пресетом width: поле 320px + по 8px с боков = 336px,
     // такого пресета у Primer нет (296/320/480/640), а поле ужимать нельзя
+    // под именем аккаунта — счёт, итог партии и (пока играет бот) сколько он думал над последним ходом
     <Dialog
-      title={`2048 — ${accountName}`}
+      title={accountName}
+      subtitle={loading ? undefined : <>
+        Счёт <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{score}</Text>
+        {solving && thinkMs != null && <> · ход бота <Text sx={{ fontWeight: 'bold', color: 'fg.default' }}>{thinkMs} мс</Text></>}
+        {status !== 'ongoing' && <> · <Text sx={{ fontWeight: 'bold', color: status === 'won' ? 'success.fg' : 'danger.fg' }}>{status === 'won' ? 'Победа!' : 'Игра окончена'}</Text></>}
+      </>}
       onClose={onClose}
       width="medium"
       sx={{ '@media (min-width: 768px)': { width: BOARD + PAD_MODAL * 2 } }}
@@ -271,10 +278,6 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
         {error && <Flash variant="danger" sx={{ width: '100%' }}>{error}</Flash>}
         {loading ? <Spinner /> : (
           <>
-            <Box sx={{ display: 'flex', gap: 4, fontSize: 1 }}>
-              <Text>Счёт: <b>{score}</b></Text>
-              <Text>Макс: <b>{maxTile}</b></Text>
-            </Box>
             <div
               onMouseDown={e => onPointerDown(e.clientX, e.clientY)}
               onMouseUp={e => onPointerUp(e.clientX, e.clientY)}
@@ -314,12 +317,6 @@ export function Game2048Modal({ accountId, accountName, solving, onStartSolve, o
                 );
               })}
             </div>
-            {status !== 'ongoing' && (
-              <Text sx={{ fontWeight: 'bold', color: status === 'won' ? 'success.fg' : 'danger.fg' }}>
-                {status === 'won' ? 'Победа!' : 'Игра окончена'}
-              </Text>
-            )}
-            <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Стрелки на клавиатуре или свайп</Text>
           </>
         )}
       </Box>

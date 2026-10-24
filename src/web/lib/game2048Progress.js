@@ -41,7 +41,6 @@ function start(accountId,name,makeApiForAccount){
   if(existing)return existing;
   const entry={board:null,score:0,max_tile:0,game_status:'ongoing',subscribers:new Set(),stopped:false,promise:null};
   registry.set(accountId,entry);
-  let engine=null;
   entry.promise=(async()=>{
     try{
       const{logResult}=require('../../modules/game2048');
@@ -50,7 +49,7 @@ function start(accountId,name,makeApiForAccount){
       // одновременно не должны упираться в рейт-лимит игры. Ход считается в своём потоке на партию
       // (modules/game2048Worker.js), поэтому расчёт не держит ни apiLock, ни процесс бота.
       const api=await makeApiForAccount(accountId);
-      engine=require('../../modules/game2048Worker').create();
+      const engine=require('../../modules/game2048Worker');
       const limiter=perAccountRateLimit.forAccount(accountId);
       // withRetry — иначе один транзитный сетевой сбой (ECONNABORTED/таймаут, реально наблюдалось в
       // логах: "POST: /game2048/: нет ответа от сервера (ECONNABORTED)") убивал всю фоновую партию
@@ -60,9 +59,8 @@ function start(accountId,name,makeApiForAccount){
       entry.board=st.board;entry.score=st.score;entry.max_tile=st.max_tile;entry.game_status=st.game_status;
       broadcast(accountId,{type:'snapshot',board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status});
       while(st?.game_status==='ongoing'&&!entry.stopped){
-        const{dir}=await engine.bestMove(st.board);
+        const{dir,ms}=await engine.bestMove(st.board);
         if(!dir)break;
-        await new Promise(r=>setTimeout(r,400));
         if(entry.stopped)break;
         // ХОД, в отличие от загрузки состояния, НЕ идемпотентен — если сервер его принял, но ответ
         // просто не дошёл (та же ECONNABORTED), повторная отправка ЭТОГО ЖЕ хода рискует применить
@@ -80,7 +78,7 @@ function start(accountId,name,makeApiForAccount){
         }
         entry.board=st.board;entry.score=st.score;entry.max_tile=st.max_tile;entry.game_status=st.game_status;
         broadcast(accountId,animated
-          ?{type:'move',direction:dir,board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status}
+          ?{type:'move',direction:dir,ms:Math.round(ms),board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status}
           :{type:'snapshot',board:st.board,score:st.score,max_tile:st.max_tile,game_status:st.game_status});
       }
       if(st?.game_status&&st.game_status!=='ongoing')await logResult(name,st);
@@ -89,7 +87,6 @@ function start(accountId,name,makeApiForAccount){
       logger.warn(`[${name}] [2048] solve: ${e.message}`);
       broadcast(accountId,{type:'done',ok:false,error:e.message});
     }finally{
-      if(engine)engine.close();
       for(const res of entry.subscribers){try{res.end();}catch(_){}}
       registry.delete(accountId);
     }
