@@ -673,17 +673,17 @@ html[data-theme="dark"] .pol-ic { background: linear-gradient(160deg, color-mix(
 /* бегущая строка: не влезающее название карточки на карте под курсором едет влево и обратно (cityMapPanels Row) */
 .tc-marquee { position: relative; animation: tc-marquee ease-in-out infinite; }
 @keyframes tc-marquee { 0%, 6% { left: 0; } 41%, 53% { left: var(--mq); } 88%, 100% { left: 0; } }
-/* затухание края вместо многоточия: правый край гаснет, пока строка не влезает; во время бега
+/* затухание края вместо многоточия: правый край (12px) гаснет, пока строка не влезает; во время бега
    левый край появляется, как только текст тронулся, правый уходит, когда показался конец */
 @property --mql { syntax: '<length>'; inherits: false; initial-value: 0px; }
-@property --mqr { syntax: '<length>'; inherits: false; initial-value: 24px; }
+@property --mqr { syntax: '<length>'; inherits: false; initial-value: 12px; }
 .tc-fade {
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--mql), #000 calc(100% - var(--mqr)), transparent 100%);
   mask-image: linear-gradient(to right, transparent 0, #000 var(--mql), #000 calc(100% - var(--mqr)), transparent 100%);
 }
 .tc-fade-run { animation: tc-fade ease-in-out infinite; }
 @keyframes tc-fade {
-  0%, 6% { --mql: 0px; --mqr: 24px; } 12%, 35% { --mql: 24px; --mqr: 24px; } 41%, 53% { --mql: 24px; --mqr: 0px; }
-  59%, 82% { --mql: 24px; --mqr: 24px; } 88%, 100% { --mql: 0px; --mqr: 24px; }
+  0%, 6% { --mql: 0px; --mqr: 12px; } 12%, 35% { --mql: 12px; --mqr: 12px; } 41%, 53% { --mql: 12px; --mqr: 0px; }
+  59%, 82% { --mql: 12px; --mqr: 12px; } 88%, 100% { --mql: 0px; --mqr: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .tc-marquee, .tc-fade-run { animation: none; } }
