@@ -77,7 +77,7 @@ module.exports=function(app,ctx){
       const plansMod=require('../../db/cityPlans');
       const[snaps,accs,queues,builds,targets,guilds,divs]=await Promise.all([
         CitySnapshot.findAll({order:[['account','ASC']]}),
-        Account.findAll({attributes:['name','balance','profit','profit_final','population','population_final','happiness']}),
+        Account.findAll({attributes:['name','balance','crystals','staked_coins','staked_crystals','profit','profit_final','population','population_final','happiness']}),
         plansMod.loadAllQueues(),
         plansMod.loadBuildPlans(),
         plansMod.loadAllTargets(),
@@ -97,7 +97,7 @@ module.exports=function(app,ctx){
       const rows=snaps.filter(r=>byName.has(r.account)).map(r=>{
         const a=byName.get(r.account);
         return{account:r.account,buildings:r.buildings?JSON.parse(r.buildings):[],unlockedSections:r.unlocked_sections?JSON.parse(r.unlocked_sections):null,updated_at:r.updated_at,
-          balance:n(a.balance),profit:n(a.profit),profit_final:n(a.profit_final),population:n(a.population),population_final:n(a.population_final),happiness:n(a.happiness),
+          balance:n(a.balance),crystals:n(a.crystals),staked_coins:n(a.staked_coins),staked_crystals:n(a.staked_crystals),profit:n(a.profit),profit_final:n(a.profit_final),population:n(a.population),population_final:n(a.population_final),happiness:n(a.happiness),
           queue:queues[r.account]||[],targets:targets[r.account]||[],buildPlan:builds[r.account]||[],
           guild:(b=>({income_boost:n(b?.income_boost),building_purchases_discount:n(b?.building_purchases_discount),upgrades_discount:n(b?.upgrades_discount)}))(benefitsOf.get(r.account)),
           diversity:diversityOf.get(r.account)??0};

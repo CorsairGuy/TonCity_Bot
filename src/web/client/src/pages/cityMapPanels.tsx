@@ -363,7 +363,24 @@ const SERVICE_LABEL: Record<ServiceCat, string> = { hospital: 'Больницы'
 const SERVICE_SPRITE: Record<ServiceCat, string> = { hospital: 'SER_city_hospital.png', 'police-station': 'SER_city_police.png', 'fire-station': 'SER_fire_station.png', park: 'SER_central_park.png' };
 // "Базовый доход" — доход совсем без политик (raw, как на экране "Обзор доходов" в игре), "Политики" —
 // общий эффект category/type-множителей и глобального множителя относительно raw.profit
-export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: CityStats; projected: CityStats; mods: CityStatsMods }) {
+// кошелёк города (или всех городов): монеты, алмазы, вложенное в стейкинг; income — монет в час
+export interface Wallet { coins: number; crystals: number; stakedCoins: number; stakedCrystals: number; income: number }
+const coinRow = (v: ReactNode) => <Box as="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>{v}</Box>;
+// карточка баланса над доходом: монеты и алмазы (сокращённо), ниже — вложенное в стейкинг
+export function WalletTop({ w }: { w?: Wallet }) {
+  if (!w) return null;
+  const staked = w.stakedCoins > 0 || w.stakedCrystals > 0;
+  return (
+    <Summary tone="neutral">
+      <Box sx={{ display: 'flex', gap: 2 }}>
+        <Tile value={<CoinValue value={fmtStat(w.coins)} />} label="монеты" color="attention.fg" />
+        <Tile value={<CrystalValue value={fmtStat(w.crystals)} />} label="алмазы" color="accent.fg" />
+      </Box>
+      {staked && <SumLine left="в стейкинге" right={<>{coinRow(<CoinValue value={fmtStat(w.stakedCoins)} />)} · {coinRow(<CrystalValue value={fmtStat(w.stakedCrystals)} />)}</>} />}
+    </Summary>
+  );
+}
+export function StatsPanel({ raw, s, projected, mods, wallet }: { raw: CityStats; s: CityStats; projected: CityStats; mods: CityStatsMods; wallet?: Wallet }) {
   const base = raw.profit * raw.happiness;
   const guild = mods.incomeBoost ?? 0;
   const policyMult = raw.profit > 0 ? (s.profit / raw.profit) * (mods.globalIncomeMult ?? 1) : (mods.globalIncomeMult ?? 1);
@@ -385,6 +402,7 @@ export function StatsPanel({ raw, s, projected, mods }: { raw: CityStats; s: Cit
   ];
   return (
     <>
+      <WalletTop w={wallet} />
       <Summary tone="accent">
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Tile value={fmtStat(s.profitFinal)} label="доход в час" color="accent.fg" />
