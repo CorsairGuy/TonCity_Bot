@@ -9,7 +9,7 @@ import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
   MapPalette, MapBrushLevel, PanelShell, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
-  LogPanel, ForecastPanel, PendingList, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
+  LogPanel, ForecastPanel, QueuePanel, PendingList, DemolishPanel, ReconstructPanel, RenovatePanel, MasterplanBar, ItemIcon, Glyph, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
 } from './cityMapPanels';
 import { CoinValue } from '../components/Icons';
 import { LoadError } from '../components/LoadError';
@@ -171,9 +171,11 @@ export function CityWorld() {
     const out = new Set<string>();
     if (cur) out.add(cur);
     for (const a of touched) out.add(a);
+    // «Очередь» издалека: города с ручной очередью открыты (скрыто) — цены, перестановка и сохранение их кодом
+    if (mode === 'queue' && !cur) for (const r of rows) if (r.queue.length) out.add(r.account);
     for (const [a, st] of Object.entries(states)) if (st.draft) out.add(a);
     return [...out].filter(a => offOf.has(a));
-  }, [cur, touched, states, offOf]);
+  }, [cur, touched, states, offOf, mode, rows]);
   const mountedKey = mounted.join('|');
   // закрытый город больше не рисуется по своему старому состоянию
   useEffect(() => {
@@ -284,6 +286,21 @@ export function CityWorld() {
     if (cur) return;
     if (mode === 'log') loadLog();
     else if (mode === 'forecast' && cities.length) loadForecast();
+  }, [mode, cur, cities.length > 0]);
+
+  // ── реконструкция и реновация издалека: компоненты и мастерпланы каждого города (из БД)
+  const [resources, setResources] = useState<Record<string, { components: number; masterplans: number }>>({});
+  useEffect(() => {
+    if ((mode !== 'reconstruct' && mode !== 'renovate') || cur || !cities.length) return;
+    let alive = true;
+    (async () => {
+      const names = cities.map(c => c.account), out: typeof resources = {};
+      let i = 0;
+      const worker = async () => { while (i < names.length) { const a = names[i++]; const d = await api.cityResources(a).catch(() => null); if (d?.ok) out[a] = { components: d.components, masterplans: d.masterplans }; } };
+      await Promise.all([worker(), worker(), worker(), worker()]);
+      if (alive) setResources(out);
+    })();
+    return () => { alive = false; };
   }, [mode, cur, cities.length > 0]);
 
   // ── ускорители издалека: склад и очередь каждого города из БД, клик по городу ставит выбранный в очередь
@@ -581,8 +598,70 @@ export function CityWorld() {
     setRunAll(null);
     showFlash(`Выполнено: ${ok}${deferred ? `, ждут монет: ${deferred}` : ''}${fail ? `, ошибок: ${fail}${error ? ` (${error})` : ''}` : ''}`, fail === 0);
   };
-  const pendingGroups = withPending.map(r => {
+  // Снос: общая сводка потерь сверху, у каждого города своя потеря дохода в подписи
+  const demCities = mode === 'demolish' ? withPending.filter(r => live(r.account)!.demolish.tiles.length > 0) : [];
+  const demSum = demCities.reduce((a, r) => { const d = live(r.account)!.demolish; return { n: a.n + d.tiles.length, loss: a.loss + d.loss, pop: a.pop + d.pop }; }, { n: 0, loss: 0, pop: 0 });
+  const demolishSummary = demCities.length > 0 && (
+    <Summary tone="danger">
+      <Box sx={{ display: 'flex', gap: 2 }}>
+        <Tile size={2} value={demSum.n} label={`${plural(demSum.n, 'здание', 'здания', 'зданий')}, ${demCities.length} ${plural(demCities.length, 'город', 'города', 'городов')}`} />
+        <Tile size={2} value={`−${fmt(demSum.loss)}`} label="дохода в час" color="danger.fg" />
+      </Box>
+      <SumLine left={demSum.pop > 0 ? `жителей −${fmt(demSum.pop)}` : 'жители без изменений'} right={totalFinal > 0 ? `−${(demSum.loss / totalFinal * 100).toFixed(1)}% дохода` : undefined} />
+    </Summary>
+  );
+  // Реконструкция: готовые и все умеющие по снимкам, компоненты всех городов, отмеченное — по открытым городам
+  let reconSummary: ReactNode = null;
+  if (mode === 'reconstruct') {
+    let ready = 0, all = 0, readyCities = 0, comp = 0, marked = 0, spend = 0, gain = 0, planned = 0;
+    for (const r of cities) {
+      const rs = rowSets.get(r.account);
+      if (rs) { ready += rs.reconstructable.size; all += rs.reconstructPlannable.size; if (rs.reconstructable.size) readyCities++; }
+      comp += resources[r.account]?.components ?? 0;
+      for (const g of live(r.account)?.recon.groups ?? []) for (const c of g.cells) {
+        if (c.queued) { marked++; spend += g.comp ?? 0; gain += g.gain ?? 0; }
+        if (c.planned) planned++;
+      }
+    }
+    reconSummary = all > 0 && (
+      <Summary>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Tile size={2} value={`${ready}/${all}`} label={`готовы, ${readyCities} ${plural(readyCities, 'город', 'города', 'городов')}`} color="success.fg" />
+          <Tile size={2} value={<Box as="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}><ItemIcon tag="component" size={18} />{comp}</Box>} label="компонентов" />
+        </Box>
+        <PlanBar done={ready} wip={0} span={all} size="large" bg="canvas.default" />
+        <SumLine left={marked ? <>отмечено {marked}: <Glyph tag="component" v={`−${spend}`} /> <Glyph tag="masterplan" v={`+${gain}`} /></> : 'отметьте готовые здания'} right={planned ? `в плане ${planned}` : undefined} />
+      </Summary>
+    );
+  }
+  const mpAll = Object.values(resources).reduce((s, v) => s + v.masterplans, 0);
+  const mpUsed = cities.reduce((s, r) => s + (live(r.account)?.renov.items.filter(i => i.marked).reduce((a, i) => a + (i.cost ?? 0), 0) ?? 0), 0);
+  const renovSummary = mode === 'renovate' && <MasterplanBar masterplans={mpAll} used={mpUsed} />;
+  // города с отмеченной реконструкцией (или реконструкцией в плане) и реновацией — их списки кодом карты города
+  const reconCities = mode === 'reconstruct' ? cities.filter(r => (live(r.account)?.recon.groups ?? []).some(g => g.cells.some(c => c.queued || c.planned))) : [];
+  const renovCities = mode === 'renovate' ? cities.filter(r => (live(r.account)?.renov.items ?? []).some(i => i.marked)) : [];
+  const toolGroups = [...reconCities, ...renovCities].map(r => {
+    const st = live(r.account)!, res = resources[r.account];
+    const rest = st.pending.filter(p => p.kind !== mode);
+    return <Box key={r.account} sx={{ display: 'contents' }}>
+      <Caption right={mode === 'reconstruct' ? res?.components ?? '' : res?.masterplans ?? ''}>{r.account}</Caption>
+      {mode === 'reconstruct'
+        ? <ReconstructPanel summary={false} groups={st.recon.groups} components={st.recon.components} disabled={!!runAll || st.executing} onToggle={st.onPick} />
+        : <RenovatePanel summary={false} masterplans={st.renov.masterplans} items={st.renov.items} disabled={!!runAll || st.executing} onToggle={st.onPick} />}
+      <PendingList caption={r.account} rows={rest} labelFor={labelFor} disabled={!!runAll || st.executing} onRemove={st.removePending} right={rest.length} />
+    </Box>;
+  });
+  const toolDone = new Set([...reconCities, ...renovCities].map(r => r.account));
+  const pendingGroups = withPending.filter(r => !toolDone.has(r.account)).map(r => {
     const st = live(r.account)!;
+    if (mode === 'demolish' && st.demolish.tiles.length) {
+      const rest = st.pending.filter(p => p.kind !== 'demolish');
+      return <Box key={r.account} sx={{ display: 'contents' }}>
+        <Caption right={st.demolish.loss > 0 ? `−${fmt(st.demolish.loss)}/ч` : st.demolish.tiles.length}>{r.account}</Caption>
+        <DemolishPanel summary={false} tiles={st.demolish.tiles} lossPerHour={st.demolish.loss} popLoss={st.demolish.pop} income={st.demolish.income} disabled={!!runAll || st.executing} onRemove={st.removePending} />
+        <PendingList caption={r.account} rows={rest} labelFor={labelFor} disabled={!!runAll || st.executing} onRemove={st.removePending} right={rest.length} />
+      </Box>;
+    }
     const builds = st.pending.filter(p => p.kind === 'build'), sum = builds.reduce((s, p) => s + (p.price ?? 0), 0);
     return <PendingList key={r.account} caption={r.account} rows={st.pending} labelFor={labelFor} disabled={!!runAll || st.executing} onRemove={st.removePending}
       right={builds.length ? (sum > st.balance ? <Text sx={{ color: 'attention.fg' }}>ждёт {fmt(sum - st.balance)}</Text> : `${fmt(sum)} из ${fmt(st.balance)}`) : st.pending.length} />;
@@ -598,6 +677,20 @@ export function CityWorld() {
     <CancelButton disabled={!!runAll} onClick={() => { for (const r of withPending) live(r.account)!.cancelPending(); }} />
   </>;
 
+  const queueDirtyCities = mode === 'queue' && !cur ? mounted.filter(a => states[a]?.queueDirty) : [];
+  const [queueSaving, setQueueSaving] = useState(false);
+  const saveQueues = async () => {
+    setQueueSaving(true);
+    let fail = 0;
+    for (const a of queueDirtyCities) if (!await statesRef.current[a]?.saveQueue()) fail++;
+    setQueueSaving(false);
+    showFlash(fail ? `Не сохранилось в ${fail} ${plural(fail, 'городе', 'городах', 'городах')}` : 'Очереди сохранены', !fail);
+    load();
+  };
+  const queueFooter = queueDirtyCities.length > 0 && <>
+    <FooterButton label="Сохранить" icon={CheckIcon} count={queueTotal} busy={queueSaving} onClick={() => { void saveQueues(); }} />
+    <CancelButton disabled={queueSaving} onClick={() => { for (const a of queueDirtyCities) states[a]?.resetQueue(); }} />
+  </>;
   const boosterFooter = <>
     <FooterButton label="Применить" icon={ZapIcon} count={boosterAdd.length} busy={boosterSaving} onClick={() => { void applyBoosters(); }} />
     <CancelButton disabled={boosterSaving} onClick={() => setBoosterAdd([])} />
@@ -666,28 +759,31 @@ export function CityWorld() {
     </>;
   } else if (mode === 'queue') {
     const groups = cities.filter(r => queueOf(r).length > 0);
+    // на каждый город свой бюджет (80% его монет): «хватит» считается по городу, итог — сумма
+    let total = 0, fit = 0;
+    for (const r of groups) {
+      const st = live(r.account);
+      if (!st) continue;
+      let run = 0;
+      for (const p of st.queuePrices) { total += p ?? 0; if ((run += p ?? 0) <= st.balance * 0.8) fit++; }
+    }
     side = <>
-      {draftList}
       {groups.length === 0 ? <Empty>Ручных улучшений в очереди нет</Empty> : <>
         <Summary tone="accent">
           <Box sx={{ display: 'flex', gap: 2 }}>
             <Tile size={2} value={queueTotal} label="в очереди" color="accent.fg" />
-            <Tile size={2} value={groups.length} label={plural(groups.length, 'город', 'города', 'городов')} />
+            <Tile size={2} value={<CoinValue value={fmt(total)} />} label="монет на всё" />
           </Box>
+          <SumLine left={`хватит на ${fit} из ${queueTotal}`} right="бюджет 80%" />
         </Summary>
         {groups.map(r => {
-          const q = queueOf(r);
+          const st = live(r.account), q = queueOf(r);
           return (
-            <Box key={r.account} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box key={r.account} sx={{ display: 'contents' }}>
               <Caption right={q.length}>{r.account}</Caption>
-              {q.map((item, i) => {
-                const b = r.buildings.find(o => o.x === item.x && o.y === item.y);
-                const prior = q.slice(0, i).filter(v => v.x === item.x && v.y === item.y).length;
-                const from = b ? (Number(b.level) || 0) + prior : null;
-                return <Row key={i} lead={b ? <BadgeThumb id={b.id} badge={i + 1} badgeBg={i === 0 ? 'accent.emphasis' : 'neutral.emphasis'} /> : <Box sx={{ width: 36 }} />}
-                  title={b ? labelFor(b.id) : '—'} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
-                  sub={from != null ? `${from} → ${from + 1}` : `${item.x},${item.y}`} onClick={() => openCity(r.account)} />;
-              })}
+              <QueuePanel summary={false} queue={q} owned={st?.buildings ?? r.buildings} labelFor={labelFor} prices={st?.queuePrices ?? q.map(() => null)} balance={st?.balance ?? r.balance ?? 0}
+                onReorder={(from, to) => st?.editQueue(p => { const n = [...p]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; })}
+                onRemove={i => st?.editQueue(p => p.filter((_, k) => k !== i))} />
             </Box>
           );
         })}
@@ -733,6 +829,10 @@ export function CityWorld() {
     const deferred = cities.filter(r => (r.buildPlan ?? []).length > 0);
     side = <>
       {buildPicker}
+      {demolishSummary}
+      {reconSummary}
+      {renovSummary}
+      {toolGroups}
       {pendingGroups}
       {mode === 'build' && deferred.length > 0 && <>
         <Caption right={deferred.reduce((s, r) => s + r.buildPlan.length, 0)}>Ждут монет</Caption>
@@ -830,7 +930,7 @@ export function CityWorld() {
         {/* сайдбар: все города или текущий город (его панель встаёт сюда порталом) */}
         <Box ref={setSideEl} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {!cur && (
-            <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={ACTION_TABS.has(mode) ? pendingFooter || undefined : mode === 'boosters' && boosterAdd.length ? boosterFooter : undefined}>
+            <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={ACTION_TABS.has(mode) ? pendingFooter || undefined : mode === 'boosters' && boosterAdd.length ? boosterFooter : mode === 'queue' ? queueFooter || undefined : undefined}>
               {side}
             </PanelShell>
           )}

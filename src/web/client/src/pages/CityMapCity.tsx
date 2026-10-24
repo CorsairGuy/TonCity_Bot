@@ -14,7 +14,7 @@ import type { DayNightMode } from '../components/mapNight';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
-import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, CancelButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, LogPanel, ForecastPanel, Empty, fmtTimeLeft, Caption, Row, Thumb, fillOf, FILL_ATTENTION, type PanelMode, type ReconGroup } from './cityMapPanels';
+import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, CancelButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, type DemolishTile, type RenovItem, LogPanel, ForecastPanel, Empty, fmtTimeLeft, Caption, Row, Thumb, fillOf, FILL_ATTENTION, type PanelMode, type ReconGroup } from './cityMapPanels';
 import { useAsk } from '../hooks/useAsk';
 import { useNarrow } from '../hooks/useNarrow';
 import { LoadError } from '../components/LoadError';
@@ -253,6 +253,8 @@ export function cityCellSets(display: MapBuilding[], catMap: Map<string, Buildin
   for (const k of coords) if (!out.occupied.has(k) && !locked.has(k) && !deferred.has(k)) out.empty.add(k);
   return out;
 }
+const cellsKeyOf = (a: { x: number; y: number }[]) => a.map(v => `${v.x},${v.y}`).join(';');
+
 export function validCellsFor(mode: CityActionMode, s: CityCellSets, buildFamily: string, moveFrom: { x: number; y: number } | null): Set<string> {
   switch (mode) {
     case 'upgrade': case 'queue': return s.upgradeable;
@@ -305,6 +307,7 @@ export interface CityMapState {
   fills: CellFill[];                   // отложенная стройка («ждёт монет»)
   // «Ждут выполнения» для сводки всех городов: строки, деньги и запуск без своей панели
   pending: PendingView[];
+  demolish: { tiles: DemolishTile[]; loss: number; pop: number; income: number };
   balance: number;
   moving: boolean;                     // перемещение: здание взято, ждёт клетку «куда»
   executing: boolean;
@@ -312,6 +315,14 @@ export interface CityMapState {
   removePending: (id: number) => void;
   cancelPending: () => void;
   cancelMove: () => void;
+  // ручная очередь для сводки всех городов: цены, правка черновика и сохранение без своей панели
+  recon: { groups: ReconGroup[]; components: number };
+  renov: { masterplans: number; items: RenovItem[] };
+  queuePrices: (number | null)[];
+  queueDirty: boolean;
+  editQueue: (fn: (q: CityStrategyQueueItem[]) => CityStrategyQueueItem[]) => void;
+  saveQueue: () => Promise<boolean>;
+  resetQueue: () => void;
 }
 
 export function CityMapCity(props: CityMapCityProps = {}) {
@@ -1068,6 +1079,19 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const stableRemove = useCallback((id: number) => setQueue(prev => prev.filter(a => a.id !== id)), []);
   const stableCancel = useCallback(() => setQueue([]), []);
   const stableCancelMove = useCallback(() => setMoveFrom(null), []);
+  const stableEditQueue = useCallback((fn: (q: CityStrategyQueueItem[]) => CityStrategyQueueItem[]) => setManualQueue(fn), []);
+  const saveQueueRef = useRef(async () => false); saveQueueRef.current = async () => {
+    const r = await api.saveCityQueue(account, manualQueue).catch(() => ({ ok: false }));
+    if (r.ok) { setSavedManualQueue(manualQueue); refreshMap(); }
+    return !!r.ok;
+  };
+  const stableSaveQueue = useCallback(() => saveQueueRef.current(), []);
+  const savedQueueRef = useRef(savedManualQueue); savedQueueRef.current = savedManualQueue;
+  const stableResetQueue = useCallback(() => setManualQueue(savedQueueRef.current), []);
+  const queueDirtyNow = cellsKeyOf(manualQueue) !== cellsKeyOf(savedManualQueue);
+  const queuePricesKey = JSON.stringify(manualQueuePrices);
+  const demolishKey = JSON.stringify({ tiles: demolishTiles, loss: demolish.loss, pop: demolish.pop, income: currentStats.profitFinal });
+  const reconKey = JSON.stringify({ groups: reconGroups, components }), renovKey = JSON.stringify({ masterplans, items: renovateItems });
   const pendingKey = JSON.stringify(pendingRows.map(r => ({ ...r, price: pendingBuildPrices.get(r.id), over: overBudget.has(r.id) })));
   const stableUnlock = useCallback((id: string) => { void unlockRef.current(id); }, []);
   const cellsKey = (a: { x: number; y: number; target_level?: number }[]) => a.map(v => `${v.x},${v.y},${v.target_level ?? ''}`).join(';');
@@ -1081,10 +1105,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     onMapRef.current?.({
       account, buildings: displayBuildings, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
       focusSet: mode === 'upgrade' ? planFocus : null, onPick: stablePick, onUnlockCell: stableUnlock, draft: draft || executing, dots: dotsKey ? JSON.parse(dotsKey) : {},
-      fills: deferFills, pending: JSON.parse(pendingKey), balance, moving: !!moveFrom, executing,
+      fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, moving: !!moveFrom, executing,
       run: stableRun, removePending: stableRemove, cancelPending: stableCancel, cancelMove: stableCancelMove,
+      queuePrices: JSON.parse(queuePricesKey), queueDirty: queueDirtyNow, editQueue: stableEditQueue, saveQueue: stableSaveQueue, resetQueue: stableResetQueue,
     });
-  }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, balance, moveFrom]);
+  }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow]);
 
   if (props.hidden) return null;
   if (loading && props.slots) return <>{props.slots.side && createPortal(<Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><MapLoader pct={DATA_SHARE * dataDone / 9} text={`Данные города ${dataDone} / 9`} /></Box>, props.slots.side)}</>;
