@@ -1112,7 +1112,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow]);
 
   if (props.hidden) return null;
-  if (loading && props.slots) return <>{props.slots.side && createPortal(<Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><MapLoader pct={DATA_SHARE * dataDone / 9} text={`Данные города ${dataDone} / 9`} /></Box>, props.slots.side)}</>;
+  // во встроенном виде шапку и спиннер на время загрузки рисуют «Города» — свой лоадер не нужен
+  if (loading && props.slots) return null;
   if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><MapLoader pct={DATA_SHARE * dataDone / 9} text={`Данные города ${dataDone} / 9`} /></Box>;
 
   const panelMode = mode as PanelMode;
@@ -1177,36 +1178,16 @@ export function CityMapCity(props: CityMapCityProps = {}) {
         aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
     : null;
 
-  const headRow = (
-    <Box sx={{
-      p: 2, bg: 'canvas.subtle',
-      borderBottom: '1px solid', borderColor: 'border.default',
-      display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0,
-    }}>
-      {/* телефон: шапка в одну строку — кнопки иконками, сводка уходит в подсказку заголовка */}
-      {narrow
-        ? <IconButton icon={ChevronLeftIcon} aria-label="Все города" onClick={goBack} />
-        : <Button leadingVisual={ChevronLeftIcon} onClick={goBack}>Все города</Button>}
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }}
-        title={noSnapshot ? undefined : summary}>
-        <Heading as="h3" sx={{ fontSize: 2, m: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rowName}</Heading>
-        {(noSnapshot || !narrow) && <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
-          {noSnapshot ? (narrow ? 'Нет снимка' : 'Снимка города ещё нет — нажмите «Обновить»') : summary}
-        </Text>}
-      </Box>
-      <DayNightMenu value={dayNight} onChange={setDayNight} />
-      {narrow
-        ? <IconButton icon={SyncIcon} aria-label="Обновить" disabled={liveRefreshing} onClick={doLiveRefresh} />
-        : <Button leadingVisual={SyncIcon} loading={liveRefreshing} disabled={liveRefreshing} onClick={doLiveRefresh}>Обновить</Button>}
-    </Box>
-  );
+  const headRow = <CityHead name={rowName} summary={summary} noSnapshot={noSnapshot} narrow={narrow} onBack={goBack}
+    dayNight={dayNight} onDayNight={setDayNight} refreshing={liveRefreshing} onRefresh={doLiveRefresh} />;
   const flashEl = flash && (
       <Box sx={{ px: 3, pt: 2, flexShrink: 0 }}>
         <Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash>
       </Box>
   );
   const sidePanel = (
-    <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{props.slots ? props.panelActions : panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}>
+    <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{props.slots ? props.panelActions : panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
+      busy={mode === 'forecast' ? forecastLoading : mode === 'boosters' ? boostersLoading && boosters.length === 0 : mode === 'log' ? actionLogLoading && actionLog.length === 0 : false}>
       {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} />}
 
       {mode === 'upgrade' && (
@@ -1367,6 +1348,36 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       }}>
         {sidePanel}
       </Box>
+    </Box>
+  );
+}
+
+// шапка города над картой. Её же «Города» рисуют, пока данные города грузятся, — переход без прыжков
+export function CityHead({ name, summary, noSnapshot, narrow, onBack, dayNight, onDayNight, refreshing, onRefresh }: {
+  name: string; summary?: string; noSnapshot?: boolean; narrow: boolean; onBack: () => void;
+  dayNight: DayNightMode; onDayNight: (v: DayNightMode) => void; refreshing?: boolean; onRefresh?: () => void;
+}) {
+  return (
+    <Box sx={{
+      p: 2, bg: 'canvas.subtle',
+      borderBottom: '1px solid', borderColor: 'border.default',
+      display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0,
+    }}>
+      {/* телефон: шапка в одну строку — кнопки иконками, сводка уходит в подсказку заголовка */}
+      {narrow
+        ? <IconButton icon={ChevronLeftIcon} aria-label="Все города" onClick={onBack} />
+        : <Button leadingVisual={ChevronLeftIcon} onClick={onBack}>Все города</Button>}
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }}
+        title={noSnapshot ? undefined : summary}>
+        <Heading as="h3" sx={{ fontSize: 2, m: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</Heading>
+        {(noSnapshot || !narrow) && <Text sx={{ fontSize: 0, color: noSnapshot ? 'attention.fg' : 'fg.muted' }}>
+          {noSnapshot ? (narrow ? 'Нет снимка' : 'Снимка города ещё нет — нажмите «Обновить»') : summary}
+        </Text>}
+      </Box>
+      <DayNightMenu value={dayNight} onChange={onDayNight} />
+      {narrow
+        ? <IconButton icon={SyncIcon} aria-label="Обновить" disabled={!!refreshing} onClick={onRefresh} />
+        : <Button leadingVisual={SyncIcon} loading={!!refreshing} disabled={!!refreshing} onClick={onRefresh}>Обновить</Button>}
     </Box>
   );
 }

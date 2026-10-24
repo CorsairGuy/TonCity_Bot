@@ -3,8 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } from '@primer/react';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, DotFillIcon, PlusIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
 import { api, type CityBoosterRow, type CityActiveBooster, type BuildingDef, type CityActionLogRow, type CityWorldRow, type ForecastEvent, type GlobalUpgradeRule, type MapSection } from '../api';
-import { CityActionsCanvas, type CityActionMode, type MapCamera, type MapView, type WorldLayout, type CellFill, type RegionFill } from '../components/CityActionsCanvas';
-import { CityMapCity, buildingName, buildingCat, buildPriceAt, familyId, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
+import { CityActionsCanvas, REGION_FADE, type CityActionMode, type MapCamera, type MapView, type WorldLayout, type CellFill, type RegionFill } from '../components/CityActionsCanvas';
+import { CityMapCity, CityHead, buildingName, buildingCat, buildPriceAt, familyId, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
@@ -31,7 +31,11 @@ const SPAN = 22, STEP = 25;
 const TH_K = 434 / 753;
 // город шире этой доли экрана — сайдбар и шапка переходят к нему; уже LEAVE — обратно ко всем городам
 const ENTER_SHARE = 0.5, LEAVE_SHARE = 0.42;
-const FADE = 'rgba(216,216,216,.62)';
+// город шире этой доли экрана (или под курсором дольше WARM_HOVER_MS) — его данные грузятся заранее, скрыто
+const WARM_SHARE = 0.3, WARM_HOVER_MS = 250;
+const FADE = REGION_FADE;
+// заглушка на время загрузки города: видна, только пока в слоте нет ничего, кроме неё
+const HIDE_WHEN_FILLED = { '&:not(:only-child)': { display: 'none' } } as const;
 const ACTION_TABS = new Set<CityActionMode>(['build', 'move', 'demolish', 'reconstruct', 'renovate']);
 
 // Страница «Города»: одна карта всех городов на движке карты города (CityActionsCanvas), без отдельной
@@ -66,6 +70,7 @@ export function CityWorld() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [mode, setMode] = useState<CityActionMode>('view');
+  const modeRef = useRef(mode); modeRef.current = mode;
   const [dayNight, setDayNight] = useMapDayNight();
   const { flash, showFlash } = useFlash();
   const ask = useAsk();
@@ -171,6 +176,9 @@ export function CityWorld() {
   const [states, setStates] = useState<Record<string, CityMapState>>({});
   const onMap = useCallback((m: CityMapState) => setStates(p => ({ ...p, [m.account]: m })), []);
   const [touched, setTouched] = useState<string[]>([]);
+  // город, к которому идём (курсор или приближение): открыт скрыто, к выбору он уже загружен.
+  // Один: ушли к другому — прежний закрывается (без кэша последних городов, решение 24.10.2026)
+  const [warm, setWarm] = useState<string | null>(null);
   const mounted = useMemo(() => {
     const out = new Set<string>();
     if (cur) out.add(cur);
@@ -181,11 +189,14 @@ export function CityWorld() {
     return [...out].filter(a => offOf.has(a));
   }, [cur, touched, states, offOf, mode, rows]);
   const mountedKey = mounted.join('|');
+  // предзагружаемый город только грузится: на карту и сводку его состояние не влияет, пока он не открыт
+  const withWarm = warm && offOf.has(warm) && !mounted.includes(warm) ? [...mounted, warm] : mounted;
+  const withWarmKey = withWarm.join('|');
   // закрытый город больше не рисуется по своему старому состоянию
   useEffect(() => {
-    const keep = new Set(mounted);
+    const keep = new Set(withWarm);
     setStates(p => Object.keys(p).every(a => keep.has(a)) ? p : Object.fromEntries(Object.entries(p).filter(([a]) => keep.has(a))));
-  }, [mountedKey]);
+  }, [withWarmKey]);
   const live = useCallback((a: string) => mounted.includes(a) ? states[a] : undefined, [mountedKey, states]);
   const curState = cur ? live(cur) : undefined;
   // черновик города сохранён или отменён — перечитать общий снимок (очереди, цели, отложенная стройка)
@@ -221,6 +232,7 @@ export function CityWorld() {
     const c = cityCenter(account);
     if (c) setCamera({ gx: c.cx, gy: c.cy, tile: Math.max(enterTile() * 1.25, viewRef.current?.tile ?? 0), key: ++camKey.current, animate: true });
   };
+  const flyRef = useRef(flyTo); flyRef.current = flyTo;
   const zoomedIn = () => { const v = viewRef.current; return !!v && SPAN * v.tile / v.W >= LEAVE_SHARE; };
   // «Все города»: снять выбор; если город был крупно — отъехать ко всем
   const goAll = () => { choose(null, false); if (zoomedIn()) lookAll(true); };
@@ -240,6 +252,10 @@ export function CityWorld() {
   const onView = useCallback((v: MapView) => {
     viewRef.current = v;
     const share = SPAN * v.tile / v.W;
+    if (share >= WARM_SHARE) {
+      const i = nearestCity(Math.round(v.cx), Math.round(v.cy));
+      if (i >= 0) setWarm(cities[i].account);
+    }
     if (share >= ENTER_SHARE || (centreRef.current && share >= LEAVE_SHARE)) {
       const i = nearestCity(Math.round(v.cx), Math.round(v.cy));
       const a = i < 0 ? null : cities[i].account;
@@ -438,6 +454,11 @@ export function CityWorld() {
     const i = gx == null || gy == null ? -1 : nearestCity(gx, gy);
     setHoverCity(i >= 0 ? cities[i].account : null);
   }, [nearestCity, cities]);
+  useEffect(() => {
+    if (!hoverCity) return;
+    const t = setTimeout(() => setWarm(hoverCity), WARM_HOVER_MS);
+    return () => clearTimeout(t);
+  }, [hoverCity]);
   const toLocal = (gx: number, gy: number) => {
     const i = cityAtCell(gx, gy);
     if (i < 0) return null;
@@ -524,7 +545,12 @@ export function CityWorld() {
     if (movingRef.current) return;
     if (l && boosterTap.current?.(l.account)) return;
     if (l && l.account !== curRef.current) choose(l.account, false);
-  }, [offOf, cityAtCell, choose]);
+    // «Показатели»: клик по городу ещё и приближает к нему (зазор между городами — к подсвеченному соседу)
+    if (modeRef.current === 'view') {
+      const i = l ? -1 : nearestCity(gx, gy), a = l?.account ?? (i >= 0 ? cities[i].account : null);
+      if (a) { if (a !== curRef.current) choose(a, false); flyRef.current(a); }
+    }
+  }, [offOf, cityAtCell, choose, nearestCity, cities]);
   const minScale = useMemo(() => (cities.length ? fitTile().tile * 0.7 / 90 : 0.05), [cities.length, cols]);
 
   // слоты для города: его шапка, сайдбар и плашка кисти встают сюда порталами
@@ -534,6 +560,7 @@ export function CityWorld() {
   const slots = useMemo(() => ({ head: headEl, side: sideEl, dock: dockEl }), [headEl, sideEl, dockEl]);
 
   const panelMode = mode as PanelMode;
+  const curRow = cur ? cities.find(r => r.account === cur) : undefined;
   const totalProfit = cities.reduce((s, r) => s + r.profit, 0);
   const totalFinal = cities.reduce((s, r) => s + r.profit_final, 0);
   const totalPop = cities.reduce((s, r) => s + r.population, 0);
@@ -545,10 +572,14 @@ export function CityWorld() {
   const drafts = cities.filter(r => live(r.account)?.draft);
   // клик по городу в списке: открывается его панель, карта подъезжает к нему
   const openCity = (a: string) => { choose(a, false); flyTo(a); };
+  // наведение на строку списка тоже заранее грузит город — к клику он обычно уже готов
+  const warmTimer = useRef<ReturnType<typeof setTimeout>>();
+  const warmSoon = (a: string | null) => { clearTimeout(warmTimer.current); if (a) warmTimer.current = setTimeout(() => setWarm(a), WARM_HOVER_MS); };
+  useEffect(() => () => clearTimeout(warmTimer.current), []);
 
   // список городов: перетаскивание меняет порядок (только на «Показателях»)
   const cityList = (list: CityWorldRow[], sub: (r: CityWorldRow) => string, trail: (r: CityWorldRow) => ReactNode, draggable = false) => list.map((r, i) => (
-    <Box key={r.account} draggable={draggable}
+    <Box key={r.account} draggable={draggable} onMouseEnter={() => warmSoon(r.account)} onMouseLeave={() => warmSoon(null)}
       onDragStart={draggable ? (e: DragEvent) => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; } : undefined}
       onDragEnd={draggable ? () => setDrag(null) : undefined}
       onDragOver={draggable ? (e: DragEvent) => e.preventDefault() : undefined}
@@ -727,11 +758,11 @@ export function CityWorld() {
   </>;
   let side: ReactNode = null, headActions: ReactNode = undefined;
   const hovered = mode === 'view' && !narrow && hoverCity ? cities.find(r => r.account === hoverCity) : undefined;
+  const hoveredSummary = hovered ? `Зданий: ${hovered.buildings.length} · ${fmt(hovered.profit)}/ч · строится ${hovered.buildings.filter(isBuilding).length}` : '';
   if (hovered) {
     // Показатели Б: на ПК наведение на город показывает его цифры, увели курсор — снова все города
     const n = hovered.buildings.filter(isBuilding).length, q = queueOf(hovered).length;
     side = <>
-      <Caption>{hovered.account}</Caption>
       <Summary tone="accent">
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Tile value={<CoinValue value={fmt(hovered.profit)} />} label="доход в час" color="accent.fg" />
@@ -895,6 +926,9 @@ export function CityWorld() {
     </>;
   }
 
+  // данных вкладки ещё нет — шапка сайдбара остаётся, по центру спиннер
+  const overviewBusy = !loaded && !loadErr || (mode === 'forecast' && forecastLoading) || (mode === 'log' && logLoading && !log.length)
+    || (mode === 'boosters' && boostersLoading && !Object.keys(boosters).length);
   const panelToggle = narrow
     ? <IconButton size="small" variant="invisible" icon={panelCollapsed ? ChevronUpIcon : ChevronDownIcon}
         aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
@@ -941,8 +975,9 @@ export function CityWorld() {
           {!cur && <>
             <Box sx={{ p: 2, bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', gap: 2 }}>
               <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2, flexWrap: narrow ? 'nowrap' : 'wrap' }} title={summary}>
-                <Heading as="h3" sx={{ fontSize: 2, m: 0, whiteSpace: 'nowrap' }}>Все города</Heading>
-                {!narrow && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{summary}</Text>}
+                {/* наведение на город (Показатели, ПК): его имя и цифры в шапке, увели курсор — снова все города */}
+                <Heading as="h3" sx={{ fontSize: 2, m: 0, whiteSpace: 'nowrap' }}>{hovered ? hovered.account : 'Все города'}</Heading>
+                {!narrow && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{hovered ? hoveredSummary : summary}</Text>}
               </Box>
               <DayNightMenu value={dayNight} onChange={setDayNight} />
               {narrow
@@ -951,6 +986,11 @@ export function CityWorld() {
             </Box>
             {flash && <Box sx={{ px: 3, pt: 2 }}><Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash></Box>}
           </>}
+          {/* город ещё грузится: та же шапка по данным общего снимка; пришла шапка города — эта прячется */}
+          {curRow && <Box sx={HIDE_WHEN_FILLED}>
+            <CityHead name={curRow.account} summary={`Зданий: ${curRow.buildings.length}${curRow.updated_at ? ` · Обновлено: ${new Date(curRow.updated_at).toLocaleString('ru')}` : ''}`}
+              narrow={narrow} onBack={goAll} dayNight={dayNight} onDayNight={setDayNight} />
+          </Box>}
         </Box>
         <Box ref={mapBoxRef} sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
           {loadErr
@@ -979,13 +1019,16 @@ export function CityWorld() {
         {/* сайдбар: все города или текущий город (его панель встаёт сюда порталом) */}
         <Box ref={setSideEl} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {!cur && (
-            <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} footer={ACTION_TABS.has(mode) ? pendingFooter || undefined : mode === 'boosters' && boosterAdd.length ? boosterFooter : mode === 'queue' ? queueFooter || undefined : mode === 'upgrade' ? planFooter || undefined : undefined}>
+            <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={<>{headActions}{panelToggle}</>} busy={overviewBusy} footer={ACTION_TABS.has(mode) ? pendingFooter || undefined : mode === 'boosters' && boosterAdd.length ? boosterFooter : mode === 'queue' ? queueFooter || undefined : mode === 'upgrade' ? planFooter || undefined : undefined}>
               {side}
             </PanelShell>
           )}
+          {cur && <Box sx={{ ...HIDE_WHEN_FILLED, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={panelToggle} busy />
+          </Box>}
         </Box>
       </Box>
-      {mounted.map(a => (
+      {withWarm.map(a => (
         <CityMapCity key={a} account={a} mode={mode} onModeChange={setMode} onBack={goAll} hidden={a !== cur} tool={tool}
           slots={slots} onMap={onMap} dayNight={dayNight} onDayNight={setDayNight} panelActions={panelToggle} />
       ))}

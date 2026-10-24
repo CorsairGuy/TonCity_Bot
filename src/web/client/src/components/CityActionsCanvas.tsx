@@ -104,6 +104,8 @@ export interface MapCamera { gx: number; gy: number; tile: number; key: number; 
 export interface MapView { cx: number; cy: number; tile: number; W: number; H: number }
 export interface CellFill { key: string; fill: string; stroke?: string }
 export interface RegionFill { gx: number; gy: number; span: number; fill: string }
+// заливка «город в тени»: цвет земли текущего времени суток — ночью город темнеет, а не белеет
+export const REGION_FADE = 'fade';
 
 // мягкие пятна света ночью: на земле под фонарём и плафон фонаря
 const glows: Record<string, HTMLCanvasElement> = {};
@@ -1429,7 +1431,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const vx1 = (W - s.ox) / s.scale + TW, vy1 = (H - s.oy) / s.scale + TH;
 
     // проход 1.5 — заливки карты всех городов: города целиком, затем клетки
-    for (const p of s.regionPaths) { ctx.fillStyle = p.fill; ctx.fill(p.path); }
+    for (const p of s.regionPaths) {
+      if (p.fill === REGION_FADE) { ctx.globalAlpha = 0.62; ctx.fillStyle = s.ph ? s.ph.ground : MAP_BG; ctx.fill(p.path); ctx.globalAlpha = 1; }
+      else { ctx.fillStyle = p.fill; ctx.fill(p.path); }
+    }
     for (const p of s.fillPaths) {
       ctx.fillStyle = p.fill; ctx.fill(p.path);
       if (p.stroke && TW * s.scale >= 8) { ctx.strokeStyle = p.stroke; ctx.lineWidth = 1 / s.scale; ctx.stroke(p.path); }
