@@ -217,7 +217,7 @@ module.exports=function(app,ctx){
               // видно в логе, что реально прислала игра — иначе «секции не сохраняются» опять
               // придётся выяснять вслепую
               logger.info(`[${acc.name}] [refresh] снимок города: построек ${buildings.length}, секций ${Array.isArray(rawSections)?rawSections.length:'игра список НЕ прислала'}`);
-              cityLive.broadcast(acc.name,buildings);
+              cityLive.broadcast(acc.name,buildings,rawSections);
               // условия построек и бонусы гильдии для панели — в БД (utils/cityLiveData.js)
               const live=require('../../utils/cityLiveData');
               await live.syncBuildCriteria(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [refresh] критерии построек: ${e.message}`));

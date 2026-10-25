@@ -14,12 +14,15 @@ function unsubscribe(account, res) {
   subscribers.get(account)?.delete(res);
 }
 
-function broadcast(account, buildings) {
+function broadcast(account, buildings, unlockedSections) {
+  const payload={buildings};
+  // Отсутствующее поле — неизвестное состояние, а [] — достоверно пустой список.
+  if(Array.isArray(unlockedSections))payload.unlockedSections=unlockedSections;
   // общая карта всех городов слушает общий поток событий панели, а не по соединению на город
-  try { require('../web/lib/panelEvents').emit('city', { account, buildings }); } catch (_) {}
+  try { require('../web/lib/panelEvents').emit('city', { account, ...payload }); } catch (_) {}
   const set = subscribers.get(account);
   if (!set || !set.size) return;
-  const data = `data: ${JSON.stringify({ buildings })}\n\n`;
+  const data = `data: ${JSON.stringify(payload)}\n\n`;
   for (const res of set) { try { res.write(data); } catch (_) {} }
 }
 

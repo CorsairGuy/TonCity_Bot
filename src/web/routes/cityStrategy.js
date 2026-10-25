@@ -36,7 +36,7 @@ module.exports=function(app,ctx){
 
   // синхронизация снимка карты после разового действия — просто перечитать /progress/ и
   // сохранить, БЕЗ запуска цикла улучшений (это делает отдельный фоновый процесс)
-  async function resyncSnapshot(api,name){
+  async function resyncSnapshot(api,name,knownSections){
     try{
       const{CitySnapshot}=require('../../db/index');
       const prog=await api.get('/progress/');
@@ -44,14 +44,33 @@ module.exports=function(app,ctx){
       // список секций пишем ТОЛЬКО если игра его дала: "[]" означало бы «всё заперто» и карта
       // нарисовала бы замки на всём городе (см. progress.js unlockedSectionsOf)
       const rawSections=prog?.progress?.unlocked_sections;
-      const unlockedSections=Array.isArray(rawSections)?rawSections:null;
+      // Секции только открываются: ответ POST не должен скрыть секцию из более свежего GET.
+      const unlockedSections=Array.isArray(knownSections)
+        ?[...new Set([...(Array.isArray(rawSections)?rawSections:[]),...knownSections])]
+        :(Array.isArray(rawSections)?rawSections:null);
       const row={account:name,buildings:JSON.stringify(buildings),updated_at:new Date()};
       if(unlockedSections)row.unlocked_sections=JSON.stringify(unlockedSections);
       await CitySnapshot.upsert(row,{conflictFields:['account']});
       logger.info(`[${name}] [city-strategy] снимок: построек ${buildings.length}, секций ${unlockedSections?unlockedSections.length:'игра не прислала список'}`);
-      cityLive.broadcast(name,buildings);
+      cityLive.broadcast(name,buildings,unlockedSections);
       return{buildings,unlockedSections};
-    }catch(e){logger.warn(`[${name}] [city-strategy] resync: ${e.message}`);return null;}
+    }catch(e){
+      logger.warn(`[${name}] [city-strategy] resync: ${e.message}`);
+      // Открытие секции уже состоялось: сохраняем его ответ, даже если последующий GET упал.
+      if(Array.isArray(knownSections))try{
+        const{CitySnapshot}=require('../../db/index');
+        const saved=await CitySnapshot.findOne({where:{account:name}});
+        let previous;try{previous=saved?.unlocked_sections?JSON.parse(saved.unlocked_sections):null;}catch{}
+        const unlockedSections=[...new Set([...(Array.isArray(previous)?previous:[]),...knownSections])];
+        await CitySnapshot.update({unlocked_sections:JSON.stringify(unlockedSections),updated_at:new Date()},{where:{account:name}});
+        if(saved){
+          const buildings=saved.buildings?JSON.parse(saved.buildings):[];
+          cityLive.broadcast(name,buildings,unlockedSections);
+          return{buildings,unlockedSections};
+        }
+      }catch(saveError){logger.warn(`[${name}] [city-strategy] секции не сохранены: ${saveError.message}`);}
+      return null;
+    }
   }
 
   // живые обновления построек (SSE) — без поллинга: подключается к cityLive.broadcast, который
@@ -603,7 +622,7 @@ module.exports=function(app,ctx){
       const api=await makeApiForAccount(acc.id,{noLock:true});
       const r=await api.post('/progress/unlock-section',{section_id});
       if(!r?.success)return res.status(400).json({ok:false,error:r?.message||'Не удалось разблокировать секцию'});
-      await resyncSnapshot(api,acc.name);
+      await resyncSnapshot(api,acc.name,r.unlocked_sections);
       await logAction(acc.name,'unlock_section',{detail:JSON.stringify({section_id,coins_spent:r.coins_spent,crystals_spent:r.crystals_spent})});
       require('../../utils/cityWake').wake(acc.name);
       res.json({ok:true,unlockedSections:r.unlocked_sections});

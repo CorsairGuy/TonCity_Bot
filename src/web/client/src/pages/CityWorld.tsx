@@ -118,8 +118,8 @@ export function CityWorld() {
     api.policies().then(d => { if (d.ok) setCabinets(Object.fromEntries(Object.entries(d.byAccount).map(([a, v]) => [a, v.cabinet]))); });
   }, []);
   // живые постройки: бот шлёт свежий снимок города при каждом старте и конце стройки
-  useEffect(() => onServerEvent<{ account: string; buildings: CityWorldRow['buildings'] }>('city', d => {
-    setRows(prev => prev.map(r => r.account === d.account ? { ...r, buildings: d.buildings } : r));
+  useEffect(() => onServerEvent<{ account: string; buildings: CityWorldRow['buildings']; unlockedSections?: string[] }>('city', d => {
+    setRows(prev => prev.map(r => r.account === d.account ? { ...r, buildings: d.buildings, ...(Array.isArray(d.unlockedSections) ? { unlockedSections: d.unlockedSections } : {}) } : r));
   }), []);
 
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:city', () => load());
@@ -202,6 +202,14 @@ export function CityWorld() {
   const activeRef = useRef<Set<string>>(new Set());
   const onMap = useCallback((m: CityMapState) => {
     latestStates.current[m.account] = m;
+    if (m.unlockedSections) setRows(p => {
+      const row = p.find(r => r.account === m.account);
+      if (!row) return p;
+      // Открытия необратимы: запоздавшее состояние дочерней панели не запирает секцию из SSE.
+      const unlockedSections = [...new Set([...(row.unlockedSections ?? []), ...m.unlockedSections!])];
+      if (JSON.stringify(row.unlockedSections) === JSON.stringify(unlockedSections)) return p;
+      return p.map(r => r === row ? { ...r, unlockedSections } : r);
+    });
     if (activeRef.current.has(m.account)) startTransition(() => setStates(p => p[m.account] === m ? p : { ...p, [m.account]: m }));
   }, []);
   const [touched, setTouched] = useState<string[]>([]);
@@ -249,6 +257,9 @@ export function CityWorld() {
   const [addLevel, setAddLevel] = useState('20');
   useEffect(() => { if (mode !== 'build') setBuildFamily(''); }, [mode]);
   const tool = useMemo(() => ({ buildFamily, setBuildFamily, addLevel, setAddLevel }), [buildFamily, addLevel]);
+  const pickTool = JSON.stringify([mode, mode === 'build' ? buildFamily : '', mode === 'upgrade' ? addLevel : '']);
+  const pickRevision = useRef({ tool: pickTool, value: 0 });
+  if (pickRevision.current.tool !== pickTool) pickRevision.current = { tool: pickTool, value: pickRevision.current.value + 1 };
 
   // ── камера: первая расстановка, наезд на город по клику, «Все города» ─────────────────────────
   const mapBoxRef = useRef<HTMLDivElement>(null);
@@ -355,10 +366,11 @@ export function CityWorld() {
   const [forecast, setForecast] = useState<(ForecastEvent & { account: string })[]>([]);
   const [forecastLoading, setForecastLoading] = useState(false);
   const forecastRun = useRef(0);
+  const forecastAccounts = JSON.stringify(cities.map(c => c.account).sort());
   const loadForecast = useCallback(async () => {
     const run = ++forecastRun.current;
     setForecastLoading(true);
-    const names = cities.map(c => c.account), out: (ForecastEvent & { account: string })[] = [];
+    const names: string[] = JSON.parse(forecastAccounts), out: (ForecastEvent & { account: string })[] = [];
     let i = 0;
     const worker = async () => {
       while (i < names.length && forecastRun.current === run) {
@@ -371,13 +383,17 @@ export function CityWorld() {
     if (forecastRun.current !== run) return;
     setForecast(out.sort((a, b) => a.start - b.start));
     setForecastLoading(false);
-  }, [cities.length > 0]);
+  }, [forecastAccounts]);
 
   useEffect(() => {
     if (cur) return;
     if (mode === 'log') loadLog();
-    else if (mode === 'forecast' && cities.length) loadForecast();
-  }, [mode, cur, cities.length > 0]);
+    else if (mode === 'forecast') {
+      if (cities.length) loadForecast();
+      else { setForecast([]); setForecastLoading(false); }
+    }
+    return () => { forecastRun.current++; };
+  }, [mode, cur, loadForecast]);
 
   // ── реконструкция и реновация издалека: компоненты и мастерпланы каждого города (из БД)
   const [resources, setResources] = useState<Record<string, { components: number; masterplans: number }>>({});
@@ -400,6 +416,11 @@ export function CityWorld() {
   const [boosterPick, setBoosterPick] = useState('');
   const [boosterAdd, setBoosterAdd] = useState<{ account: string; name: string }[]>([]);
   const [boosterSaving, setBoosterSaving] = useState(false);
+  const boosterRetryBase = useRef(new Map<string, string[]>());
+  useEffect(() => {
+    const accounts = new Set(boosterAdd.map(b => b.account));
+    for (const a of boosterRetryBase.current.keys()) if (!accounts.has(a)) boosterRetryBase.current.delete(a);
+  }, [boosterAdd]);
   const loadBoosters = useCallback(async () => {
     setBoostersLoading(true);
     const names = cities.map(c => c.account), out: typeof boosters = {};
@@ -424,17 +445,28 @@ export function CityWorld() {
   const boosterDim = mode === 'boosters' && !cur && boosterPick ? new Set(cities.filter(r => freeStock(r.account, boosterPick) <= 0).map(r => r.account)) : null;
   const boosterLabel = (name: string) => { for (const v of Object.values(boosters)) { const b = v.stock.find(s => s.name === name); if (b) return b.label; } return knownItemName(Number(name)) ?? `Ускоритель #${name}`; };
   const applyBoosters = async () => {
+    if (boosterSaving) return;
     setBoosterSaving(true);
+    const additions = [...boosterAdd], saved = new Set<typeof additions[number]>();
     let fail = 0, error: string | undefined;
-    for (const a of [...new Set(boosterAdd.map(b => b.account))]) {
-      const order = [...(boosters[a]?.queue ?? []), ...boosterAdd.filter(b => b.account === a).map(b => b.name)];
-      const r = await api.saveBoosterQueue(a, order).catch(e => ({ ok: false, error: String(e) }));
-      if (!r.ok) { fail++; error ??= r.error; }
-    }
-    setBoosterSaving(false);
-    setBoosterAdd([]);
-    showFlash(fail ? `Не сохранилось в ${fail} ${plural(fail, 'городе', 'городах', 'городах')}${error ? ` (${error})` : ''}` : 'Очереди ускорителей обновлены', !fail);
-    loadBoosters();
+    try {
+      for (const a of [...new Set(additions.map(b => b.account))]) {
+        const picks = additions.filter(b => b.account === a);
+        // Сохранение заменяет всю очередь. При обрыве повторяем тот же порядок, даже если
+        // обновление склада уже увидело результат первого запроса: не добавляем буст дважды.
+        const base = boosterRetryBase.current.get(a) ?? [...(boosters[a]?.queue ?? [])];
+        boosterRetryBase.current.set(a, base);
+        const order = [...base, ...picks.map(b => b.name)];
+        const r = await api.saveBoosterQueue(a, order).catch(e => ({ ok: false, error: String(e) }));
+        if (!r.ok) { fail++; error ??= r.error; continue; }
+        for (const pick of picks) saved.add(pick);
+        boosterRetryBase.current.delete(a);
+        setBoosters(p => p[a] ? { ...p, [a]: { ...p[a], queue: order } } : p);
+      }
+      // Убираем именно сохранённые записи снимка; новые назначения во время запроса остаются.
+      setBoosterAdd(p => p.filter(b => !saved.has(b)));
+      showFlash(fail ? `Не сохранилось в ${fail} ${plural(fail, 'городе', 'городах', 'городах')}${error ? ` (${error})` : ''}. Назначения сохранены в черновике.` : 'Очереди ускорителей обновлены', !fail);
+    } finally { setBoosterSaving(false); }
   };
 
   // ── всё для общей карты в общих координатах ─────────────────────────────────────────────────
@@ -576,14 +608,16 @@ export function CityWorld() {
   // открытому городу — сразу, остальные ждут, пока город загрузится (pending).
   const statesRef = useRef(states); statesRef.current = states;
   const mountedRef = useRef(mounted); mountedRef.current = mounted;
-  const pending = useRef(new Map<string, { picks: { x: number; y: number }[]; unlock?: string }>());
-  const batch = useRef<{ account: string; x: number; y: number }[] | null>(null);
+  const pending = useRef(new Map<string, { picks: { x: number; y: number; revision: number }[]; unlock?: string }>());
+  const batch = useRef<{ account: string; x: number; y: number; revision: number }[] | null>(null);
   const settle = useRef(new Set<string>());
   const deliver = (a: string, st: CityMapState) => {
     const p = pending.current.get(a);
     if (!p) return;
+    // React уже сменил инструмент, но дочерний обработчик ещё может быть от старого режима.
+    if (p.picks.length && st.mode !== modeRef.current) return;
     pending.current.delete(a);
-    for (const c of p.picks) if (st.validSet.has(`${c.x}_${c.y}`)) st.onPick(c.x, c.y);
+    for (const c of p.picks.filter(c => c.revision === pickRevision.current.value)) if (st.validSet.has(`${c.x}_${c.y}`)) st.onPick(c.x, c.y);
     if (p.unlock) st.onUnlockCell(p.unlock);
     settle.current.add(a);
   };
@@ -600,19 +634,19 @@ export function CityWorld() {
     if (!batch.current) {
       batch.current = [];
       queueMicrotask(() => {
-        const list = batch.current ?? [];
+        const list = (batch.current ?? []).filter(c => c.revision === pickRevision.current.value);
         batch.current = null;
         const order: string[] = [];
         for (const c of list) {
           const p = pending.current.get(c.account) ?? { picks: [] };
           if (!pending.current.has(c.account)) { pending.current.set(c.account, p); order.push(c.account); }
-          p.picks.push({ x: c.x, y: c.y });
+          p.picks.push({ x: c.x, y: c.y, revision: c.revision });
         }
         if (order.length && !order.includes(curRef.current ?? '')) choose(order[0], false);
         for (const a of order) route(a);
       });
     }
-    batch.current.push(l);
+    batch.current.push({ ...l, revision: pickRevision.current.value });
   }, [offOf, cityAtCell, choose]);
   const onUnlockCell = useCallback((v: string) => {
     const i = v.indexOf('|'), account = v.slice(0, i);
@@ -622,6 +656,23 @@ export function CityWorld() {
     if (curRef.current !== account) choose(account, false);
     route(account);
   }, [choose]);
+  // Смена инструмента отменяет только ещё не доставленные клики, а не готовые черновики городов.
+  useEffect(() => {
+    let cancelled = false;
+    const revision = pickRevision.current.value;
+    if (batch.current?.some(c => c.revision !== revision)) {
+      batch.current = batch.current.filter(c => c.revision === revision); cancelled = true;
+    }
+    const released = new Set<string>();
+    for (const [a, p] of pending.current) {
+      const keep = p.picks.filter(c => c.revision === revision);
+      if (keep.length === p.picks.length) continue;
+      cancelled = true; p.picks = keep;
+      if (!p.picks.length && !p.unlock) { pending.current.delete(a); released.add(a); }
+    }
+    if (released.size) setTouched(t => t.filter(a => !released.has(a)));
+    if (cancelled) showFlash('Отложенный выбор отменён: инструмент изменился', false);
+  }, [pickTool]);
   // город загрузился — отдать ему то, что накликали, пока он грузился
   useEffect(() => {
     for (const [a, st] of Object.entries(states)) {
@@ -1058,6 +1109,7 @@ export function CityWorld() {
       minScale={minScale}
       camera={camera}
       onView={onView}
+      onCameraCancel={() => { clickedCity.current = null; }}
       fills={fills}
       regions={regions}
       onTap={onTap}
