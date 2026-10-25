@@ -3,8 +3,8 @@
 // до ~3,5 с, а бот и панель живут в одном процессе — в основном потоке это подвешивало бы всё
 // остальное. Поток один на все партии и живёт, пока жив бот: WASM и его таблицы грузятся один раз
 // (раньше поток поднимался на каждую партию, и первый ход стоил ~300 мс). Ходы разных партий
-// считаются по очереди. Если поток упал, следующий ход поднимет его заново, а текущий считается
-// прямо в основном потоке, чтобы партия не встала.
+// считаются по очереди. При ошибке ждём остановки старого потока и повторяем расчёт один раз
+// в новом. Основной поток никогда не загружает WASM и не выполняет поиск.
 const{Worker,isMainThread,parentPort}=require('worker_threads');
 
 if(!isMainThread){
@@ -20,33 +20,77 @@ if(!isMainThread){
 }
 
 let worker=null,seq=0;
-const pending=new Map();
-function failAll(err){for(const p of pending.values())p.reject(err);pending.clear();worker=null;}
-function spawn(){
-  worker=new Worker(__filename);
-  worker.on('message',m=>{
-    const p=pending.get(m.id);
-    if(!p)return;
-    pending.delete(m.id);
-    if(m.error)p.reject(new Error(m.error));else p.resolve({dir:m.dir,ms:m.ms});
+const MAX_ATTEMPTS=2;
+
+function retire(state,error,exited=false){
+  if(state.failed)return;
+  state.failed=true;
+  state.error=error;
+  // Барьер устанавливается до отклонения запросов: их повторы ждут освобождения старого WASM.
+  state.stopping=(exited?Promise.resolve():Promise.resolve().then(()=>state.thread.terminate())).then(()=>{
+    if(worker===state)worker=null;
   });
-  worker.on('error',e=>failAll(e));
-  worker.on('exit',code=>{if(pending.size)failAll(new Error(`поток 2048 завершился (код ${code})`));worker=null;});
-  worker.unref(); // поток не держит процесс при остановке; unref — после on('message'), иначе подписка вернёт ref
+  // Ошибка terminate не разрешает создавать второй живой worker. Поздний exit снимет барьер.
+  state.stopping.catch(()=>{});
+  for(const p of state.pending.values())p.reject(error);
+  state.pending.clear();
+}
+function spawn(){
+  const state={thread:new Worker(__filename),pending:new Map(),failed:false,stopping:null};
+  state.thread.on('message',m=>{
+    if(state.failed)return;
+    const p=state.pending.get(m.id);
+    if(!p)return;
+    if(Object.prototype.hasOwnProperty.call(m,'error')){
+      // После исключения WASM больше не используем: стек/память могли остаться повреждёнными.
+      retire(state,new Error(m.error||'ошибка расчёта 2048'));
+      return;
+    }
+    state.pending.delete(m.id);
+    p.resolve({dir:m.dir,ms:m.ms});
+  });
+  state.thread.on('error',error=>retire(state,error));
+  state.thread.on('exit',code=>{
+    if(state.failed){
+      if(worker===state)worker=null;
+      return;
+    }
+    retire(state,new Error(`поток 2048 завершился (код ${code})`),true);
+  });
+  state.thread.unref(); // после on('message'), чтобы простой worker не держал процесс
+  return state;
+}
+async function getWorker(){
+  while(worker?.failed){
+    const state=worker;
+    await state.stopping;
+    if(worker===state)worker=null;
+  }
+  if(!worker)worker=spawn();
+  return worker;
+}
+function calculate(state,board){
+  return new Promise((resolve,reject)=>{
+    if(state.failed){reject(state.error);return;}
+    const id=++seq;
+    state.pending.set(id,{resolve,reject});
+    try{state.thread.postMessage({id,board});}
+    catch(error){retire(state,error);}
+  });
 }
 
 // лучший ход для доски: {dir:'up'|'down'|'left'|'right'|null, ms — сколько думал алгоритм}
 async function bestMove(board){
-  try{
-    if(!worker)spawn();
-    const id=++seq;
-    return await new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});worker.postMessage({id,board});});
-  }catch(e){
-    require('../utils/logger').warn(`[2048] поток расчёта хода: ${e.message} — считаю в основном потоке`);
+  // Фиксируем вход до первого await, в том числе на время перезапуска и повторной попытки.
+  const snapshot=structuredClone(board);
+  for(let attempt=1;attempt<=MAX_ATTEMPTS;attempt++){
+    try{return await calculate(await getWorker(),snapshot);}
+    catch(error){
+      if(attempt===MAX_ATTEMPTS){
+        throw new Error(`не удалось рассчитать ход 2048 за ${MAX_ATTEMPTS} попытки: ${error.message}`,{cause:error});
+      }
+    }
   }
-  const t0=process.hrtime.bigint();
-  const dir=require('./game2048').bestMove(board);
-  return{dir,ms:Number(process.hrtime.bigint()-t0)/1e6};
 }
 
 module.exports={bestMove};
