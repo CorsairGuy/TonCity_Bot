@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-25",
+  "toolchain": "WASI SDK 22 / clang 18.1.2",
+  "referenceCommit": "108f5261f64bbc4544d2b34280897df5fd99a044",
+  "node": "v22.23.4",
+  "arch": "x64",
+  "platform": "linux",
+  "referenceSHA256": "45ba979f37a9b84fa26f34b768b7b9bf2b16dee50cebfc35702c4c4120badcf2",
+  "candidateSHA256": "eb9c5ffed6f463d905d96d182c21cd9cc0331f6c67320331a298926304bfcb35",
+  "parameters": {
+    "boards": 256,
+    "games": 2,
+    "steps": 10000,
+    "repeats": 5,
+    "warmup": 32,
+    "benchmark-boards": 256,
+    "seed": 2048
+  },
+  "checks": {
+    "moves": 2181,
+    "floatScores": 8724
+  },
+  "games": [
+    {
+      "seed": 2654437817,
+      "steps": 952,
+      "won": true,
+      "maxTile": 2048,
+      "lastBoard": "b120341031001000"
+    },
+    {
+      "seed": 1013906290,
+      "steps": 951,
+      "won": true,
+      "maxTile": 2048,
+      "lastBoard": "003b142300320001"
+    }
+  ],
+  "uniqueBoards": 2181,
+  "benchmark": {
+    "boards": 256,
+    "reference": {
+      "count": 1280,
+      "totalMs": 31297.03517199951,
+      "medianMs": 9.928492000006372,
+      "p95Ms": 97.43696799999452,
+      "p99Ms": 193.72079799999483,
+      "maxMs": 212.01841399999103
+    },
+    "candidate": {
+      "count": 1280,
+      "totalMs": 27221.795194999897,
+      "medianMs": 8.729284999979427,
+      "p95Ms": 84.77394499999355,
+      "p99Ms": 168.62756999998237,
+      "maxMs": 201.29122499999357
+    },
+    "memoryBytes": {
+      "reference": 25559040,
+      "candidate": 25559040
+    },
+    "totalSpeedup": 1.1497050414128511
+  }
+}
