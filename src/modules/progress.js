@@ -632,8 +632,9 @@ async function runProgress(api,name,opts={}){
     }
     const data=prog?.progress?.data||{},coins=data.coins||0,builders=(prog?.progress?.builders||1)+builderBonus;
     let current=Array.isArray(data.buildings)?data.buildings:[];
+    let currentSections=prog?.progress?.unlocked_sections;
     try{await CitySnapshot.upsert(citySnapshotPayload(name,current,prog),{conflictFields:['account']});}catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
-    cityLive.broadcast(name,current);
+    cityLive.broadcast(name,current,currentSections);
     const busy=current.filter(b=>b.end&&new Date(b.end).getTime()>Date.now()).length;
     logger.info(`[${name}] [progress] coins: ${fmt(coins)} | builders: ${builders-busy}/${builders}${builderBonus?` (+${builderBonus} бонус)`:''} | buildings: ${current.length} | discount: ${Math.round(discount*100)}%`);
 
@@ -648,7 +649,7 @@ async function runProgress(api,name,opts={}){
     // проверяются НЕЗАВИСИМО от builders/targets, поэтому делаем это до всех ранних return ниже
     if(await runPendingReconstructions(api,name,current,buildingsMap)){
       try{await CitySnapshot.upsert(citySnapshotPayload(name,current,prog),{conflictFields:['account']});}catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
-      cityLive.broadcast(name,current);
+      cityLive.broadcast(name,current,currentSections);
     }
 
     // отложенная стройка — тоже до ранних return: строителя не занимает, ждёт только монет
@@ -656,9 +657,10 @@ async function runProgress(api,name,opts={}){
       try{
         const fresh=await api.get('/progress/');
         current=Array.isArray(fresh?.progress?.data?.buildings)?fresh.progress.data.buildings:current;
+        if(Array.isArray(fresh?.progress?.unlocked_sections))currentSections=fresh.progress.unlocked_sections;
         await CitySnapshot.upsert(citySnapshotPayload(name,current,fresh),{conflictFields:['account']});
       }catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
-      cityLive.broadcast(name,current);
+      cityLive.broadcast(name,current,currentSections);
     }
 
     let{targets:personalTargets,queue:initialQueue}=await loadStrategy(name);
@@ -686,13 +688,14 @@ async function runProgress(api,name,opts={}){
       const latest=await withRetry(()=>api.get('/progress/'),2,1500,`${name} progress refresh`);
       const latestData=latest?.progress?.data||{};
       current=Array.isArray(latestData.buildings)?latestData.buildings:[];
+      if(Array.isArray(latest?.progress?.unlocked_sections))currentSections=latest.progress.unlocked_sections;
       // раньше CitySnapshot писался только ОДИН раз в начале цикла (см. выше) — пока бот улучшает
       // здания несколько итераций подряд (ждёт строителей, запускает следующее и т.д.), веб-панель
       // (таблица городов, карта города) весь этот период показывала устаревший снимок из начала
       // цикла, не видя уже запущенные апгрейды. Пишем свежий снимок при каждом обновлении состояния,
       // а не только при первой загрузке.
       try{await CitySnapshot.upsert(citySnapshotPayload(name,current,latest),{conflictFields:['account']});}catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
-      cityLive.broadcast(name,current);
+      cityLive.broadcast(name,current,currentSections);
       // тот же живой ответ — тут профит мог измениться относительно прошлого refreshState (именно
       // здесь цикл узнаёт о завершившемся апгрейде), см. комментарий у первого вызова выше
       if(require('../config').getConfig().features.journey){

@@ -261,6 +261,7 @@ interface Props {
   world?: WorldLayout;
   minScale?: number;
   camera?: MapCamera | null;            // поставить клетку в центр экрана с шириной клетки tile (новый key — новый наезд)
+  onCameraCancel?: () => void;         // ручной ввод прервал программный наезд
   onView?: (v: MapView) => void;        // центр экрана в клетках сетки и ширина клетки, после каждого сдвига
   fills?: CellFill[];                   // заливка клеток поверх карты
   regions?: RegionFill[];               // заливка квадратов span×span клеток (город целиком)
@@ -301,11 +302,11 @@ function MapLoadOverlay({ tick, runKey }: { tick: () => LoadState | null; runKey
   );
 }
 
-export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut, world, minScale, camera, onView, fills, regions, onTap, onHoverCell }: Props) {
+export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut, world, minScale, camera, onView, onCameraCancel, fills, regions, onTap, onHoverCell }: Props) {
   const onZoomOutRef = useRef(onZoomOut);
   onZoomOutRef.current = onZoomOut;
-  const cb = useRef({ onView, onTap, onHoverCell });
-  cb.current = { onView, onTap, onHoverCell };
+  const cb = useRef({ onView, onTap, onHoverCell, onCameraCancel });
+  cb.current = { onView, onTap, onHoverCell, onCameraCancel };
   const MIN = minScale ?? MIN_SCALE;
   const minRef = useRef(MIN);
   minRef.current = MIN;
@@ -374,6 +375,8 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     rafId: null as number | null,
     liveTimer: null as ReturnType<typeof setTimeout> | null,
     dragging: false, dx: 0, dy: 0,
+    // Совместимые mouse-события после touch не должны повторно выбирать клетку.
+    ignoreMouseUntil: 0,
     hoverTile: null as { col: number; row: number; gx: number; gy: number } | null,
     // отдельный, ВСЕГДА активный hover (не зависит от режима/validSet, в отличие от hoverTile выше,
     // который используется только кистью выбора) — нужен только чтобы при наведении на строящееся
@@ -1772,10 +1775,21 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const wrap = wrapRef.current, canvas = canvasRef.current;
     if (!wrap || !canvas) return;
     const s = state.current;
+    // После смены обработчика старый жест отменён cleanup: убираем его живую подсветку.
+    requestRedraw();
 
+    const cancelCamera = () => {
+      const cam = camRef.current;
+      // Отменяем и наезд, который уже запрошен, но ещё не попал в первый кадр.
+      if (!s.anim && (!cam || cam.key === s.camKey)) return;
+      s.anim = null;
+      if (cam) s.camKey = cam.key;
+      cb.current.onCameraCancel?.();
+    };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (s.loading) return;
+      if (s.loading || e.deltaY === 0) return;
+      cancelCamera();
       const rect = wrap.getBoundingClientRect();
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
@@ -1789,14 +1803,15 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       requestRedraw();
     };
 
-    let downX = 0, downY = 0, moved = false, downOnMap = false, touchOnMap = false;
+    let downX = 0, downY = 0, moved = false, downOnMap = false, touchOnMap = false, touchSuppressed = false;
     const isBatch = () => BATCHABLE.includes(s.mode);
     // mousemove/mouseup слушаются на window (чтобы пан и кисть не обрывались за краем карты), поэтому
     // наведение и клик считаем «по карте», только если курсор над самой картой, а не над тем, что
     // лежит поверх неё (палитра инструментов внизу, её подсказки), и если нажатие началось на карте
     const overMap = (e: MouseEvent) => e.target instanceof Node && wrap.contains(e.target);
     const onMouseDown = (e: MouseEvent) => {
-      if (s.loading) return;
+      if (s.loading || performance.now() < s.ignoreMouseUntil) return;
+      cancelCamera();
       downOnMap = true;
       if (e.button === 2 || !isBatch()) {
         s.dragging = true; moved = false;
@@ -1811,7 +1826,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     const onMouseMove = (e: MouseEvent) => {
       // Лоадер находится внутри wrap: события над ним доходят до window, но это ещё не карта.
       // Не выбираем скрытые города и не запускаем предзагрузку их панелей под заставкой.
-      if (s.loading) return;
+      if (s.loading || performance.now() < s.ignoreMouseUntil) return;
       if (s.dragging) {
         if (Math.abs(e.clientX - downX) > 3 || Math.abs(e.clientY - downY) > 3) moved = true;
         s.ox = e.clientX - s.dx; s.oy = e.clientY - s.dy;
@@ -1852,7 +1867,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     };
     const onMouseUp = (e: MouseEvent) => {
       s.dragging = false;
-      if (s.loading) { downOnMap = false; return; }
+      if (s.loading || performance.now() < s.ignoreMouseUntil) { downOnMap = false; return; }
       if (!downOnMap) return;
       downOnMap = false;
       if (s.selStart && e.button === 0) {
@@ -1903,17 +1918,23 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       y: (t[0].clientY + t[1].clientY) / 2 - rect.top,
     });
     const onTouchStart = (e: TouchEvent) => {
+      s.ignoreMouseUntil = performance.now() + 750;
       if (s.loading) { touchOnMap = false; e.preventDefault(); return; }
+      if (!touchOnMap) { touchSuppressed = false; moved = false; }
       touchOnMap = true;
-      if (e.touches.length === 2) {
+      cancelCamera();
+      if (e.touches.length >= 2) {
         e.preventDefault();
+        touchSuppressed = true; moved = true;
         s.dragging = false; s.selStart = null; s.selCur = null; s.selDragging = false;
+        if (e.touches.length !== 2) { s.pinchDist = null; return; }
         s.pinchDist = touchDist(e.touches);
         const rect = wrap.getBoundingClientRect();
         const mid = touchMid(e.touches, rect);
         s.pinchMidX = mid.x; s.pinchMidY = mid.y;
       } else if (e.touches.length === 1) {
         e.preventDefault();
+        if (touchSuppressed) return;
         const t0 = e.touches[0];
         if (isBatch()) {
           const rect = wrap.getBoundingClientRect();
@@ -1954,7 +1975,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         requestRedraw();
         return;
       }
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1 || touchSuppressed) return;
       e.preventDefault();
       const t0 = e.touches[0];
       if (s.dragging) {
@@ -1978,9 +1999,25 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const gx = inBounds ? t.gx : null, gy = inBounds ? t.gy : null;
       if (s.badgeHoverGx !== gx || s.badgeHoverGy !== gy) { s.badgeHoverGx = gx; s.badgeHoverGy = gy; requestRedraw(); }
     };
+    const resetTouch = () => {
+      touchOnMap = false;
+      s.pinchDist = null; s.pinchMidX = null; s.pinchMidY = null; s.pinchOut = 1;
+      s.dragging = false;
+      s.selStart = null; s.selCur = null; s.selDragging = false;
+      s.badgeHoverGx = null; s.badgeHoverGy = null;
+      requestRedraw();
+    };
+    const onTouchCancel = () => {
+      s.ignoreMouseUntil = performance.now() + 750;
+      touchSuppressed = true; moved = true; downOnMap = false;
+      resetTouch();
+    };
     const onTouchEnd = (e: TouchEvent) => {
+      s.ignoreMouseUntil = performance.now() + 750;
       if (s.loading || !touchOnMap) { touchOnMap = false; return; }
-      if (e.touches.length > 0) { s.pinchDist = null; s.pinchMidX = null; s.pinchMidY = null; return; } // один из двух пальцев убрали — просто сбрасываем pinch
+      if (e.touches.length > 0) { s.pinchDist = null; s.pinchMidX = null; s.pinchMidY = null; return; }
+      // Вся последовательность multi-touch — только камера, последний палец не становится тапом.
+      if (touchSuppressed) { resetTouch(); return; }
       s.pinchDist = null; s.pinchMidX = null; s.pinchMidY = null;
       s.dragging = false;
       if (s.selStart) {
@@ -2025,7 +2062,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     wrap.addEventListener('touchstart', onTouchStart, { passive: false });
     wrap.addEventListener('touchmove', onTouchMove, { passive: false });
     wrap.addEventListener('touchend', onTouchEnd, { passive: false });
-    wrap.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    wrap.addEventListener('touchcancel', onTouchCancel, { passive: false });
 
     return () => {
       wrap.removeEventListener('wheel', onWheel);
@@ -2037,7 +2074,16 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       wrap.removeEventListener('touchstart', onTouchStart);
       wrap.removeEventListener('touchmove', onTouchMove);
       wrap.removeEventListener('touchend', onTouchEnd);
-      wrap.removeEventListener('touchcancel', onTouchEnd);
+      wrap.removeEventListener('touchcancel', onTouchCancel);
+      // SSE или смена инструмента могут заменить обработчик посреди жеста. Его старые
+      // координаты не должны остаться в ref и продолжить пан/кисть уже в новом обработчике.
+      if (touchOnMap) s.ignoreMouseUntil = performance.now() + 750;
+      touchOnMap = false; touchSuppressed = true; downOnMap = false; moved = true;
+      s.dragging = false;
+      s.pinchDist = null; s.pinchMidX = null; s.pinchMidY = null; s.pinchOut = 1;
+      s.selStart = null; s.selCur = null; s.selDragging = false;
+      s.hoverTile = null; s.badgeHoverGx = null; s.badgeHoverGy = null;
+      s.overlayUsed = true;
     };
   }, [onPick, requestRedraw, onUnlockCell]);
 

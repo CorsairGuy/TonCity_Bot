@@ -323,10 +323,18 @@ export interface CityMapCityProps {
 export interface RunResult { ok: number; fail: number; deferred: number; error?: string }
 export interface PendingView { id: number; kind: string; label: string; sprite?: string; price?: number; over?: boolean }
 
+// Открытые секции не закрываются: запоздалый снимок/ответ не отменяет свежее SSE.
+export function mergeUnlockedSections(current: string[] | null | undefined, incoming: string[] | null | undefined): string[] | null {
+  if (!Array.isArray(incoming)) return current ?? null;
+  const merged = [...new Set([...(current ?? []), ...incoming])];
+  return current && merged.length === current.length ? current : merged;
+}
+
 // город на общей карте: его постройки с превью действий и всё, что карта выделяет в его клетках
 export interface CityMapState {
   account: string;
   buildings: MapBuilding[];
+  unlockedSections: string[] | null;
   mode: CityActionMode;
   validSet: Set<string>;
   pickedSet: Set<string>;
@@ -423,14 +431,14 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     if (!account) return;
     // на общей карте городов открыто сразу несколько: свой SSE на каждый упёрся бы в лимит соединений
     // браузера, поэтому там постройки приходят из общего потока событий бота
-    if (props.slots) return onServerEvent<{ account: string; buildings: MapBuilding[] }>('city', d => {
-      if (d.account === account) setRows(prev => (prev as CityRow[]).map(r => r.account === account ? { ...r, buildings: d.buildings } : r));
+    if (props.slots) return onServerEvent<{ account: string; buildings: MapBuilding[]; unlockedSections?: string[] }>('city', d => {
+      if (d.account === account) setRows(prev => (prev as CityRow[]).map(r => r.account === account ? { ...r, buildings: d.buildings, unlockedSections: mergeUnlockedSections(r.unlockedSections, d.unlockedSections) } : r));
     });
     const es = new EventSource(`/api/city-strategy/${encodeURIComponent(account)}/live-stream`);
     es.onmessage = (e) => {
-      const data = JSON.parse(e.data) as { buildings: MapBuilding[] };
+      const data = JSON.parse(e.data) as { buildings: MapBuilding[]; unlockedSections?: string[] };
       setRows(prev => (prev as CityRow[]).map(r =>
-        r.account === account ? { ...r, buildings: data.buildings } : r
+        r.account === account ? { ...r, buildings: data.buildings, unlockedSections: mergeUnlockedSections(r.unlockedSections, data.unlockedSections) } : r
       ));
     };
     return () => es.close();
@@ -510,7 +518,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       account ? api.cityDiversity(account).catch(() => ({ ok: false as const, income_bonus: 0 })) : Promise.resolve({ ok: false as const, income_bonus: 0 }),
     ], () => { if (!stale) setDataDone(n => n + 1); }).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
       if (stale) return;
-      if (c.ok) setRows(c.rows);
+      if (c.ok) setRows(prev => c.rows.map(row => ({ ...row, unlockedSections: mergeUnlockedSections((prev as CityRow[]).find(old => old.account === row.account)?.unlockedSections, row.unlockedSections) })));
       else setLoadErr((c as { error?: string }).error || 'снимок города не загрузился');
       if (b.ok) setBuildingsCatalog(b.buildings);
       if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setSavedManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); setBuildPlan(t.buildPlan ?? []); }
@@ -558,7 +566,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
 
   const refreshMap = useCallback(() => {
     if (!account) return;
-    api.city(account).then(d => { if (d.ok && accountRef.current === account) setRows(d.rows); });
+    api.city(account).then(d => { if (d.ok && accountRef.current === account) setRows(prev => d.rows.map(row => ({ ...row, unlockedSections: mergeUnlockedSections((prev as CityRow[]).find(old => old.account === row.account)?.unlockedSections, row.unlockedSections) }))); });
   }, [account]);
 
   // "Обновить" — в отличие от refreshMap (читает кэш CitySnapshot из БД), реально дёргает /progress/
@@ -746,7 +754,10 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     setUnlockingSection(true);
     try {
       const r = await api.cityActionUnlockSection(account, sectionId);
-      if (r.ok) { showFlash('Секция разблокирована', true); refreshMap(); }
+      if (r.ok) {
+        if (Array.isArray(r.unlockedSections)) setRows(prev => (prev as CityRow[]).map(row => row.account === account ? { ...row, unlockedSections: mergeUnlockedSections(row.unlockedSections, r.unlockedSections) } : row));
+        showFlash('Секция разблокирована', true); refreshMap();
+      }
       else showFlash(r.error ?? 'Не удалось разблокировать секцию', false);
     } catch (e) { showFlash(String(e), false); } finally { setUnlockingSection(false); }
   }, [account, sections, unlockingSection, refreshMap, showFlash, ask]);
@@ -1118,13 +1129,13 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   useEffect(() => {
     if (loading) return;
     onMapRef.current?.({
-      account, buildings: displayBuildings, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
+      account, buildings: displayBuildings, unlockedSections, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
       focusSet: mode === 'upgrade' ? planFocus : null, onPick: stablePick, onUnlockCell: stableUnlock, draft: draft || executing, dots: dotsKey ? JSON.parse(dotsKey) : {},
       fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, buildBlock, buildMult: buildCostMultiplier, moving: !!moveFrom, executing,
       run: stableRun, removePending: stableRemove, cancelPending: stableCancel, cancelMove: stableCancelMove,
       queuePrices: JSON.parse(queuePricesKey), queueDirty: queueDirtyNow, editQueue: stableEditQueue, saveQueue: stableSaveQueue, resetQueue: stableResetQueue,
     });
-  }, [loading, account, displayBuildings, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow, buildBlock, buildCostMultiplier]);
+  }, [loading, account, displayBuildings, unlockedSections, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow, buildBlock, buildCostMultiplier]);
 
   if (props.hidden) return null;
   // во встроенном виде шапку и спиннер на время загрузки рисуют «Города» — свой лоадер не нужен
