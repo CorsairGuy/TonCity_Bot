@@ -508,7 +508,7 @@ export function CityWorld() {
     return { valid, picked, focus };
   }, [cities, live, rowSets, mode, buildFamily, curState, cur, offOf, movingCity, buildBlockedIn]);
 
-  // заливки: отложенная стройка; в сводке — оттенок городов по логу/прогнозу и бледность вне курсора
+  // заливки: отложенная стройка; в сводке — оттенок городов по логу/прогнозу
   const [hoverCity, setHoverCity] = useState<string | null>(null);
   const globalMap = useMemo(() => new Map(globalPlan.map(g => [g.family_id, g.target_level])), [globalPlan]);
   const { fills, regions } = useMemo(() => {
@@ -536,16 +536,14 @@ export function CityWorld() {
     const n = new Map<string, number>();
     if (mode === 'forecast' || mode === 'log') for (const e of mode === 'forecast' ? forecast : log) n.set(e.account, (n.get(e.account) ?? 0) + 1);
     const max = Math.max(1, ...n.values());
-    const fade = mode === 'view' || mode === 'forecast' || mode === 'log';
     for (const c of cities) {
       const o = offOf.get(c.account)!, k = n.get(c.account);
       if (boosterDim?.has(c.account)) regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: FADE });
       if (buildBlockedIn.has(c.account)) regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: FADE });
       if (k) regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: `rgba(130,80,223,${(0.06 + k / max * 0.3).toFixed(2)})` });
-      if (fade && hoverCity && hoverCity !== c.account) regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: FADE });
     }
     return { fills, regions };
-  }, [cities, live, mode, cur, forecast, log, offOf, hoverCity, movingCity, buildBlockedIn, buildInfo, rowSets, buildFamily, boosterDim && [...boosterDim].join()]);
+  }, [cities, live, mode, cur, forecast, log, offOf, movingCity, buildBlockedIn, buildInfo, rowSets, buildFamily, boosterDim && [...boosterDim].join()]);
   // для курсора зазор между городами делится пополам между соседями: подсветка не гаснет на переходе
   const [buildHover, setBuildHover] = useState<string | null>(null);   // «Строительство»: город под курсором
   const onHoverCell = useCallback((gx: number | null, gy: number | null) => {
