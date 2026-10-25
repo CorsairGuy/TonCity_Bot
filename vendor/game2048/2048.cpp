@@ -317,7 +317,9 @@ static const int CACHE_DEPTH_LIMIT  = 15;
 
 static float score_tilechoose_node(eval_state &state, board_t board, float cprob) {
     if (cprob < CPROB_THRESH_BASE || state.curdepth >= state.depth_limit) {
+#ifndef GAME2048_NO_SEARCH_STATS
         state.maxdepth = std::max(state.curdepth, state.maxdepth);
+#endif
         return score_heur_board(board);
     }
     if (state.curdepth < CACHE_DEPTH_LIMIT) {
@@ -332,7 +334,9 @@ static float score_tilechoose_node(eval_state &state, board_t board, float cprob
             */
             if(entry.depth <= state.curdepth)
             {
+#ifndef GAME2048_NO_SEARCH_STATS
                 state.cachehits++;
+#endif
                 return entry.heuristic;
             }
         }
@@ -342,15 +346,16 @@ static float score_tilechoose_node(eval_state &state, board_t board, float cprob
     cprob /= num_open;
 
     float res = 0.0f;
-    board_t tmp = board;
-    board_t tile_2 = 1;
-    while (tile_2) {
-        if ((tmp & 0xf) == 0) {
-            res += score_move_node(state, board |  tile_2      , cprob * 0.9f) * 0.9f;
-            res += score_move_node(state, board | (tile_2 << 1), cprob * 0.1f) * 0.1f;
-        }
-        tmp >>= 4;
-        tile_2 <<= 4;
+    // Только целочисленная маска: прежний порядок свободных клеток от младшей к старшей.
+    board_t empty_cells = board;
+    empty_cells |= (empty_cells >> 2) & 0x3333333333333333ULL;
+    empty_cells |= empty_cells >> 1;
+    empty_cells = ~empty_cells & 0x1111111111111111ULL;
+    while (empty_cells) {
+        board_t tile_2 = empty_cells & (board_t(0) - empty_cells);
+        empty_cells &= empty_cells - 1;
+        res += score_move_node(state, board |  tile_2      , cprob * 0.9f) * 0.9f;
+        res += score_move_node(state, board | (tile_2 << 1), cprob * 0.1f) * 0.1f;
     }
     res = res / num_open;
 
@@ -367,7 +372,9 @@ static float score_move_node(eval_state &state, board_t board, float cprob) {
     state.curdepth++;
     for (int move = 0; move < 4; ++move) {
         board_t newboard = execute_move(move, board);
+#ifndef GAME2048_NO_SEARCH_STATS
         state.moves_evaled++;
+#endif
 
         if (board != newboard) {
             best = std::max(best, score_tilechoose_node(state, newboard, cprob));
