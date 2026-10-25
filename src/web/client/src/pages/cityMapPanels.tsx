@@ -14,6 +14,7 @@ import type { CityStats, ServiceCat, CityStrategyTarget, CityStrategyQueueItem, 
 import type { CityStatsMods } from '../cityStats';
 import { BuildingSprite } from '../components/BuildingSprite';
 import { Scrollable } from '../components/Scrollable';
+import { MapPanelWindow } from '../components/MapPanelWindow';
 import { CoinValue, CrystalValue } from '../components/Icons';
 import { fmt, ITEMS_BY_ID } from '../utils';
 import { catalogItemImg } from '../hooks/useItemCatalog';
@@ -159,7 +160,7 @@ const CAP_ELL = { whiteSpace: 'nowrap', overflow: 'clip', overflowClipMargin: '4
 // подпись группы: 8px от краёв карточек слева и справа, число справа — без значков
 export function Caption({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
-    <Box className="panel-caption" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, px: 2, my: 1 }}>
+    <Box className="panel-caption" sx={{ height: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, px: 2, my: 1 }}>
       <Text sx={{ fontSize: 0, lineHeight: 1, fontWeight: 'semibold', color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.04em', minWidth: 0, ...CAP_ELL, ...CAP_TRIM }}>{children}</Text>
       {right != null && <Text sx={{ ...muted, lineHeight: 1, flexShrink: 0, ...num, ...CAP_TRIM }}>{right}</Text>}
     </Box>
@@ -555,7 +556,8 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
             </Box>
           </Box>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {shown.map(c => {
+            {<MapPanelWindow count={shown.length} onWindowChange={() => onHover(null)}>{i => {
+              const c = shown[i];
               const off = removed.has(c.key);
               const ca = pctOf(c.done, c.span), cb = pctOf(c.done + c.wip, c.span);
               // клик помечает клетку к удалению (карточка бледнеет, заливка красная), повторный — возвращает
@@ -567,7 +569,7 @@ export function PlanPanel({ targets, owned, labelFor, upgradeCost, onHover, remo
                     trail={c.cost > 0 ? <Val><CoinValue value={fmtUp(c.cost)} /></Val> : c.done >= c.span ? <Val><Octicon icon={CheckIcon} /></Val> : undefined} />
                 </Box>
               );
-            })}
+            }}</MapPanelWindow>}
             {marked > 0 && <Text sx={{ fontSize: 0, color: 'danger.fg', textAlign: 'center' }}>{marked} {cellsWord(marked)} {marked === 1 ? 'уйдёт' : 'уйдут'} из плана при сохранении</Text>}
             {shown.length === 0 && <Empty>Ничего не нашлось</Empty>}
           </Box>
@@ -600,6 +602,15 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
   let run = 0;
   const fits = prices.map(p => (run += p ?? 0) <= budget);
   const fitCount = fits.filter(Boolean).length;
+  const positions = useMemo(() => {
+    const byCell = new Map<string, MapBuilding>(), prior = new Map<string, number>();
+    for (const b of owned) { const key = `${b.x},${b.y}`; if (!byCell.has(key)) byCell.set(key, b); }
+    return queue.map(q => {
+      const key = `${q.x},${q.y}`, before = prior.get(key) ?? 0, b = byCell.get(key);
+      prior.set(key, before + 1);
+      return { b, from: b ? (Number(b.level) || 0) + before : null };
+    });
+  }, [queue, owned]);
   return (
     <>
       {summary && queue.length > 0 && (
@@ -612,12 +623,10 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
           <SumLine left={`хватит на ${fitCount} из ${queue.length}`} right="бюджет 80%" />
         </Summary>
       )}
-      {queue.map((q, i) => {
-        const b = owned.find(o => o.x === q.x && o.y === q.y);
-        const prior = queue.slice(0, i).filter(qq => qq.x === q.x && qq.y === q.y).length;
-        const from = b ? (Number(b.level) || 0) + prior : null;
+      <MapPanelWindow count={queue.length} pinned={drag}>{i => {
+        const q = queue[i], { b, from } = positions[i];
         return (
-          <Box key={i} draggable onDragStart={e => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { setDrag(null); setOver(null); }}
+          <Box key={i} data-queue-index={i} draggable onDragStart={e => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { setDrag(null); setOver(null); }}
             onDragOver={e => { e.preventDefault(); if (over !== i) setOver(i); }} onDrop={e => onDrop(e, i)}
             sx={{
               borderRadius: '12px', opacity: drag === i ? 0.5 : 1, cursor: 'grab',
@@ -634,7 +643,7 @@ export function QueuePanel({ queue, owned, labelFor, prices, balance, onReorder,
               </>} />
           </Box>
         );
-      })}
+      }}</MapPanelWindow>
     </>
   );
 }
@@ -649,7 +658,8 @@ export function PendingList({ rows, labelFor, disabled, onRemove, caption, right
   return (
     <>
       <Caption right={right ?? `всего ${rows.length}`}>{caption ?? 'Ждут выполнения'}</Caption>
-      {rows.map(r => {
+      {<MapPanelWindow count={rows.length}>{i => {
+        const r = rows[i];
         const cut = r.label.indexOf(': ');
         const action = cut > 0 ? r.label.slice(0, cut) : r.label;
         const name = r.sprite ? labelFor(r.sprite) : '';
@@ -662,7 +672,7 @@ export function PendingList({ rows, labelFor, disabled, onRemove, caption, right
           title={name || action} sub={name ? (rest ? `${action} · ${rest}` : action) : rest}
           trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onRemove(r.id)} />} />
         );
-      })}
+      }}</MapPanelWindow>}
     </>
   );
 }
@@ -683,11 +693,11 @@ export function MovePanel({ from, moves, labelFor, disabled, onCancel, onRemove 
         </>
       ) : null}
       {moves.length > 0 && <Caption right={`всего ${moves.length}`}>Ждут выполнения</Caption>}
-      {moves.map(m => (
+      {<MapPanelWindow count={moves.length}>{i => { const m = moves[i]; return (
         <Row key={m.id} lead={m.sprite ? <Thumb id={m.sprite} size={36} bg="canvas.default" /> : <IconThumb icon={ArrowBothIcon} />} title={m.sprite ? labelFor(m.sprite) : 'Перемещение'}
           sub={`${m.from.x},${m.from.y} → ${m.to.x},${m.to.y}`}
           trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={disabled} onClick={() => onRemove(m.id)} />} />
-      ))}
+      ); }}</MapPanelWindow>}
     </>
   );
 }
@@ -698,6 +708,7 @@ export function DemolishPanel({ tiles, lossPerHour, popLoss, income, disabled, o
   tiles: DemolishTile[]; lossPerHour: number; popLoss: number; income: number; disabled: boolean; onRemove: (id: number) => void; summary?: boolean;
 }) {
   const max = Math.max(1, ...tiles.map(t => t.loss));
+  const ordered = [...tiles].sort((a, b) => b.loss - a.loss);
   return (
     <>
       {summary && tiles.length > 0 && (
@@ -709,14 +720,14 @@ export function DemolishPanel({ tiles, lossPerHour, popLoss, income, disabled, o
           <SumLine left={popLoss > 0 ? `жителей −${fmt(popLoss)}` : 'жители без изменений'} right={income > 0 ? `−${(lossPerHour / income * 100).toFixed(1)}% дохода` : undefined} />
         </Summary>
       )}
-      {[...tiles].sort((a, b) => b.loss - a.loss).map(t => (
+      {<MapPanelWindow count={ordered.length}>{i => { const t = ordered[i]; return (
         <Row key={t.id} lead={<Thumb id={t.sprite} size={36} bg="canvas.default" dim />} title={t.name}
           sub={`ур. ${t.level} · ${t.x},${t.y}`} fill={fillOf([[FILL_DANGER, t.loss / max * 100]])} sx={SWAP}
           trail={<>
             {t.loss > 0 && <Val className="sw-v" color="danger.fg">−{fmt(t.loss)}/ч</Val>}
             <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Снять отметку" disabled={disabled} onClick={() => onRemove(t.id)} /></Box>
           </>} />
-      ))}
+      ); }}</MapPanelWindow>}
     </>
   );
 }
@@ -735,6 +746,7 @@ export function ReconstructPanel({ groups, components, disabled, onToggle, summa
   // в списке только выбранное кистью: отмеченное к выполнению сейчас и ждущее в плане нужного уровня
   const picked = cells.filter(c => c.queued || c.planned).sort((a, b) => Number(b.queued) - Number(a.queued) || b.level / b.req - a.level / a.req);
   let left = components;
+  const shortages = picked.map(c => c.g.comp != null && (left -= c.g.comp) < 0);
   return (
     <>
       {summary && <Summary>
@@ -746,18 +758,19 @@ export function ReconstructPanel({ groups, components, disabled, onToggle, summa
         <SumLine left={queued.length ? <>отмечено {queued.length}: <Glyph tag="component" v={`−${spend}`} /> <Glyph tag="masterplan" v={`+${gain}`} /></> : 'отметьте готовые здания'}
           right={cells.some(c => c.planned) ? `в плане ${cells.filter(c => c.planned).length}` : undefined} />
       </Summary>}
-      {picked.map(c => {
+      {<MapPanelWindow count={picked.length}>{i => {
+        const c = picked[i];
         const span = Math.max(1, c.req - 1), done = Math.max(0, Math.min(c.level, c.req) - 1);
         const ca = pctOf(done, span), cb = pctOf(done + (c.building && c.level < c.req ? 1 : 0), span);
         // компонентов хватает по порядку списка: отмеченные к выполнению тратят первыми
-        const short = c.g.comp != null && (left -= c.g.comp) < 0;
+        const short = shortages[i];
         return (
           <Row key={`${c.x},${c.y}`} lead={<Thumb id={c.g.id} size={36} bg="canvas.default" />} title={c.g.name}
             sub={c.queued ? `готово · ${c.x},${c.y}` : `ур. ${c.level} из ${c.req} · ${c.x},${c.y}`}
             fill={c.queued ? fillOf([[FILL_RENOVATE, 100]]) : fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]])}
             trail={c.g.comp != null ? <ItemCard tag="component" count={c.g.comp} short={short} /> : undefined} />
         );
-      })}
+      }}</MapPanelWindow>}
     </>
   );
 }
@@ -769,21 +782,24 @@ export function RenovatePanel({ masterplans, items, onToggle, disabled, summary 
   items: RenovItem[];
   onToggle: (x: number, y: number) => void;
 }) {
-  const used = items.filter(i => i.marked).reduce((s, i) => s + (i.cost ?? 0), 0);
+  const picked = items.filter(i => i.marked);
+  const used = picked.reduce((s, i) => s + (i.cost ?? 0), 0);
+  let rest = masterplans;
+  const shortages = picked.map(it => (rest -= it.cost ?? 0) < 0);
   return (
     <>
       {summary && <MasterplanBar masterplans={masterplans} used={used} />}
       {items.length === 0 ? (summary ? <Empty>Нет зданий, подходящих под реновацию</Empty> : null) : (
         <>
           {/* в списке только отмеченное на карте; мастерпланов не хватает — ярлык красный с того здания, где кончились */}
-          {(() => { let rest = masterplans; return items.filter(it => it.marked).map(it => {
-            const short = (rest -= it.cost ?? 0) < 0;
+          {<MapPanelWindow count={picked.length}>{i => {
+            const it = picked[i], short = shortages[i];
             return (
               <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" />} title={it.nextName}
                 fill={fillOf([[FILL_RENOVATE, 100]])}
                 trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={short} />} />
             );
-          }); })()}
+          }}</MapPanelWindow>}
         </>
       )}
     </>
@@ -820,7 +836,8 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
 }) {
   const [drag, setDrag] = useState<number | null>(null);
   if (loading && boosters.length === 0) return <Spinner size="small" />;
-  const queued = (name: string) => queue.filter(q => q.name === name).length;
+  const queued = new Map<string, number>();
+  for (const q of queue) queued.set(q.name, (queued.get(q.name) ?? 0) + 1);
   const img = (name: string) => catalogItemImg(Number(name));
   // ускоритель — карточкой предмета, как мастерплан и компонент: рамка цвета редкости (тег = редкость, у вечного — eternal)
   const card = (name: string, count?: number, dim?: boolean) => {
@@ -830,23 +847,23 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
   const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   return (
     <>
-      {active.map(b => (
+      {<MapPanelWindow count={active.length}>{i => { const b = active[i]; return (
         <Row key={b.name} lead={card(b.name)} title={b.label} bg="attention.subtle"
           sub={<>{`активен · ещё ${fmtTimeLeft(b.ends_at - Date.now())}`}{b.active_limit > 1 && ` · ${b.currently_active}/${b.active_limit}`}</>}
           trail={<Val mono color="attention.fg">{hhmm(b.ends_at)}</Val>} />
-      ))}
+      ); }}</MapPanelWindow>}
       {queue.length > 0 && <Caption right={queue.length}>Очередь</Caption>}
-      {queue.map((q, i) => (
+      {<MapPanelWindow count={queue.length} pinned={drag}>{i => { const q = queue[i]; return (
         <Box key={`${q.name}:${i}`} draggable onDragStart={e => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => setDrag(null)}
           onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (drag != null && drag !== i) onReorder(drag, i); setDrag(null); }}
           sx={{ opacity: drag === i ? 0.5 : 1, cursor: 'grab' }}>
           <Row lead={card(q.name)} title={q.label} sub={i === 0 ? '#1 · следующий' : `#${i + 1}`} fill={i === 0 ? fillOf([[FILL_WIP, 100]]) : undefined}
             trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из очереди" onClick={() => onRemoveAt(i)} />} />
         </Box>
-      ))}
+      ); }}</MapPanelWindow>}
       <Caption>На складе</Caption>
-      {boosters.length === 0 ? <Empty>Ускорителей в инвентаре нет</Empty> : boosters.map(b => {
-        const k = queued(b.name);
+      {boosters.length === 0 ? <Empty>Ускорителей в инвентаре нет</Empty> : <MapPanelWindow count={boosters.length} focusable={i => (queued.get(boosters[i].name) ?? 0) < boosters[i].available}>{i => {
+        const b = boosters[i], k = queued.get(b.name) ?? 0;
         return (
           <Row key={b.name} lead={card(b.name, b.available || undefined, !b.available)} title={b.label}
             sub={<Text sx={{ color: b.blocked_by_other && b.available ? 'attention.fg' : 'inherit' }}>
@@ -854,7 +871,7 @@ export function BoostersPanel({ boosters, active, loading, queue, onAdd, onReord
             </Text>}
             trail={<IconButton size="small" variant="invisible" icon={PlusIcon} aria-label="В очередь" disabled={k >= b.available} onClick={() => onAdd(b.name)} />} />
         );
-      })}
+      }}</MapPanelWindow>}
     </>
   );
 }
@@ -889,51 +906,42 @@ const LOG_TYPE: Record<string, [string, React.ElementType, string]> = {
 type LogRow = Pick<CityActionLogRow, 'id' | 'type' | 'building_id' | 'level_from' | 'level_to' | 'duration_ms' | 'created_at'>;
 // place — город строки на общей карте всех городов: встаёт в начало второй строки
 const withPlace = (place: string | undefined, sub: string) => place ? `${place} · ${sub}` : sub;
+// Заголовки дней входят в то же окно, что карточки: длинная история не монтирует скрытые дни.
+type DayPanelItem<T> = { day: string; count: number; row?: undefined } | { row: T; day?: undefined; count?: undefined };
+export function dayPanelItems<T>(rows: T[], at: (r: T) => number): DayPanelItem<T>[] {
+  return byDay(rows, at).flatMap(([day, list]) => [{ day, count: list.length }, ...list.map(row => ({ row }))]);
+}
 export function LogPanel<R extends LogRow>({ rows, loading, label, labelFor, place }: { rows: R[]; loading: boolean; label: (r: R) => string; labelFor: (id: string) => string; place?: (r: R) => string | undefined }) {
   if (loading && rows.length === 0) return <Spinner size="small" />;
   if (rows.length === 0) return <Empty>Лог пуст</Empty>;
-  return (
-    <>
-      {byDay(rows, r => new Date(r.created_at).getTime()).map(([day, list]) => (
-        <Box key={day} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Caption right={`${list.length}`}>{day}</Caption>
-          {list.map(r => {
-            const [kind, ic, badge] = LOG_TYPE[r.type] ?? [r.type, LogIcon, 'neutral.emphasis'];
-            const text = label(r); const cut = text.indexOf(': ');
-            // у ускорителей building_id — тип ускорителя, а не здание: спрайта нет, только значок
-            const sprite = r.building_id && !r.type.startsWith('booster') ? r.building_id : null;
-            const isUp = r.type === 'upgrade' && sprite;
-            return (
-              <Row key={r.id} lead={sprite ? <BadgeThumb id={sprite} badge={<Octicon icon={ic} size={10} />} badgeBg={badge} corner="br" dim={r.type === 'demolish'} /> : <IconThumb icon={ic} color={badge.replace('emphasis', 'fg')} />}
-                title={isUp ? labelFor(sprite!) : kind} bg={r.type === 'demolish' ? 'danger.subtle' : 'canvas.subtle'}
-                sub={withPlace(place?.(r), isUp ? `${r.level_from} → ${r.level_to}${r.duration_ms ? ` · ${fmtTimeLeft(r.duration_ms)}` : ''}` : (cut > 0 ? text.slice(cut + 2) : text))}
-                trail={<Time ms={new Date(r.created_at).getTime()} />} />
-            );
-          })}
-        </Box>
-      ))}
-    </>
-  );
+  const items = dayPanelItems(rows, r => new Date(r.created_at).getTime());
+  return <MapPanelWindow count={items.length} rowHeight={i => items[i].row === undefined ? 20 : 52}>{i => {
+    const item = items[i];
+    if (item.row === undefined) return <Box sx={{ height: 20, display: 'flex', alignItems: 'center', '& > *': { width: '100%', my: 0 } }}><Caption right={`${item.count}`}>{item.day}</Caption></Box>;
+    const r = item.row;
+    const [kind, ic, badge] = LOG_TYPE[r.type] ?? [r.type, LogIcon, 'neutral.emphasis'];
+    const text = label(r); const cut = text.indexOf(': ');
+    // у ускорителей building_id — тип ускорителя, а не здание: спрайта нет, только значок
+    const sprite = r.building_id && !r.type.startsWith('booster') ? r.building_id : null;
+    const isUp = r.type === 'upgrade' && sprite;
+    return <Row key={r.id} lead={sprite ? <BadgeThumb id={sprite} badge={<Octicon icon={ic} size={10} />} badgeBg={badge} corner="br" dim={r.type === 'demolish'} /> : <IconThumb icon={ic} color={badge.replace('emphasis', 'fg')} />}
+      title={isUp ? labelFor(sprite!) : kind} bg={r.type === 'demolish' ? 'danger.subtle' : 'canvas.subtle'}
+      sub={withPlace(place?.(r), isUp ? `${r.level_from} → ${r.level_to}${r.duration_ms ? ` · ${fmtTimeLeft(r.duration_ms)}` : ''}` : (cut > 0 ? text.slice(cut + 2) : text))}
+      trail={<Time ms={new Date(r.created_at).getTime()} />} />;
+  }}</MapPanelWindow>;
 }
 // стройка под ускорителем залита жёлтым и подписана множителем
 export function ForecastPanel<E extends ForecastEvent>({ events, loading, labelFor, place }: { events: E[]; loading: boolean; labelFor: (id: string) => string; place?: (e: E) => string | undefined }) {
   if (loading) return <Spinner size="small" />;
   if (events.length === 0) return <Empty>Прогноз пуст: в ближайшие трое суток запускать нечего.</Empty>;
-  return (
-    <>
-      {byDay(events, e => e.start).map(([day, list]) => (
-        <Box key={day} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Caption right={`${list.length} ул.`}>{day}</Caption>
-          {list.map((e, i) => {
-            const boost = e.boost_multiplier != null && e.boost_multiplier > 1 ? e.boost_multiplier : null;
-            return (
-              <Row key={i} lead={<Thumb id={e.building_id} size={36} bg="canvas.default" />} title={labelFor(e.building_id)} fill={boost ? fillOf([[FILL_ATTENTION, 100]]) : undefined}
-                sub={withPlace(place?.(e), `${e.level_from} → ${e.level_to} · ${fmtTimeLeft(e.duration_ms)}`)}
-                trail={<Time ms={e.start} title={boost ? `${e.boost_name ?? 'ускоритель'} ×${boost}` : undefined} />} />
-            );
-          })}
-        </Box>
-      ))}
-    </>
-  );
+  const items = dayPanelItems(events, e => e.start);
+  return <MapPanelWindow count={items.length} rowHeight={i => items[i].row === undefined ? 20 : 52}>{i => {
+    const item = items[i];
+    if (item.row === undefined) return <Box sx={{ height: 20, display: 'flex', alignItems: 'center', '& > *': { width: '100%', my: 0 } }}><Caption right={`${item.count} ул.`}>{item.day}</Caption></Box>;
+    const e = item.row;
+    const boost = e.boost_multiplier != null && e.boost_multiplier > 1 ? e.boost_multiplier : null;
+    return <Row key={i} lead={<Thumb id={e.building_id} size={36} bg="canvas.default" />} title={labelFor(e.building_id)} fill={boost ? fillOf([[FILL_ATTENTION, 100]]) : undefined}
+      sub={withPlace(place?.(e), `${e.level_from} → ${e.level_to} · ${fmtTimeLeft(e.duration_ms)}`)}
+      trail={<Time ms={e.start} title={boost ? `${e.boost_name ?? 'ускоритель'} ×${boost}` : undefined} />} />;
+  }}</MapPanelWindow>;
 }

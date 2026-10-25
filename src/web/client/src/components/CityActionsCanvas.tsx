@@ -269,6 +269,34 @@ interface Props {
   onHoverCell?: (gx: number | null, gy: number | null) => void;
 }
 
+// Бейдж: текущий уровень, уровень после ручной очереди и более высокая эффективная цель.
+// Индексы собираются один раз, а не поиском по общим очередям/планам для каждого здания мира.
+// Первый личный target важнее первого общего правила по точному id — как прежние find().
+function buildMapLabels(buildings: MapBuilding[], type: 'city' | 'capital', queue: CityStrategyQueueItem[], targets: CityStrategyTarget[], globalPlan: GlobalUpgradeRule[]): Map<string, string | null> {
+  const queued = new Map<string, number>(), personal = new Map<string, CityStrategyTarget>(), global = new Map<string, GlobalUpgradeRule>();
+  for (const q of queue) { const k = `${q.x}_${q.y}`; queued.set(k, (queued.get(k) ?? 0) + 1); }
+  for (const t of targets) { const k = `${t.x}_${t.y}`; if (!personal.has(k)) personal.set(k, t); }
+  for (const g of globalPlan) if (!global.has(g.family_id)) global.set(g.family_id, g);
+  const labels = new Map<string, string | null>();
+  for (const b of buildings) {
+    const k = `${b.x}_${b.y}`;
+    if (!b.level) { labels.set(k, null); continue; }
+    const upgradable = type === 'capital' ? (b as any).is_upgradable === true : !b.id.startsWith('SPE_');
+    if (!upgradable) { labels.set(k, null); continue; }
+    const levels = [b.level], count = queued.get(k) ?? 0;
+    if (count > 0) levels.push(b.level + count);
+    const target = personal.get(k)?.target_level ?? global.get(b.id)?.target_level;
+    if (target && target > levels[levels.length - 1]) levels.push(target);
+    labels.set(k, levels.join('-'));
+  }
+  return labels;
+}
+function sameMapLabels(a: Map<string, string | null>, b: Map<string, string | null>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, v] of b) if (!a.has(k) || a.get(k) !== v) return false;
+  return true;
+}
+
 // сколько карта ждёт ночной набор спрайтов, прежде чем рисовать без него
 const NIGHT_HOLD_MAX_MS = 4000;
 // как часто сверяться с часами: свет в окнах и ступень суток
@@ -1210,11 +1238,13 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
   }
 
   // подписи бейджей для всех зданий — badgeFor раньше считался на каждое здание в каждом кадре
-  function rebuildLabels() {
+  function rebuildLabels(): boolean {
     const s = state.current;
-    s.labels = new Map();
-    for (const b of s.blist) s.labels.set(`${b.x}_${b.y}`, badgeFor(b));
+    const labels = buildMapLabels(s.blist, s.type, s.queue, s.targets, s.globalPlan);
     s.labelsDirty = false;
+    if (sameMapLabels(s.labels, labels)) return false;
+    s.labels = labels;
+    return true;
   }
 
   function drawTile(ctx: CanvasRenderingContext2D, sx: number, sy: number, fill: string, stroke: string, label?: string | null) {
@@ -1237,32 +1267,6 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       ctx.fillText(label, sx + hw, sy + hh, TW - 6);
       ctx.restore();
     }
-  }
-
-  function badgeFor(b: MapBuilding): string | null {
-    if (!b.level) return null;
-    // специальные здания (город: SPE_*, столица: !is_upgradable) нельзя улучшить — уровень им не
-    // рисуем вообще, показывать голое число без смысла улучшения только сбивает с толку
-    const upgradable = state.current.type === 'capital' ? (b as any).is_upgradable === true : !b.id.startsWith('SPE_');
-    if (!upgradable) return null;
-    // текущий уровень → уровень после ручной очереди (если она есть, +1 за каждый её апгрейд этой
-    // же клетки — они выполняются строго по одному подряд, см. progress.js pickStrategyTargets) →
-    // плановый уровень (вкладка "План"), если он выше. Показываем только ГРАНИЦЫ, не каждый
-    // промежуточный шаг: "19-22-25", а не "19-20-21-22-25". "-" вместо "→": стрелка в canvas-шрифте
-    // не совпадает по вертикальным метрикам с цифрами и визуально "плавает" не по центру строки —
-    // обычный дефис всегда стоит на общей базовой линии.
-    const queueCount = state.current.queue.filter(q => q.x === b.x && q.y === b.y).length;
-    const levels = [b.level];
-    if (queueCount > 0) levels.push(b.level + queueCount);
-    // приоритет цели — как у реального бота (resolveEffectiveTargets/resolveEffectiveCapitalTargets):
-    // личная цель для КОНКРЕТНОЙ клетки (x,y) важнее общего плана; общий план матчится по ТОЧНОМУ
-    // id здания и действует, только если для клетки нет личной цели
-    const personal = state.current.targets.find(t => t.x === b.x && t.y === b.y);
-    const globalTarget = state.current.globalPlan.find(g => g.family_id === b.id)?.target_level;
-    const effectiveTarget = personal?.target_level ?? globalTarget;
-    const lastLevel = levels[levels.length - 1];
-    if (effectiveTarget && effectiveTarget > lastLevel) levels.push(effectiveTarget);
-    return levels.join('-');
   }
 
   // обычный бейдж уровня (здание сейчас не строится) — плашка строго по центру тайла (bx,by уже
@@ -1414,7 +1418,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
 
     // стройка закончилась по времени — здание снова рисуется своим спрайтом и обычным бейджем
     if (Date.now() >= s.nextEndMs) listChanged(false);
-    if (s.labelsDirty) { rebuildLabels(); listChanged(false); }
+    if (s.labelsDirty && rebuildLabels()) listChanged(false);
     if (s.listDirty) buildDrawList();
 
     // масштаб кусков: сразу точный при первом кадре и при большом скачке зума, иначе — после паузы
@@ -1724,9 +1728,12 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
 
   // режим и valid-set меняют затемнение зданий — это неподвижный слой; picked-set и цели/очередь/
   // план — только подсветку и бейджи поверх него
-  useEffect(() => { listChanged(false); }, [mode, validSet]);
+  useEffect(() => { listChanged(false); }, [mode]);
+  // В Просмотре/Прогнозе/Логе validSet нужен вводу, но не меняет неподвижную картинку.
+  useEffect(() => { if (DIM_INAPPLICABLE_MODES.has(mode)) listChanged(false); }, [mode, validSet]);
   useEffect(() => { listChanged(true); }, [lockedCells]);
-  useEffect(() => { state.current.labelsDirty = true; requestRedraw(); }, [pickedSet, targets, queue, globalPlan, requestRedraw]);
+  useEffect(() => { requestRedraw(); }, [pickedSet, requestRedraw]);
+  useEffect(() => { state.current.labelsDirty = true; requestRedraw(); }, [targets, queue, globalPlan, requestRedraw]);
   // пелена: проявляется сразу, а гаснет с задержкой — переход между соседними строками «Плана» её не трогает
   useEffect(() => {
     const el = focusWrapRef.current; if (!el) return;
