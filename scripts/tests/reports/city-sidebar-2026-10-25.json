@@ -1,0 +1,147 @@
+{
+  "date": "2026-10-25",
+  "baselineCommit": "07530b4",
+  "selectedCandidate": "memo",
+  "fixture": {
+    "cities": 36,
+    "buildingsPerCity": 144,
+    "queueEntries": 64,
+    "cpuThrottle": 4,
+    "react": "production",
+    "browser": "Chromium headless",
+    "interaction": "Release held synthetic city responses during continued right-button pan in queue mode",
+    "measurement": "RAF intervals after data release, including 1500ms idle after mouseup; final candidates also record maxRafDuringPanMs"
+  },
+  "limits": [
+    "Synthetic local data, not a production-device benchmark.",
+    "Large pauses reduced; complete absence of lag is not demonstrated.",
+    "Canvas size cache/input-hover candidate did not demonstrate a speed improvement over memo candidate in these runs."
+  ],
+  "functional": {
+    "keyboardAndDrag": "PASS: absolute reorder 0→499, pinned drag row, Tab forward/back",
+    "nestedCityGroups": "PASS: 36×50 records, cross-group Tab, last record ID1799",
+    "disabledBoosters": "PASS: Tab0→30→49→30",
+    "goAllAndQueue": "PASS: no reopened city, no dirty queue from right-button pan",
+    "canvasResizePanZoom": "PASS on discarded Canvas cache experiment; committed memo source uses the original Canvas resize lifecycle.",
+    "elevenPanelTypesWith500Records": "PASS: 13–16 DOM rows, last record, geometry, exact removal IDs; includes PlanPanel with 500 targets, final row height52px and exact mark key499,0"
+  },
+  "runs": [
+    {
+      "candidate": "baseline",
+      "mode": "queue",
+      "run": 1,
+      "maxRafAfterReleaseMs": 500,
+      "longTasksAfterReleaseMs": [
+        359,
+        146,
+        218,
+        130,
+        258,
+        162,
+        53,
+        149,
+        94
+      ],
+      "canvasDrawListRebuilds": 1,
+      "canvasLabelRebuilds": 1,
+      "browserErrors": []
+    },
+    {
+      "candidate": "baseline",
+      "mode": "queue",
+      "run": 2,
+      "maxRafAfterReleaseMs": 583.3,
+      "longTasksAfterReleaseMs": [
+        437,
+        153,
+        251,
+        88,
+        114,
+        209,
+        160,
+        115,
+        135,
+        77
+      ],
+      "canvasDrawListRebuilds": 1,
+      "canvasLabelRebuilds": 1,
+      "browserErrors": []
+    },
+    {
+      "candidate": "baseline",
+      "mode": "view",
+      "run": 1,
+      "maxRafAfterReleaseMs": 66.7,
+      "longTasksAfterReleaseMs": [
+        74
+      ],
+      "canvasDrawListRebuilds": 1,
+      "canvasLabelRebuilds": 1,
+      "browserErrors": []
+    },
+    {
+      "candidate": "baseline",
+      "mode": "view",
+      "run": 2,
+      "maxRafAfterReleaseMs": 150,
+      "longTasksAfterReleaseMs": [
+        53,
+        150
+      ],
+      "canvasDrawListRebuilds": 1,
+      "canvasLabelRebuilds": 1,
+      "browserErrors": []
+    },
+    {
+      "candidate": "memo",
+      "mode": "queue",
+      "run": 1,
+      "maxRafAfterReleaseMs": 183.3,
+      "maxRafDuringPanMs": 183.3,
+      "longTasksAfterReleaseMs": [
+        61,
+        59
+      ],
+      "canvasDrawListRebuilds": 0,
+      "canvasLabelRebuilds": 0,
+      "browserErrors": []
+    },
+    {
+      "candidate": "memo",
+      "mode": "queue",
+      "run": 2,
+      "maxRafAfterReleaseMs": 183.4,
+      "maxRafDuringPanMs": 183.4,
+      "longTasksAfterReleaseMs": [
+        53
+      ],
+      "canvasDrawListRebuilds": 0,
+      "canvasLabelRebuilds": 0,
+      "browserErrors": []
+    },
+    {
+      "candidate": "memo",
+      "mode": "view",
+      "run": 1,
+      "maxRafAfterReleaseMs": 16.8,
+      "maxRafDuringPanMs": 16.8,
+      "longTasksAfterReleaseMs": [],
+      "canvasDrawListRebuilds": 0,
+      "canvasLabelRebuilds": 0,
+      "browserErrors": []
+    }
+  ],
+  "experimentsNotRetained": [
+    {
+      "candidate": "canvas-cache",
+      "description": "Cache Canvas viewport dimensions via ResizeObserver and skip action hover DOM reads while panning.",
+      "queueMaxRafMs": [
+        200,
+        200.1
+      ],
+      "viewMaxRafMs": 33.3,
+      "result": "No measured speed improvement over memo candidate; only these experimental Canvas changes were reverted."
+    }
+  ],
+  "candidateDescription": "All sidebar windowing, transition, stable Canvas labels, snapshot view, memo editor/palette, stable scrollbar props and hidden-tooltip guard changes in this PR."
+}

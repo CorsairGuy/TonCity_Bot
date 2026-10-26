@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
+import { MapPanelWindow } from '../components/MapPanelWindow';
+import { useState, useEffect, useMemo, useCallback, useRef, startTransition, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Text, TextInput } from '@primer/react';
@@ -87,6 +88,19 @@ export function projectBuildings(owned: MapBuilding[], targets: CityStrategyTarg
     // (унаследованный b.end в будущем), computeCityStats зануляет его вклад целиком (см.
     // isUnderConstruction в cityStats.ts) — здание из очереди тогда просто пропадало бы из проекции
     return { ...b, level: Math.max(lvl + queueCount, target, lvl), end: null };
+  });
+}
+
+// Цена ручной очереди: предыдущие повторы клетки считаем одним проходом, а не slice/filter на каждый элемент.
+export function manualQueuePricesFor(queue: CityStrategyQueueItem[], owned: MapBuilding[], paramMap: Map<string, BuildingDef>, multiplier: number): (number | null)[] {
+  const byCell = new Map<string, MapBuilding>(), prior = new Map<string, number>();
+  for (const b of owned) { const key = `${b.x},${b.y}`; if (!byCell.has(key)) byCell.set(key, b); }
+  return queue.map(q => {
+    const key = `${q.x},${q.y}`, before = prior.get(key) ?? 0;
+    prior.set(key, before + 1);
+    const b = byCell.get(key), info = b ? paramMap.get(b.id) : undefined;
+    if (!b || !info) return null;
+    return Math.round(upgradeStep(info, (Number(b.level) || 0) + before) * multiplier);
   });
 }
 
@@ -409,19 +423,27 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   accountRef.current = account;
   const loadResources = useCallback(() => {
     if (!account) return;
-    api.cityResources(account).then(d => {
+    api.cityResources(account).then(d => startTransition(() => {
       if (d.ok && accountRef.current === account) { setComponents(d.components); setMasterplans(d.masterplans); }
-    });
+    }));
   }, [account]);
   useEffect(() => { loadResources(); }, [loadResources]);
   // общий план по семействам — нужен только для показателей "после всех запланированных" (вкладка
   // "Просмотр"), не привязан к аккаунту, поэтому подгружаем один раз при заходе на страницу
   const [globalPlan, setGlobalPlan] = useState<GlobalUpgradeRule[]>([]);
-  useEffect(() => { api.globalUpgradePlan().then(d => { if (d.ok) setGlobalPlan(d.plan); }); }, []);
+  useEffect(() => {
+    let stale = false;
+    api.globalUpgradePlan().then(d => startTransition(() => { if (!stale && d.ok) setGlobalPlan(d.plan); }));
+    return () => { stale = true; };
+  }, []);
   // закрытые секции карты — статический каталог (config/city_sections.json), общий для всех
   // городов, не привязан к аккаунту, поэтому грузим один раз при заходе на страницу
   const [sections, setSections] = useState<MapSection[]>([]);
-  useEffect(() => { api.sections().then(d => { if (d.ok) setSections(d.sections); }); }, []);
+  useEffect(() => {
+    let stale = false;
+    api.sections().then(d => startTransition(() => { if (!stale && d.ok) setSections(d.sections); }));
+    return () => { stale = true; };
+  }, []);
 
   // живые обновления построек с сервера (SSE, без поллинга) — бот пишет свежий снимок при каждом
   // запуске/завершении стройки (см. modules/progress.js), сервер сразу транслирует его сюда;
@@ -516,7 +538,10 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       (account ? api.accounts(account) : Promise.resolve({ ok: false as const, accounts: [] })).catch(() => ({ ok: false as const, accounts: [] })),
       account ? api.cityBuildCriteria(account).catch(() => ({ ok: false as const, criteria: null })) : Promise.resolve({ ok: false as const, criteria: null }),
       account ? api.cityDiversity(account).catch(() => ({ ok: false as const, income_bonus: 0 })) : Promise.resolve({ ok: false as const, income_bonus: 0 }),
-    ], () => { if (!stale) setDataDone(n => n + 1); }).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => {
+    ], () => {
+      // Встроенный город не рисует свой прогресс: девять ответов не должны девять раз будить его рендер.
+      if (!props.slots) startTransition(() => { if (!stale) setDataDone(n => n + 1); });
+    }).then(([c, b, t, co, pol, guild, accs, crit, diversity]) => startTransition(() => {
       if (stale) return;
       if (c.ok) setRows(prev => c.rows.map(row => ({ ...row, unlockedSections: mergeUnlockedSections((prev as CityRow[]).find(old => old.account === row.account)?.unlockedSections, row.unlockedSections) })));
       else setLoadErr((c as { error?: string }).error || 'снимок города не загрузился');
@@ -540,8 +565,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       setPolicyCabinet(pol.ok ? pol.byAccount[account]?.cabinet : undefined);
       setGuildIncomeBoost(guild.ok ? guild.income_boost : 0);
       setDiversityIncomeBoost(diversity.ok ? diversity.income_bonus : 0);
-    }).catch(e => { if (!stale) setLoadErr(String(e)); })
-      .finally(() => { if (!stale) setLoading(false); });
+      // Готовность и данные — одна фоновая транзакция: отдельный urgent finally поднял бы всю панель.
+      setLoading(false);
+    })).catch(e => startTransition(() => {
+      if (!stale) { setLoadErr(String(e)); setLoading(false); }
+    }));
     return () => { stale = true; };
   }, [account, reloadTick]);
 
@@ -802,17 +830,30 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const loadBoosters = useCallback(() => {
     if (!account) return;
     setBoostersLoading(true);
-    api.cityBoosters(account).then(d => { if (d.ok) { setBoosters(d.boosters); setBoosterActive(d.active ?? []); setBoosterQueue(d.queue ?? []); setBoosterQueueSaved(d.queue ?? []); } else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setBoostersLoading(false));
+    api.cityBoosters(account).then(d => startTransition(() => {
+      if (accountRef.current !== account) return;
+      if (d.ok) { setBoosters(d.boosters); setBoosterActive(d.active ?? []); setBoosterQueue(d.queue ?? []); setBoosterQueueSaved(d.queue ?? []); }
+      else showFlash(d.error ?? 'Ошибка', false);
+      setBoostersLoading(false);
+    })).catch(e => startTransition(() => { if (accountRef.current === account) { showFlash(String(e), false); setBoostersLoading(false); } }));
   }, [account]);
   const loadActionLog = useCallback(() => {
     if (!account) return;
     setActionLogLoading(true);
-    api.cityActionLog(account).then(d => { if (d.ok) setActionLog(d.rows); else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setActionLogLoading(false));
+    api.cityActionLog(account).then(d => startTransition(() => {
+      if (accountRef.current !== account) return;
+      if (d.ok) setActionLog(d.rows); else showFlash(d.error ?? 'Ошибка', false);
+      setActionLogLoading(false);
+    })).catch(e => startTransition(() => { if (accountRef.current === account) { showFlash(String(e), false); setActionLogLoading(false); } }));
   }, [account]);
   const loadForecast = useCallback(() => {
     if (!account) return;
     setForecastLoading(true);
-    api.cityForecast(account).then(d => { if (d.ok) setForecastEvents(d.events); else showFlash(d.error ?? 'Ошибка', false); }).finally(() => setForecastLoading(false));
+    api.cityForecast(account).then(d => startTransition(() => {
+      if (accountRef.current !== account) return;
+      if (d.ok) setForecastEvents(d.events); else showFlash(d.error ?? 'Ошибка', false);
+      setForecastLoading(false);
+    })).catch(e => startTransition(() => { if (accountRef.current === account) { showFlash(String(e), false); setForecastLoading(false); } }));
   }, [account]);
 
   // подгружаем данные вкладки при переключении на неё — не на общей загрузке страницы, т.к.
@@ -947,14 +988,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     return Math.round(sum * upgradeCostMultiplier);
   }, [buildingParamMap, upgradeCostMultiplier]);
 
-  const manualQueuePrices = useMemo(() => manualQueue.map((q, i) => {
-    const b = owned.find(o => o.x === q.x && o.y === q.y);
-    const info = b ? buildingParamMap.get(b.id) : undefined;
-    if (!b || !info) return null;
-    const priorSame = manualQueue.slice(0, i).filter(qq => qq.x === q.x && qq.y === q.y).length;
-    const fromLvl = (Number(b.level) || 0) + priorSame;
-    return Math.round(upgradeStep(info, fromLvl) * upgradeCostMultiplier);
-  }), [manualQueue, owned, buildingsCatalog, upgradeCostMultiplier]);
+  const manualQueuePrices = useMemo(() => manualQueuePricesFor(manualQueue, owned, buildingParamMap, upgradeCostMultiplier),
+    [manualQueue, owned, buildingParamMap, upgradeCostMultiplier]);
 
   // сколько уже стоит зданий каждой семьи (с учётом очереди — чтобы цена росла и для ещё не
   // выполненных, но уже поставленных в очередь построек той же семьи) — для buildPriceAt и лимитов
@@ -1241,7 +1276,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
               ))}
             </div>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {paletteFiltered.map(b => {
+              {<MapPanelWindow count={paletteFiltered.length}>{i => {
+                const b = paletteFiltered[i];
                 const k = familyCounts.get(familyId(b.id)) ?? 0;
                 const limitReached = b.limit != null && k >= b.limit;
                 const criteriaUnmet = !limitReached && isCriteriaUnmet(buildCriteria, b.id);
@@ -1254,17 +1290,17 @@ export function CityMapCity(props: CityMapCityProps = {}) {
                     sub={limitReached ? 'Построено' : criteriaUnmet ? criteriaReason(buildCriteria, b.id) : unaffordable ? 'построится, когда накопит' : undefined}
                     trail={limitReached || criteriaUnmet ? undefined : <Val color={unaffordable ? 'fg.muted' : 'fg.default'}><CoinValue value={fmtUp(price)} /></Val>} />
                 );
-              })}
+              }}</MapPanelWindow>}
             </Box>
           </Box>
           <PendingList labelFor={labelFor} rows={pendingRows} disabled={executing} onRemove={removeQueued} />
           {buildPlan.length > 0 && <>
             <Caption right={buildPlan.length}>Ждут монет</Caption>
-            {buildPlan.map(p => (
+            {<MapPanelWindow count={buildPlan.length}>{i => { const p = buildPlan[i]; return (
               <Row key={`${p.x},${p.y}`} lead={<Thumb id={p.family_id} size={36} bg="canvas.default" />} title={labelFor(p.family_id)}
                 sub={`${p.x},${p.y}`} fill={fillOf([[FILL_ATTENTION, 100]])}
                 trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Снять" onClick={() => removeDeferred(p.x, p.y)} />} />
-            ))}
+            ); }}</MapPanelWindow>}
           </>}
         </>
       )}

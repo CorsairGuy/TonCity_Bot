@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, startTransition, type DragEvent, type ReactNode } from 'react';
+import { memo, useState, useEffect, useMemo, useCallback, useRef, startTransition, type DragEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } from '@primer/react';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, DotFillIcon, PlusIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
@@ -11,6 +11,7 @@ import {
   MapPalette, MapBrushLevel, PanelShell, StatsPanel, WalletTop, type Wallet, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
   SWAP, LogPanel, ForecastPanel, QueuePanel, PendingList, DemolishPanel, ReconstructPanel, RenovatePanel, MasterplanBar, ItemIcon, Glyph, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
 } from './cityMapPanels';
+import { MapPanelWindow } from '../components/MapPanelWindow';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, type BuildingParam } from '../cityStats';
 import { LoadError } from '../components/LoadError';
@@ -50,6 +51,32 @@ function useStableMapRows<T extends object>(rows: T[]): T[] {
     return keys.length !== Object.keys(old[i]).length || keys.some(k => row[k] !== old[i][k]);
   })) previous.current = rows;
   return previous.current;
+}
+
+// Публикация модели редактора обновляет карту, но не должна заново рисовать его же сайдбар.
+const WorldCityEditor = memo(CityMapCity);
+const WorldMapPalette = memo(MapPalette);
+
+// Равные наборы клеток не должны сбрасывать кэши canvas при загрузке остатков/кнопок панели.
+function useStableMapSet<T>(value: Set<T> | null): Set<T> | null {
+  const previous = useRef(value), old = previous.current;
+  if (old !== value && (!old || !value || old.size !== value.size || [...value].some(k => !old.has(k)))) previous.current = value;
+  return previous.current;
+}
+
+// Просмотру хватает общего снимка; обновление города остаётся живым и возобновляемым.
+function SnapshotCityHead({ onUpdated, ...props }: Omit<Parameters<typeof CityHead>[0], 'refreshing' | 'onRefresh'> & { onUpdated: () => Promise<void> }) {
+  const [error, setError] = useState('');
+  const [refreshing, setRefreshing] = useResumableRefresh(`cityRefresh:${props.name}`, () => { void onUpdated(); });
+  const refresh = async () => {
+    setRefreshing(true); setError('');
+    try {
+      const result = await api.cityRefresh(props.name);
+      if (result.ok) await onUpdated();
+      else setError(result.error ?? 'Ошибка обновления');
+    } catch (e) { setError(String(e)); } finally { setRefreshing(false); }
+  };
+  return <><CityHead {...props} refreshing={refreshing} onRefresh={refresh} />{error && <Flash variant="danger">{error}</Flash>}</>;
 }
 
 // Страница «Города»: одна карта всех городов на движке карты города (CityActionsCanvas), без отдельной
@@ -104,12 +131,15 @@ export function CityWorld() {
   const [planDraft, setPlanDraft] = useState<GlobalUpgradeRule[] | null>(null);
   const plan = planDraft ?? globalPlan;
 
-  const load = useCallback(async () => {
+  const reloadSnapshot = useCallback(async () => {
     const d = await api.cityWorld();
-    if (d.ok) { setRows(d.rows); setOrder(d.order ?? []); setLoadErr(''); }
-    else setLoadErr(d.error || 'города не загрузились');
-    setLoaded(true);
+    if (!d.ok) throw new Error(d.error || 'города не загрузились');
+    startTransition(() => { setRows(d.rows); setOrder(d.order ?? []); setLoadErr(''); setLoaded(true); });
   }, []);
+  const load = useCallback(async () => {
+    try { await reloadSnapshot(); }
+    catch (e) { setLoadErr(String(e)); setLoaded(true); }
+  }, [reloadSnapshot]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     api.buildingsList('city').then(d => { if (d.ok) setCatalog(d.buildings); });
@@ -143,6 +173,7 @@ export function CityWorld() {
     api.saveConfig({ ui: { cityOrder: next } }).then(r => { if (!r.ok) showFlash('Порядок не сохранился', false); }).catch(() => showFlash('Порядок не сохранился', false));
   };
   const [drag, setDrag] = useState<number | null>(null);
+  const [panelGroupDrag, setPanelGroupDrag] = useState<number | null>(null);
   const reorderCity = (from: number, to: number) => {
     const list = cities.map(c => c.account);
     const [x] = list.splice(from, 1); list.splice(to, 0, x);
@@ -218,13 +249,17 @@ export function CityWorld() {
   const [warm, setWarm] = useState<string | null>(null);
   const mounted = useMemo(() => {
     const out = new Set<string>();
-    if (cur) out.add(cur);
+    // «Показатели» уже посчитаны из общего снимка: полный редактор и его запросы здесь лишние.
+    if (cur && (mode !== 'view' || !statsByCity.has(cur))) out.add(cur);
     for (const a of touched) out.add(a);
     // «Очередь» издалека: города с ручной очередью открыты (скрыто) — цены, перестановка и сохранение их кодом
     if (mode === 'queue' && !cur) for (const r of rows) if (r.queue.length) out.add(r.account);
     for (const [a, st] of Object.entries(states)) if (st.draft) out.add(a);
+    // onMap уже получил черновик, но родительский transition мог ещё не закоммититься.
+    // После смены вкладки ждём подтверждения чистого view от редактора перед его закрытием.
+    for (const [a, st] of Object.entries(latestStates.current)) if (st.draft || (mode === 'view' && st.mode !== 'view')) out.add(a);
     return [...out].filter(a => offOf.has(a));
-  }, [cur, touched, states, offOf, mode, rows]);
+  }, [cur, touched, states, offOf, mode, rows, statsByCity]);
   const mountedKey = mounted.join('|');
   activeRef.current = new Set(mounted);
   // город стал открытым (выбран, задет кистью) — его уже готовое состояние из предзагрузки идёт в карту сразу
@@ -233,7 +268,7 @@ export function CityWorld() {
     if (add.length) setStates(p => ({ ...p, ...Object.fromEntries(add.map(a => [a, latestStates.current[a]])) }));
   }, [mountedKey]);
   // предзагружаемый город только грузится: на карту и сводку его состояние не влияет, пока он не открыт
-  const withWarm = warm && offOf.has(warm) && !mounted.includes(warm) ? [...mounted, warm] : mounted;
+  const withWarm = mode !== 'view' && warm && offOf.has(warm) && !mounted.includes(warm) ? [...mounted, warm] : mounted;
   const withWarmKey = withWarm.join('|');
   // закрытый город больше не рисуется по своему старому состоянию
   useEffect(() => {
@@ -276,6 +311,7 @@ export function CityWorld() {
   const cityCenter = (account: string) => { const o = offOf.get(account); return o ? { cx: o.ox + SPAN / 2 - 0.5, cy: o.oy + SPAN / 2 - 0.5 } : null; };
   const lookAll = (animate: boolean) => { const f = fitTile(); setCamera({ gx: f.cx, gy: f.cy, tile: f.tile, key: ++camKey.current, animate }); };
   const flyTo = (account: string) => {
+    overviewFlight.current = false;
     const c = cityCenter(account);
     if (c) {
       cameraMoving.current = true;
@@ -288,7 +324,14 @@ export function CityWorld() {
   const flyRef = useRef(flyTo); flyRef.current = flyTo;
   const zoomedIn = () => { const v = viewRef.current; return !!v && SPAN * v.tile / v.W >= LEAVE_SHARE; };
   // «Все города»: снять выбор; если город был крупно — отъехать ко всем
-  const goAll = () => { clickedCity.current = null; choose(null, false); if (zoomedIn()) lookAll(true); };
+  const goAll = () => {
+    clickedCity.current = null; choose(null, false);
+    overviewFlight.current = zoomedIn();
+    if (overviewFlight.current) lookAll(true);
+  };
+  const goAllRef = useRef(goAll); goAllRef.current = goAll;
+  const editorBack = useCallback(() => goAllRef.current(), []);
+  const selectPanel = useCallback((m: PanelMode) => { setPanelCollapsed(false); setMode(m); }, []);
   // первая расстановка: город из адреса (?account=) крупно, иначе все города
   const placed = useRef(false);
   useEffect(() => {
@@ -307,15 +350,16 @@ export function CityWorld() {
   const viewTimer = useRef<ReturnType<typeof setTimeout>>();
   const cameraMoving = useRef(false);
   const clickedCity = useRef<string | null>(null);
-  const settleView = useRef<() => void>(() => {});
-  settleView.current = () => {
-    cameraMoving.current = false;
+  const overviewFlight = useRef(false);
+  const settleView = useRef<(idle?: boolean) => void>(() => {});
+  settleView.current = (idle = true) => {
+    if (idle) { cameraMoving.current = false; overviewFlight.current = false; }
     const v = viewRef.current;
     if (!v) return;
     const share = SPAN * v.tile / v.W;
     const zoomingOut = share < shareRef.current - 1e-6;
     shareRef.current = share;
-    if (share >= WARM_SHARE) {
+    if (modeRef.current !== 'view' && share >= WARM_SHARE) {
       const i = nearestCity(Math.round(v.cx), Math.round(v.cy));
       if (i >= 0) setWarm(cities[i].account);
     }
@@ -343,7 +387,9 @@ export function CityWorld() {
     viewRef.current = v;
     cameraMoving.current = true;
     clearTimeout(viewTimer.current);
-    // Ни загрузка следующей панели, ни её React commit не попадают в кадры свайпа/наезда.
+    // Готовые «Показатели» следуют за камерой сразу, без загрузки редактора и ожидания остановки.
+    // Остальные вкладки и завершение наезда по клику выбираются после покоя камеры.
+    if (modeRef.current === 'view' && !clickedCity.current && !overviewFlight.current) startTransition(() => settleView.current(false));
     viewTimer.current = setTimeout(() => settleView.current(), 140);
   }, []);
   useEffect(() => () => clearTimeout(viewTimer.current), []);
@@ -527,7 +573,7 @@ export function CityWorld() {
   // перемещение идёт внутри одного города: пока здание взято, остальные города гаснут и не принимают клики
   const movingCity = mode === 'move' ? cities.find(c => live(c.account)?.moving)?.account ?? null : null;
   movingRef.current = movingCity;
-  const mapSets = useMemo(() => {
+  const rawMapSets = useMemo(() => {
     const valid = new Set<string>(), picked = new Set<string>();
     for (const c of cities) {
       const st = live(c.account);
@@ -539,6 +585,12 @@ export function CityWorld() {
     if (focus && cur) shiftInto(focus, cur, curState!.focusSet);
     return { valid, picked, focus };
   }, [cities, live, rowSets, mode, buildFamily, curState, cur, offOf, movingCity, buildBlockedIn]);
+
+  const mapSets = {
+    valid: useStableMapSet(rawMapSets.valid)!,
+    picked: useStableMapSet(rawMapSets.picked)!,
+    focus: useStableMapSet(rawMapSets.focus),
+  };
 
   // заливки: отложенная стройка; в сводке — оттенок городов по логу/прогнозу
   const [hoverCity, setHoverCity] = useState<string | null>(null);
@@ -587,15 +639,17 @@ export function CityWorld() {
   // подсказка у курсора двигается напрямую, без перерисовки страницы
   const tipRef = useRef<HTMLDivElement>(null);
   const onMapMouse = (e: { clientX: number; clientY: number }) => {
+    // Скрытая строительная подсказка не должна принудительно считать layout на каждом свайпе.
+    if (mode !== 'build' || !buildHover || !buildFamily || !buildInfo.has(buildHover)) return;
     const el = tipRef.current, box = mapBoxRef.current; if (!el || !box) return;
     const r = box.getBoundingClientRect();
     el.style.transform = `translate(${e.clientX - r.left + 16}px, ${e.clientY - r.top + 16}px)`;
   };
   useEffect(() => {
-    if (!hoverCity) return;
+    if (!hoverCity || mode === 'view') return;
     const t = setTimeout(() => { if (!cameraMoving.current) setWarm(hoverCity); }, WARM_HOVER_MS);
     return () => clearTimeout(t);
-  }, [hoverCity]);
+  }, [hoverCity, mode]);
   const toLocal = (gx: number, gy: number) => {
     const i = cityAtCell(gx, gy);
     if (i < 0) return null;
@@ -736,11 +790,11 @@ export function CityWorld() {
   const openCity = (a: string) => { clickedCity.current = a; flyTo(a); };
   // наведение на строку списка тоже заранее грузит город — к клику он обычно уже готов
   const warmTimer = useRef<ReturnType<typeof setTimeout>>();
-  const warmSoon = (a: string | null) => { clearTimeout(warmTimer.current); if (a) warmTimer.current = setTimeout(() => { if (!cameraMoving.current) setWarm(a); }, WARM_HOVER_MS); };
+  const warmSoon = (a: string | null) => { clearTimeout(warmTimer.current); if (a && mode !== 'view') warmTimer.current = setTimeout(() => { if (!cameraMoving.current) setWarm(a); }, WARM_HOVER_MS); };
   useEffect(() => () => clearTimeout(warmTimer.current), []);
 
   // список городов: перетаскивание меняет порядок (только на «Показателях»)
-  const cityList = (list: CityWorldRow[], sub: (r: CityWorldRow) => string, trail: (r: CityWorldRow) => ReactNode, draggable = false) => list.map((r, i) => (
+  const cityList = (list: CityWorldRow[], sub: (r: CityWorldRow) => string, trail: (r: CityWorldRow) => ReactNode, draggable = false) => <MapPanelWindow count={list.length} pinned={draggable ? drag : null}>{i => { const r = list[i]; return (
     <Box key={r.account} draggable={draggable} onMouseEnter={() => warmSoon(r.account)} onMouseLeave={() => warmSoon(null)}
       onDragStart={draggable ? (e: DragEvent) => { setDrag(i); e.dataTransfer.effectAllowed = 'move'; } : undefined}
       onDragEnd={draggable ? () => setDrag(null) : undefined}
@@ -749,7 +803,7 @@ export function CityWorld() {
       sx={{ borderRadius: '12px', opacity: draggable && drag === i ? 0.5 : 1, cursor: draggable ? 'grab' : undefined }}>
       <Row lead={thumb(r)} title={r.account} sub={sub(r)} trail={trail(r)} onClick={() => openCity(r.account)} chevron />
     </Box>
-  ));
+  ); }}</MapPanelWindow>;
   // города с несохранёнными действиями: их черновики живут, пока не выполнены или не отменены
   const draftList = drafts.length > 0 && <>
     <Caption right={drafts.length}>Черновики</Caption>
@@ -775,14 +829,14 @@ export function CityWorld() {
         <div id="map-cat-tabs">
           {buildCats.map(c => <span key={c} className={'map-cat-tab' + (buildCat === c ? ' active' : '')} onClick={() => setCatFilter(c)}>{c}</span>)}
         </div>
-        {list.map(b => {
+        {<MapPanelWindow count={list.length}>{i => { const b = list[i];
           const f = familyId(b.id);
           const open = cities.filter(r => !famLimitHit(r, b.id));
           const price = open.length ? Math.min(...open.map(r => buildPriceAt(b, (live(r.account)?.buildings ?? r.buildings).filter(o => familyId(o.id) === f).length))) : 0;
           return <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={!open.length} onClick={() => setBuildFamily(b.id)}
             sub={!open.length ? 'Построено везде' : `в ${open.length} ${plural(open.length, 'городе', 'городах', 'городах')}`}
             trail={open.length ? <Val><CoinValue value={`от ${fmtUp(price)}`} /></Val> : undefined} />;
-        })}
+        }}</MapPanelWindow>}
       </Box>
     );
   })();
@@ -852,29 +906,33 @@ export function CityWorld() {
   const toolGroups = [...reconCities, ...renovCities].map(r => {
     const st = live(r.account)!, res = resources[r.account];
     const rest = st.pending.filter(p => p.kind !== mode);
-    return <Box key={r.account} sx={{ display: 'contents' }}>
+    const rows = (mode === 'reconstruct' ? st.recon.groups.reduce((n, g) => n + g.cells.filter(c => c.queued || c.planned).length, 0) : st.renov.items.filter(i => i.marked).length) + rest.length;
+    return { focusable: rest.length > 0 && !runAll && !st.executing, height: rows * 60 + (rest.length ? 2 : 1) * 28 - 8, content: <Box key={r.account} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Caption right={mode === 'reconstruct' ? res?.components ?? '' : res?.masterplans ?? ''}>{r.account}</Caption>
       {mode === 'reconstruct'
         ? <ReconstructPanel summary={false} groups={st.recon.groups} components={st.recon.components} disabled={!!runAll || st.executing} onToggle={st.onPick} />
         : <RenovatePanel summary={false} masterplans={st.renov.masterplans} items={st.renov.items} disabled={!!runAll || st.executing} onToggle={st.onPick} />}
       <PendingList caption={r.account} rows={rest} labelFor={labelFor} disabled={!!runAll || st.executing} onRemove={st.removePending} right={rest.length} />
-    </Box>;
+    </Box> };
   });
   const toolDone = new Set([...reconCities, ...renovCities].map(r => r.account));
   const pendingGroups = withPending.filter(r => !toolDone.has(r.account)).map(r => {
     const st = live(r.account)!;
     if (mode === 'demolish' && st.demolish.tiles.length) {
       const rest = st.pending.filter(p => p.kind !== 'demolish');
-      return <Box key={r.account} sx={{ display: 'contents' }}>
+      return { focusable: !runAll && !st.executing, height: (st.demolish.tiles.length + rest.length) * 60 + (rest.length ? 2 : 1) * 28 - 8, content: <Box key={r.account} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <Caption right={st.demolish.loss > 0 ? `−${fmt(st.demolish.loss)}/ч` : st.demolish.tiles.length}>{r.account}</Caption>
         <DemolishPanel summary={false} tiles={st.demolish.tiles} lossPerHour={st.demolish.loss} popLoss={st.demolish.pop} income={st.demolish.income} disabled={!!runAll || st.executing} onRemove={st.removePending} />
         <PendingList caption={r.account} rows={rest} labelFor={labelFor} disabled={!!runAll || st.executing} onRemove={st.removePending} right={rest.length} />
-      </Box>;
+      </Box> };
     }
     const builds = st.pending.filter(p => p.kind === 'build'), sum = builds.reduce((s, p) => s + (p.price ?? 0), 0);
-    return <PendingList key={r.account} caption={r.account} rows={st.pending} labelFor={labelFor} disabled={!!runAll || st.executing} onRemove={st.removePending}
-      right={builds.length ? (sum > st.balance ? <Text sx={{ color: 'attention.fg' }}>ждёт {fmt(sum - st.balance)}</Text> : `${fmt(sum)} из ${fmt(st.balance)}`) : st.pending.length} />;
+    return { focusable: !runAll && !st.executing, height: st.pending.length * 60 + 20, content: <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}><PendingList key={r.account} caption={r.account} rows={st.pending} labelFor={labelFor} disabled={!!runAll || st.executing} onRemove={st.removePending}
+      right={builds.length ? (sum > st.balance ? <Text sx={{ color: 'attention.fg' }}>ждёт {fmt(sum - st.balance)}</Text> : `${fmt(sum)} из ${fmt(st.balance)}`) : st.pending.length} /></Box> };
   });
+  // Окно групп ограничивает и число внутренних списков: размер DOM не растёт с числом городов.
+  const groupedPanels = (groups: { height: number; content: ReactNode; focusable?: boolean }[]) => groups.length > 0
+    ? <MapPanelWindow force focusable={i => groups[i].focusable !== false} count={groups.length} pinned={panelGroupDrag} rowHeight={i => groups[i].height}>{i => <Box onDragStartCapture={() => setPanelGroupDrag(i)} onDragEndCapture={() => setPanelGroupDrag(null)}>{groups[i].content}</Box>}</MapPanelWindow> : null;
   // все действия этой вкладки — её глагол и цвет, как на карте города
   const RUN_VERB: Partial<Record<CityActionMode, [string, 'primary' | 'danger' | 'accent']>> = {
     build: ['Построить', 'primary'], move: ['Переместить', 'accent'], demolish: ['Снести', 'danger'], reconstruct: ['Реконструировать', 'primary'], renovate: ['Реновировать', 'primary'],
@@ -964,12 +1022,12 @@ export function CityWorld() {
         <div id="map-cat-tabs">
           {buildCats.map(c => <span key={c} className={'map-cat-tab' + ((buildCats.includes(catFilter) ? catFilter : buildCats[0]) === c ? ' active' : '')} onClick={() => setCatFilter(c)}>{c}</span>)}
         </div>
-        {addList.map(b => {
+        {<MapPanelWindow count={addList.length}>{i => { const b = addList[i];
           const has = plan.find(r => r.family_id === b.id);
           return <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={!!has} unavailable={false}
             sub={has ? `в плане до ур. ${has.target_level}` : `до ур. ${Math.max(1, Math.floor(Number(addLevel)) || 1)}`}
             onClick={() => { const lvl = Math.max(1, Math.floor(Number(addLevel)) || 1); setPlanDraft(p => [...(p ?? globalPlan).filter(r => r.family_id !== b.id), { family_id: b.id, target_level: lvl }]); }} />;
-        })}
+        }}</MapPanelWindow>}
       </>}
       {rules.length > 0 && (
         <Summary tone="success">
@@ -981,7 +1039,7 @@ export function CityWorld() {
           <SumLine left={`${rules.length} ${plural(rules.length, 'правило', 'правила', 'правил')} · все города`} right={`строится ${buildingNow}`} />
         </Summary>
       )}
-      {rules.length === 0 ? (!planAdd && <Empty>Общий план пуст</Empty>) : rules.map(g => (
+      {rules.length === 0 ? (!planAdd && <Empty>Общий план пуст</Empty>) : <MapPanelWindow count={rules.length}>{i => { const g = rules[i]; return (
         <Row key={g.family_id} lead={<Thumb id={g.family_id} size={36} bg="canvas.default" />} title={labelFor(g.family_id)}
           sub={`до ур. ${g.target_level} · ${g.n} ${plural(g.n, 'здание', 'здания', 'зданий')}`} sx={SWAP}
           fill={g.n ? fillOf([[FILL_DONE, g.done / g.n * 100]]) : undefined}
@@ -989,7 +1047,7 @@ export function CityWorld() {
             <Box as="span" className="sw-v">{g.n && g.done >= g.n ? <Val><Octicon icon={CheckIcon} /></Val> : <Val><CoinValue value={fmtUp(g.cost)} /></Val>}</Box>
             <Box as="span" className="sw-x"><IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать из плана" onClick={() => setPlanDraft(p => (p ?? globalPlan).filter(r => r.family_id !== g.family_id))} /></Box>
           </>} />
-      ))}
+      ); }}</MapPanelWindow>}
     </>;
   } else if (mode === 'queue') {
     const groups = cities.filter(r => queueOf(r).length > 0);
@@ -1010,17 +1068,17 @@ export function CityWorld() {
           </Box>
           <SumLine left={`хватит на ${fit} из ${queueTotal}`} right="бюджет 80%" />
         </Summary>
-        {groups.map(r => {
+        {groupedPanels(groups.map(r => {
           const st = live(r.account), q = queueOf(r);
-          return (
-            <Box key={r.account} sx={{ display: 'contents' }}>
+          return { height: q.length * 60 + 20, content: (
+            <Box key={r.account} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Caption right={q.length}>{r.account}</Caption>
               <QueuePanel summary={false} queue={q} owned={st?.buildings ?? r.buildings} labelFor={labelFor} prices={st?.queuePrices ?? q.map(() => null)} balance={st?.balance ?? r.balance ?? 0}
                 onReorder={(from, to) => st?.editQueue(p => { const n = [...p]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; })}
                 onRemove={i => st?.editQueue(p => p.filter((_, k) => k !== i))} />
             </Box>
-          );
-        })}
+          ) };
+        }))}
       </>}
     </>;
   } else if (mode === 'boosters') {
@@ -1031,25 +1089,25 @@ export function CityWorld() {
     side = <>
       {boostersLoading && !list.length ? <Empty>Загрузка…</Empty> : list.length === 0 ? <Empty>Ускорителей на складах нет</Empty> : <>
         <Caption>На складе, все города</Caption>
-        {list.map(([name, n]) => {
+        {<MapPanelWindow count={list.length}>{i => { const [name, n] = list[i];
           const where = cities.filter(r => freeStock(r.account, name) > 0).length;
           return <Row key={name} lead={boosterCard(name, n || undefined, !n)} title={boosterLabel(name)}
             sub={where ? `в ${where} ${plural(where, 'городе', 'городах', 'городах')}` : 'всё уже в очередях'}
             fill={boosterPick === name ? fillOf([[FILL_WIP, 100]]) : undefined}
             onClick={() => setBoosterPick(p => p === name ? '' : name)} />;
-        })}
+        }}</MapPanelWindow>}
       </>}
       {boosterAdd.length > 0 && <Caption right={boosterAdd.length}>Ждут выполнения</Caption>}
-      {boosterAdd.map((b, i) => (
+      {<MapPanelWindow count={boosterAdd.length}>{i => { const b = boosterAdd[i]; return (
         <Row key={i} lead={boosterCard(b.name)} title={b.account} sub={boosterLabel(b.name)}
           trail={<IconButton size="small" variant="invisible" icon={XIcon} aria-label="Убрать" disabled={boosterSaving} onClick={() => setBoosterAdd(p => p.filter((_, k) => k !== i))} />} />
-      ))}
+      ); }}</MapPanelWindow>}
       {activeAll.length > 0 && <Caption right={activeAll.length}>Активны</Caption>}
-      {activeAll.map(b => (
+      {<MapPanelWindow count={activeAll.length}>{i => { const b = activeAll[i]; return (
         <Row key={`${b.account}:${b.name}`} lead={boosterCard(b.name)} title={b.account} bg="attention.subtle"
           sub={`${b.label || boosterLabel(b.name)} · ещё ${fmtTimeLeft(b.ends_at - Date.now())}`}
           trail={<Val mono color="attention.fg">{new Date(b.ends_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</Val>} />
-      ))}
+      ); }}</MapPanelWindow>}
     </>;
     headActions = <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Обновить склады" disabled={boostersLoading} onClick={loadBoosters} />;
   } else if (mode === 'forecast') {
@@ -1061,19 +1119,20 @@ export function CityWorld() {
     headActions = <IconButton size="small" variant="invisible" icon={SyncIcon} aria-label="Обновить лог" disabled={logLoading} onClick={loadLog} />;
   } else {
     const deferred = cities.filter(r => (r.buildPlan ?? []).length > 0);
+    const deferredRows = deferred.flatMap(r => r.buildPlan.map(p => ({ r, p })));
     side = <>
       {buildPicker}
       {demolishSummary}
       {reconSummary}
       {renovSummary}
-      {toolGroups}
-      {pendingGroups}
+      {groupedPanels(toolGroups)}
+      {groupedPanels(pendingGroups)}
       {mode === 'build' && deferred.length > 0 && <>
         <Caption right={deferred.reduce((s, r) => s + r.buildPlan.length, 0)}>Ждут монет</Caption>
-        {deferred.flatMap(r => r.buildPlan.map(p => (
+        {<MapPanelWindow count={deferredRows.length}>{i => { const { r, p } = deferredRows[i]; return (
           <Row key={`${r.account}:${p.x},${p.y}`} lead={<Thumb id={p.family_id} size={36} bg="canvas.default" />} title={labelFor(p.family_id)}
             sub={`${r.account} · ${p.x},${p.y}`} fill={fillOf([[FILL_ATTENTION, 100]])} onClick={() => openCity(r.account)} />
-        )))}
+        ); }}</MapPanelWindow>}
       </>}
     </>;
   }
@@ -1081,13 +1140,15 @@ export function CityWorld() {
   // данных вкладки ещё нет — шапка сайдбара остаётся, по центру спиннер
   const overviewBusy = !loaded && !loadErr || (mode === 'forecast' && forecastLoading) || (mode === 'log' && logLoading && !log.length)
     || (mode === 'boosters' && boostersLoading && !Object.keys(boosters).length);
-  const panelToggle = narrow
+  const panelToggle = useMemo(() => narrow
     ? <IconButton size="small" variant="invisible" icon={panelCollapsed ? ChevronUpIcon : ChevronDownIcon}
         aria-label={panelCollapsed ? 'Развернуть панель' : 'Свернуть панель'} onClick={() => setPanelCollapsed(v => !v)} />
-    : null;
+    : null, [narrow, panelCollapsed]);
   // точки на доке: у текущего города — его, в сводке — общий план, очереди и черновики всех городов
   const dots: Partial<Record<PanelMode, boolean>> = { upgrade: globalPlan.length > 0, queue: queueTotal > 0 };
   for (const a of mounted) for (const [k, v] of Object.entries(states[a]?.dots ?? {})) if (v) dots[k as PanelMode] = true;
+
+  const paletteDots = useMemo(() => dots, [JSON.stringify(dots)]);
 
   const mapEl = (
     <CityActionsCanvas
@@ -1109,7 +1170,7 @@ export function CityWorld() {
       minScale={minScale}
       camera={camera}
       onView={onView}
-      onCameraCancel={() => { clickedCity.current = null; }}
+      onCameraCancel={() => { clickedCity.current = null; overviewFlight.current = false; }}
       fills={fills}
       regions={regions}
       onTap={onTap}
@@ -1141,8 +1202,8 @@ export function CityWorld() {
           </>}
           {/* город ещё грузится: та же шапка по данным общего снимка; пришла шапка города — эта прячется */}
           {curRow && <Box sx={HIDE_WHEN_FILLED}>
-            <CityHead name={curRow.account} summary={`Зданий: ${curRow.buildings.length}${curRow.updated_at ? ` · Обновлено: ${new Date(curRow.updated_at).toLocaleString('ru')}` : ''}`}
-              narrow={narrow} onBack={goAll} dayNight={dayNight} onDayNight={setDayNight} />
+            <SnapshotCityHead key={curRow.account} name={curRow.account} summary={`Зданий: ${curRow.buildings.length}${curRow.updated_at ? ` · Обновлено: ${new Date(curRow.updated_at).toLocaleString('ru')}` : ''}`}
+              narrow={narrow} onBack={goAll} dayNight={dayNight} onDayNight={setDayNight} onUpdated={reloadSnapshot} />
           </Box>}
         </Box>
         <Box ref={mapBoxRef} onMouseMove={onMapMouse} sx={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
@@ -1174,7 +1235,7 @@ export function CityWorld() {
             pointerEvents: 'none', '& > *': { pointerEvents: 'auto' },
             '@media (max-width: 768px)': { display: 'flex', flexDirection: 'column-reverse', alignItems: 'center', gap: 2 },
           }}>
-            <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><MapPalette mode={panelMode} onSelect={m => { setPanelCollapsed(false); setMode(m); }} dots={dots} /></Box>
+            <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><WorldMapPalette mode={panelMode} onSelect={selectPanel} dots={paletteDots} /></Box>
             {/* уровень кисти «Плана» — общий для всех городов, виден и без текущего города */}
             <Box ref={setDockEl} sx={{ gridColumn: 3, justifySelf: 'start', '&:empty': { display: 'none' } }}>
               {!cur && mode === 'upgrade' && <MapBrushLevel value={Math.max(1, Math.floor(Number(addLevel)) || 1)} onChange={v => setAddLevel(String(v))} />}
@@ -1206,7 +1267,7 @@ export function CityWorld() {
         </Box>
       </Box>
       {withWarm.map(a => (
-        <CityMapCity key={a} account={a} mode={mode} onModeChange={setMode} onBack={goAll} hidden={a !== cur} tool={tool}
+        <WorldCityEditor key={a} account={a} mode={mode} onModeChange={setMode} onBack={editorBack} hidden={a !== cur} tool={tool}
           slots={slots} onMap={onMap} dayNight={dayNight} onDayNight={setDayNight} panelActions={panelToggle} />
       ))}
     </Box>

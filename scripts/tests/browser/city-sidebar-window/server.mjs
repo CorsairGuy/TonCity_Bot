@@ -1,0 +1,11 @@
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+const here=path.dirname(fileURLToPath(import.meta.url));
+const repo=process.env.CITY_REPO || path.resolve(here,'../../../..');
+const client=path.join(repo,'src/web/client');
+const {createServer}=await import(pathToFileURL(path.join(client,'node_modules/vite/dist/node/index.js')));
+const {default:react}=await import(pathToFileURL(path.join(client,'node_modules/@vitejs/plugin-react/dist/index.js')));
+const {dependencies}=JSON.parse(await (await import('node:fs/promises')).readFile(path.join(client,'package.json'),'utf8'));
+const aliases=Object.keys(dependencies).map(find=>({find,replacement:path.join(client,'node_modules',find)}));
+const server=await createServer({configFile:false,root:here,plugins:[react()],resolve:{alias:[{find:'/client',replacement:path.join(client,'src')},...aliases]},server:{host:'127.0.0.1',port:Number(process.env.PORT||5200),strictPort:true,fs:{allow:[here,repo]}}});
+await server.listen(); console.log('City sidebar fixture: '+server.resolvedUrls.local[0]);
