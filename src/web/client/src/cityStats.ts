@@ -6,6 +6,12 @@ import type { CityStats, MapBuilding, ServiceCat } from './api';
 
 export interface BuildingParam {
   id: string;
+  district?: string | null;
+  construction_increment?: number | null;
+  max_construction_seconds?: number | null;
+  required_lvl?: number | null;
+  components_required?: number | null;
+  masterplans_to_get?: number | null;
   category: string;
   service_category: string | null;
   base_profit: number | null;
@@ -29,6 +35,13 @@ const familyId = (id: string) => id.replace(/_\d+_star\.png$/i, '.png');
 // все три сразу) и часто своя цена улучшения, отличная и от общей, и от чужих исключений.
 interface BuildingOverride { population?: (b: number, n: number) => number; profit?: (b: number, n: number) => number; coverage?: (b: number, n: number) => number; upgradePrice?: (b: number, n: number) => number }
 const BUILDING_OVERRIDES: Record<string, BuildingOverride> = {
+  'RES_rootweave.png': { population: (b, n) => b * Math.pow(n, 0.67), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'RES_bough_towers.png': { population: (b, n) => b * Math.pow(n, 0.67), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'RES_worldtree.png': { population: (b, n) => b * Math.pow(n, 0.67), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'COM_bloom_market.png': { profit: (b, n) => b * Math.pow(n, 1.1), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'COM_amber_vault.png': { profit: (b, n) => b * Math.pow(n, 1.1), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'COM_eden_consortium.png': { profit: (b, n) => b * Math.pow(n, 1.1), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'SER_heartwood.png': { coverage: (b, n) => b * Math.pow(n, 0.67), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
   'COM_grand_arcanum_2_star.png': { profit: (b, n) => b * Math.pow(n, 1.11), upgradePrice: (b, n) => n <= 4 ? b * Math.exp(0.45 * n) : b * Math.exp(0.48 * n) },
   'COM_grand_arcanum_3_star.png': { profit: (b, n) => b * Math.pow(n, 1.07), upgradePrice: (b, n) => b * Math.exp(0.52 * n) },
   'COM_startup_hub_3_star.png': { profit: (b, n) => b * Math.pow(n, 1.15), upgradePrice: (b, n) => n <= 5 ? b * Math.exp(0.46 * n) : b * Math.exp(0.49 * n) },
@@ -92,6 +105,29 @@ function upgradeCostTo(o: BuildingParam, target: number): number {
   let sum = 0;
   for (let s = 1; s < target; s++) sum += upgradeStep(o, s);
   return sum;
+}
+
+// TON City 2.5: суммы зависят от завершённого уровня каждой клетки, а не только типа.
+export function reconstructYieldAt(info: Pick<BuildingParam, 'masterplans_to_get' | 'components_required' | 'required_lvl' | 'star_lvl'>, level: number): { masterplans: number; components: number } {
+  const masterplans = info.masterplans_to_get ?? 0, components = info.components_required ?? 0;
+  if (masterplans <= 0) return { masterplans: 0, components };
+  const extra = Math.max(0, level - (info.required_lvl ?? 0));
+  const payout = masterplans + Math.floor(extra / 2);
+  return { masterplans: payout, components: Math.floor(components * payout / masterplans) };
+}
+export function renovationComponentsAt(info: Pick<BuildingParam, 'masterplans_to_get' | 'components_required' | 'required_lvl' | 'star_lvl'>, level: number): number {
+  const multiplier = info.star_lvl == null ? 1 : info.star_lvl === 1 ? 3 : info.star_lvl === 2 ? 10 : 0;
+  return Math.max(0, level - (info.required_lvl ?? 0)) * multiplier;
+}
+
+// Совместимый fallback для старого каталога; явный лимит здания всегда важнее.
+export function upgradeDuration(info: Pick<BuildingParam, 'construction_increment' | 'max_construction_seconds'>, level: number, nowMs = Date.now()): number {
+  const inc = info.construction_increment || 0;
+  if (!inc) return 0;
+  const legacyCap = nowMs >= Date.UTC(2026, 7, 10) && nowMs < Date.UTC(2026, 7, 24) ? 43200 : 86400;
+  const cap = info.max_construction_seconds && info.max_construction_seconds > 0 ? info.max_construction_seconds : legacyCap;
+  const capLevel = Math.floor(Math.log2(cap / inc)) + 2;
+  return level > capLevel ? cap : inc * Math.pow(2, level - 2);
 }
 
 // здание "в стройке" (b.end в будущем) даёт profit=0/population=0, ПОКА не завершится — не старый

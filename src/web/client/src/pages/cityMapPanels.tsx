@@ -735,18 +735,18 @@ export function DemolishPanel({ tiles, lossPerHour, popLoss, income, disabled, o
 // ── Реконструкция: группы по типу здания, внутри полосы уровней до нужного ──
 // Клетка готова — клик отмечает реконструкцию сейчас (кнопка «Выполнить»), не готова — ставит в план:
 // бот сам отправит её, когда здание дорастёт и освободится от стройки.
-export interface ReconCell { x: number; y: number; level: number; req: number; building: boolean; ready: boolean; queued: boolean; planned: boolean }
+export interface ReconCell { x: number; y: number; level: number; req: number; building: boolean; ready: boolean; queued: boolean; planned: boolean; comp?: number | null; gain?: number | null; nextBonusLevel?: number }
 export interface ReconGroup { id: string; name: string; comp: number | null; gain: number | null; cells: ReconCell[] }
 export function ReconstructPanel({ groups, components, disabled, onToggle, summary = true }: { groups: ReconGroup[]; components: number; disabled: boolean; onToggle: (x: number, y: number) => void; summary?: boolean }) {
-  const cells = groups.flatMap(g => g.cells.map(c => ({ ...c, g })));
+  const cells = groups.flatMap(g => g.cells.map(c => ({ ...c, g, comp: c.comp ?? g.comp, gain: c.gain ?? g.gain })));
   const ready = cells.filter(c => c.ready).length;
   const queued = cells.filter(c => c.queued);
-  const spend = queued.reduce((s, c) => s + (c.g.comp ?? 0), 0), gain = queued.reduce((s, c) => s + (c.g.gain ?? 0), 0);
+  const spend = queued.reduce((s, c) => s + (c.comp ?? 0), 0), gain = queued.reduce((s, c) => s + (c.gain ?? 0), 0);
   if (groups.length === 0) return summary ? <Empty>В городе нет зданий, которые умеют реконструироваться.</Empty> : null;
   // в списке только выбранное кистью: отмеченное к выполнению сейчас и ждущее в плане нужного уровня
   const picked = cells.filter(c => c.queued || c.planned).sort((a, b) => Number(b.queued) - Number(a.queued) || b.level / b.req - a.level / a.req);
   let left = components;
-  const shortages = picked.map(c => c.g.comp != null && (left -= c.g.comp) < 0);
+  const shortages = picked.map(c => c.comp != null && (left -= c.comp) < 0);
   return (
     <>
       {summary && <Summary>
@@ -766,9 +766,9 @@ export function ReconstructPanel({ groups, components, disabled, onToggle, summa
         const short = shortages[i];
         return (
           <Row key={`${c.x},${c.y}`} lead={<Thumb id={c.g.id} size={36} bg="canvas.default" />} title={c.g.name}
-            sub={c.queued ? `готово · ${c.x},${c.y}` : `ур. ${c.level} из ${c.req} · ${c.x},${c.y}`}
+            sub={`${c.queued ? `ур. ${c.level}` : `ур. ${c.level} из ${c.req}`} · ${c.x},${c.y} · +${c.gain ?? "?"} МП${c.nextBonusLevel != null ? ` · следующий бонус ур. ${c.nextBonusLevel}` : ""}`}
             fill={c.queued ? fillOf([[FILL_RENOVATE, 100]]) : fillOf([[FILL_DONE, ca], [FILL_WIP, cb - ca]])}
-            trail={c.g.comp != null ? <ItemCard tag="component" count={c.g.comp} short={short} /> : undefined} />
+            trail={c.comp != null ? <ItemCard tag="component" count={c.comp} short={short} /> : undefined} />
         );
       }}</MapPanelWindow>}
     </>
@@ -776,7 +776,7 @@ export function ReconstructPanel({ groups, components, disabled, onToggle, summa
 }
 
 // ── Реновация: мастерпланы кубиками и плотный список с галочками ────────────
-export interface RenovItem { x: number; y: number; id: string; nextId: string; name: string; nextName: string; cost: number | null; marked: boolean }
+export interface RenovItem { x: number; y: number; id: string; nextId: string; name: string; nextName: string; cost: number | null; components?: number; marked: boolean }
 export function RenovatePanel({ masterplans, items, onToggle, disabled, summary = true }: {
   masterplans: number; disabled: boolean; summary?: boolean;
   items: RenovItem[];
@@ -789,13 +789,14 @@ export function RenovatePanel({ masterplans, items, onToggle, disabled, summary 
   return (
     <>
       {summary && <MasterplanBar masterplans={masterplans} used={used} />}
+      {summary && picked.length > 0 && <SumLine left="Компоненты от реновации" right={<Glyph tag="component" v={`+${picked.reduce((n, item) => n + (item.components ?? 0), 0)}`} />} />}
       {items.length === 0 ? (summary ? <Empty>Нет зданий, подходящих под реновацию</Empty> : null) : (
         <>
           {/* в списке только отмеченное на карте; мастерпланов не хватает — ярлык красный с того здания, где кончились */}
           {<MapPanelWindow count={picked.length}>{i => {
             const it = picked[i], short = shortages[i];
             return (
-              <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" />} title={it.nextName}
+              <Row key={`${it.x},${it.y}`} lead={<Thumb id={it.nextId} size={36} bg="canvas.default" />} title={it.nextName} sub={it.components != null ? `+${it.components} компонентов` : undefined}
                 fill={fillOf([[FILL_RENOVATE, 100]])}
                 trail={<ItemCard tag="masterplan" count={it.cost ?? '?'} short={short} />} />
             );

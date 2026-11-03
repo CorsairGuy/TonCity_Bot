@@ -1330,6 +1330,8 @@ export interface ForecastMods { reducedUpgradeTimes: number; constructionTimeMul
 export interface ForecastDiag { samples: number; median: number | null; spread: [number, number] | null }
 export interface BuildingDef {
   id: string;
+  district?: string | null;
+  max_construction_seconds?: number | null;
   category: string;
   service_category: string | null;
   is_purchasable: boolean;

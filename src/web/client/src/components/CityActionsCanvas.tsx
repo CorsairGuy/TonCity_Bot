@@ -1,3 +1,4 @@
+import { upgradeDuration } from '../cityStats';
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { Box } from '@primer/react';
 import type { MapBuilding, CityStrategyTarget, CityStrategyQueueItem, BuildingDef, GlobalUpgradeRule, MapSection } from '../api';
@@ -170,7 +171,8 @@ const EVENT_CAP_TO_MS = Date.UTC(2026, 7, 24);
 function upgradeTimeCapSec(nowMs = Date.now()): number {
   return (nowMs >= EVENT_CAP_FROM_MS && nowMs < EVENT_CAP_TO_MS) ? EVENT_UPGRADE_TIME_CAP_SEC : UPGRADE_TIME_CAP_SEC;
 }
-function upgradeDurationSec(incSec: number, level: number): number {
+function upgradeDurationSec(incSec: number, level: number, info?: BuildingDef): number {
+  if (info?.max_construction_seconds) return upgradeDuration(info, level);
   if (!incSec) return 0;
   const cap = upgradeTimeCapSec();
   const capLevel = Math.floor(Math.log2(cap / incSec)) + 2;
@@ -1359,7 +1361,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const bx = sx + TW / 2, by = sy + TH / 2;
       const endMs = b.end ? new Date(b.end).getTime() : 0;
       if (endMs > nowMs) {
-        const durationMs = b.start ? endMs - new Date(b.start).getTime() : upgradeDurationSec(s.catalog.find(c => c.id === b.id)?.construction_increment || 0, b.level || 1) * 1000;
+        const durationMs = b.start ? endMs - new Date(b.start).getTime() : upgradeDurationSec(s.catalog.find(c => c.id === b.id)?.construction_increment || 0, b.level || 1, s.catalog.find(c => c.id === b.id)) * 1000;
         const progress = durationMs > 0 ? Math.min(1, Math.max(0, 1 - (endMs - nowMs) / durationMs)) : 0;
         drawProgressBadge(ctx, bx, by, label, fsz, progress, fmtTimeLeft(endMs - nowMs), false);
       } else drawLevelBadge(ctx, bx, by, label, fsz);
@@ -1494,7 +1496,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           durationMs = endMs - new Date(b.start).getTime();
         } else {
           const info = s.catalog.find(c => c.id === b.id);
-          durationMs = upgradeDurationSec(info?.construction_increment || 0, b.level || 1) * 1000;
+          durationMs = upgradeDurationSec(info?.construction_increment || 0, b.level || 1, info) * 1000;
         }
         const progress = durationMs > 0 ? Math.min(1, Math.max(0, 1 - (endMs - nowMs) / durationMs)) : 0;
         const hovered = s.badgeHoverGx === b.x && s.badgeHoverGy === b.y;

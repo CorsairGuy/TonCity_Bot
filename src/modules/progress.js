@@ -7,8 +7,9 @@ const {sleep,fmt,withRetry}=require('../utils/helpers');
 const {isCityPaused}=require('../utils/botState');
 const {waitOrWake}=require('../utils/cityWake');
 const cityLive=require('../utils/cityLive');
-const {buildingsMap:cityBuildingsMap,upgradeStep,upgradeDuration,effectiveUpgradeDuration,computeCityStats}=require('../web/cityStats');
+const {buildingsMap:cityBuildingsMap,upgradeStep,upgradeDuration,effectiveUpgradeDuration,computeCityStats,reconstructYieldAt}=require('../web/cityStats');
 const {logAction,updateAction}=require('./cityActionLog');
+const{syncCityResources}=require('../utils/cityResources');
 
 // Прокачка города управляется пользовательскими целями со страницы "Города" → "Карта" (см.
 // web/routes/cityStrategy.js), в порядке приоритета:
@@ -541,6 +542,10 @@ async function runPendingReconstructions(api,name,current,buildingsMap){
     if(!info||!info.is_reconstructible||info.required_lvl==null){done.push(p);continue;} // больше не реконструируемо (напр. эволюционировало)
     const busy=b.end&&new Date(b.end).getTime()>now;
     if(busy||Number(b.level||0)<info.required_lvl)continue; // ещё не готово — строка просто остаётся ждать
+    const output=reconstructYieldAt(info,Number(b.level)||0);
+    let resources;
+    try{resources=await syncCityResources(api,name);}catch(e){logger.warn(`[${name}] [progress] склад реконструкции: ${e.message}`);break;}
+    if(resources.components<output.components)continue;
     const ok=await runProgressAction(name,`reconstruct ${b.id} at (${b.x},${b.y})`,async()=>{
       await sleep(1000);
       await api.post('/progress/',[{type:'reconstruct',id:b.id,x:b.x,y:b.y}]);
@@ -549,7 +554,8 @@ async function runPendingReconstructions(api,name,current,buildingsMap){
     if(ok){
       changed=true;
       done.push(p);
-      await logAction(name,'reconstruct',{x:b.x,y:b.y,building_id:b.id,level_from:Number(b.level||0)});
+      await logAction(name,'reconstruct',{x:b.x,y:b.y,building_id:b.id,level_from:Number(b.level||0),detail:JSON.stringify({components_spent:output.components,masterplans_gained:output.masterplans})});
+      await syncCityResources(api,name).catch(e=>logger.warn(`[${name}] [progress] ресурсы после реконструкции: ${e.message}`));
     }
     // не получилось (напр. не хватило components) — строку не трогаем, попробуем в следующий заход
   }

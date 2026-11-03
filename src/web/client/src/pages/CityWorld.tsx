@@ -880,9 +880,9 @@ export function CityWorld() {
     for (const r of cities) {
       const rs = rowSets.get(r.account);
       if (rs) { ready += rs.reconstructable.size; all += rs.reconstructPlannable.size; if (rs.reconstructable.size) readyCities++; }
-      comp += resources[r.account]?.components ?? 0;
+      comp += live(r.account)?.recon.components ?? resources[r.account]?.components ?? 0;
       for (const g of live(r.account)?.recon.groups ?? []) for (const c of g.cells) {
-        if (c.queued) { marked++; spend += g.comp ?? 0; gain += g.gain ?? 0; }
+        if (c.queued) { marked++; spend += c.comp ?? g.comp ?? 0; gain += c.gain ?? g.gain ?? 0; }
         if (c.planned) planned++;
       }
     }
@@ -897,7 +897,7 @@ export function CityWorld() {
       </Summary>
     );
   }
-  const mpAll = Object.values(resources).reduce((s, v) => s + v.masterplans, 0);
+  const mpAll = cities.reduce((s, r) => s + (live(r.account)?.renov.masterplans ?? resources[r.account]?.masterplans ?? 0), 0);
   const mpUsed = cities.reduce((s, r) => s + (live(r.account)?.renov.items.filter(i => i.marked).reduce((a, i) => a + (i.cost ?? 0), 0) ?? 0), 0);
   const renovSummary = mode === 'renovate' && <MasterplanBar masterplans={mpAll} used={mpUsed} />;
   // города с отмеченной реконструкцией (или реконструкцией в плане) и реновацией — их списки кодом карты города

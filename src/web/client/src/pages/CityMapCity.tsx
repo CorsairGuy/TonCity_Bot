@@ -14,7 +14,7 @@ import { DayNightMenu } from '../components/DayNightMenu';
 import type { DayNightMode } from '../components/mapNight';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
-import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
+import { upgradeStep, reconstructYieldAt, renovationComponentsAt, computeCityStats, type CityStatsMods } from '../cityStats';
 import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, CancelButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, type DemolishTile, type RenovItem, LogPanel, ForecastPanel, Empty, fmtTimeLeft, Caption, Row, Thumb, fillOf, FILL_ATTENTION, type PanelMode, type ReconGroup } from './cityMapPanels';
 import { useAsk } from '../hooks/useAsk';
 import { useNarrow } from '../hooks/useNarrow';
@@ -230,19 +230,21 @@ function applyQueue(owned: MapBuilding[], queue: PendingAction[], catalog: Build
   return list;
 }
 
-function actionLabel(a: PendingAction, labelFor: (id: string) => string, findInfoAt: (x: number, y: number) => BuildingDef | undefined): string {
+function actionLabel(a: PendingAction, labelFor: (id: string) => string, findInfoAt: (x: number, y: number) => BuildingDef | undefined, findLevelAt: (x: number, y: number) => number): string {
   if (a.kind === 'build') return `Строительство: ${labelFor(a.family_id)} (${a.x},${a.y})`;
   if (a.kind === 'move') return `Перемещение: (${a.from.x},${a.from.y}) → (${a.to.x},${a.to.y})`;
   if (a.kind === 'demolish') return `Снос: (${a.x},${a.y})`;
   if (a.kind === 'reconstruct') {
     const info = findInfoAt(a.x, a.y);
-    const cost = info?.components_required != null ? ` (−${info.components_required} компонентов` : '';
-    const reward = info?.masterplans_to_get != null ? `${cost ? ', ' : ' ('}+${info.masterplans_to_get} мастерпланов` : '';
+    const output = info ? reconstructYieldAt(info, findLevelAt(a.x, a.y)) : null;
+    const cost = output ? ` (−${output.components} компонентов` : '';
+    const reward = output ? `${cost ? ', ' : ' ('}+${output.masterplans} мастерпланов` : '';
     const suffix = cost || reward ? `${cost}${reward})` : '';
     return `Реконструкция: (${a.x},${a.y})${suffix}`;
   }
   const info = findInfoAt(a.x, a.y);
-  const cost = info?.masterplans_num != null ? ` (−${info.masterplans_num} мастерпланов)` : '';
+  const returned = info ? renovationComponentsAt(info, findLevelAt(a.x, a.y)) : 0;
+  const cost = info?.masterplans_num != null ? ` (−${info.masterplans_num} мастерпланов, +${returned} компонентов)` : '';
   return `Реновация: (${a.x},${a.y})${cost}`;
 }
 
@@ -964,7 +966,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     setExecuting(false);
     setProgress(null);
     if (!quiet) showFlash(`Выполнено: ${ok}${deferred ? `, ждут монет: ${deferred}` : ''}${fail ? `, ошибок: ${fail}${error ? ` (${error})` : ''}` : ''}`, fail === 0);
-    refreshMap();
+    refreshMap(); loadResources();
     // перемещение переносит координату цели улучшения вместе со зданием (см. cityStrategy.js) —
     // подтягиваем свежий список целей, чтобы бейдж "цур→цель" не остался на старой клетке
     api.cityStrategy(account).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setBuildPlan(t.buildPlan ?? []); } });
@@ -1092,7 +1094,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     if (!info?.is_renovatable || !info.next_id || info.required_lvl == null) return [];
     if ((Number(b.level) || 0) < info.required_lvl || underConstruction(b)) return [];
     const marked = queue.some(a => a.kind === 'renovate' && a.x === b.x && a.y === b.y);
-    return [{ x: b.x, y: b.y, id: b.id, nextId: info.next_id, name: nameWithStar(b.id), nextName: nameWithStar(info.next_id), cost: info.masterplans_num, marked }];
+    return [{ x: b.x, y: b.y, id: b.id, nextId: info.next_id, name: nameWithStar(b.id), nextName: nameWithStar(info.next_id), cost: info.masterplans_num, components: renovationComponentsAt(info, Number(b.level) || 0), marked }];
   });
   // реконструкция: все клетки, которые умеют реконструироваться, группами по типу здания;
   // уровень — реальный (во время стройки игра уже отдаёт целевой, realLevel = level−1)
@@ -1104,7 +1106,9 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       const building = underConstruction(b);
       const level = (Number(b.level) || 0) - (building ? 1 : 0);
       if (!m.has(b.id)) m.set(b.id, { id: b.id, name: nameWithStar(b.id), comp: info.components_required ?? null, gain: info.masterplans_to_get ?? null, cells: [] });
+      const output = reconstructYieldAt(info, level);
       m.get(b.id)!.cells.push({
+        comp: output.components, gain: output.masterplans, nextBonusLevel: info.required_lvl + (Math.floor(Math.max(0, level - info.required_lvl) / 2) + 1) * 2,
         x: b.x, y: b.y, level, req: info.required_lvl, building, ready: !building && level >= info.required_lvl,
         queued: queue.some(a => a.kind === 'reconstruct' && a.x === b.x && a.y === b.y),
         planned: reconstructPlan.some(p => p.x === b.x && p.y === b.y),
@@ -1119,7 +1123,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const pendingRows = queue.map(a => {
     const at = a.kind === 'move' ? a.from : a.kind === 'build' ? null : { x: a.x, y: a.y };
     const sprite = a.kind === 'build' ? a.family_id : at ? ownedAt(at.x, at.y)?.id : undefined;
-    return { id: a.id, kind: a.kind, label: actionLabel(a, labelFor, findInfoAt) + (overBudget.has(a.id) ? ' · когда накопит' : ''), sprite };
+    return { id: a.id, kind: a.kind, label: actionLabel(a, labelFor, findInfoAt, (x, y) => { const b = ownedAt(x, y); return b ? (Number(b.level) || 0) - (underConstruction(b) ? 1 : 0) : 0; }) + (overBudget.has(a.id) ? ' · когда накопит' : ''), sprite };
   });
   const pendingKinds = new Set(queue.map(a => a.kind));
   const dots: Partial<Record<PanelMode, boolean>> = {
