@@ -1,4 +1,4 @@
-import { D1_ISLAND_SPRITES, MAIN_ISLAND_SPRITES, d1IslandRects, mainIslandRects } from '../cityIsland';
+import { D1_ISLAND_SPRITES, MAIN_ISLAND_SPRITES, d1IslandRects, mainIslandRects, islandClipRect } from '../cityIsland';
 import { upgradeDuration } from '../cityStats';
 import type { CityDistrict } from '../cityDistricts';
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
@@ -664,7 +664,10 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
         const w = box.x1 - box.x0, h = box.y1 - box.y0;
         P.want.push([box.id, w]);
         P.items.push({ ...box, c, z: 0, draw: (ctx, r) => {
+          const clip = islandClipRect(box.core, ctx.getTransform());
+          ctx.save(); ctx.beginPath(); ctx.rect(clip.x0, clip.y0, clip.x1 - clip.x0, clip.y1 - clip.y0); ctx.clip();
           drawSprite(ctx, box.id, w, r, box.x0, box.y0, w, h);
+          ctx.restore();
         } });
       }
     };
