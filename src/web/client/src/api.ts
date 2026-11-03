@@ -870,9 +870,9 @@ export interface TechFactoryTier {
   fee_crystals: number;
   inputs: TechFactoryItemStack[];
   output: TechFactoryItemStack;
-  used: number;
-  limit_count: number;
-  limit_window: 'day' | 'week' | string;
+  // Нормализуется сервером для новых ответов и старых сохранённых снимков.
+  limit: { used: number; count: number; window: string | null } | null;
+  limit_available: boolean;
   upgrade_crystals?: number; // цена разблокировки ЭТОГО тира (присутствует, пока tier не unlocked)
 }
 export interface TechFactoryMachine {

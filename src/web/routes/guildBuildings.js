@@ -1,5 +1,6 @@
 'use strict';
 const logger=require('../../utils/logger');
+const{normalizeTechFactoryCategories}=require('../../utils/techFactoryLimits');
 
 // Технологическая фабрика и Вечный аудиториум — спецздания ГИЛЬДИИ (строятся в общей Столице,
 // см. dashboards.js /api/special-buildings), но сами действия (overview/contribute/start/claim,
@@ -80,7 +81,7 @@ module.exports=function(app,ctx){
       res.json({
         ok:true,
         renown_balance:row.renown_balance,
-        categories:row.categories?JSON.parse(row.categories):[],
+        categories:normalizeTechFactoryCategories(row.categories?JSON.parse(row.categories):[]),
         job:row.job?JSON.parse(row.job):null,
         in_guild:!!row.is_member,
         has_factory:!!row.has_factory,

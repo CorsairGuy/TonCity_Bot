@@ -3,6 +3,7 @@ const logger=require('../utils/logger');
 const {sleep}=require('../utils/helpers');
 const {waitOrWake}=require('../utils/cityWake');
 const accountLoops=require('../utils/accountLoops');
+const{normalizeTechFactoryCategories}=require('../utils/techFactoryLimits');
 
 // Технологическая фабрика и Вечный аудиториум — спецздания ГИЛЬДИИ (строятся в общей Столице,
 // см. web/routes/dashboards.js /api/special-buildings), сами действия (overview/status) —
@@ -28,6 +29,7 @@ async function runTechFactory(api,name){
     // напрямую и смотрим на её же ответ.
     const d=await api.get('/tech-factory/overview');
     if(!d)return;
+    d.categories=normalizeTechFactoryCategories(d.categories);
     // 13.10.2026: имена полей сверены с ЖИВЫМ ответом игры (сохранился в логе до чистки
     // temp-дампа) — is_member/can_upgrade были неверной догадкой по статике бандла, реальные поля
     // другие (in_guild/can_spend_guild_crystals и т.д., см. db/index.js TechFactoryStatus)
@@ -112,8 +114,8 @@ async function runTechFactoryLoop(api,name,accountId){
         continue;
       }
       const{tier}=findTier(d.categories,next.machine_id,next.level);
-      if(!tier||!tier.unlocked||(tier.used??0)>=(tier.limit_count??Infinity)){
-        logger.warn(`[${name}] [tech-factory-loop] ${next.machine_id} ур.${next.level} недоступен (заблокирован или лимит ${tier?.used}/${tier?.limit_count}) — убираю из очереди`);
+      if(!tier||!tier.unlocked||!tier.limit_available){
+        logger.warn(`[${name}] [tech-factory-loop] ${next.machine_id} ур.${next.level} недоступен (заблокирован или лимит ${tier?.limit?`${tier.limit.used}/${tier.limit.count}`:'без лимита'}) — убираю из очереди`);
         await next.destroy();
         continue;
       }

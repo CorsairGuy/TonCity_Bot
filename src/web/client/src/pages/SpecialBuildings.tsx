@@ -129,7 +129,7 @@ function ItemChip({ itemId, quantity, size = 44 }: { itemId: number; quantity: n
 // пока job активен, а "В очередь" доступно всегда — её разбирает фоновый цикл
 // (modules/guildBuildings.js runTechFactoryLoop) сам, по мере освобождения станка.
 function MachineCard({ machine, jobActive, onClick }: { machine: TechFactoryMachine; jobActive: boolean; onClick: () => void }) {
-  const hasReady = (machine.tiers ?? []).some(t => t.unlocked && (t.used ?? 0) < (t.limit_count ?? Infinity));
+  const hasReady = (machine.tiers ?? []).some(t => t.unlocked && t.limit_available);
   return (
     <Tooltip text={loc(machine.name)} direction="n" noDelay>
       <div className="item-card clickable" aria-label={loc(machine.name)} onClick={onClick}>
@@ -150,7 +150,7 @@ function TierDetail({ accountId, machine, tier, jobActive, canUpgrade, guildCrys
   const [starting, setStarting] = useState(false);
   const [queuing, setQueuing] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
-  const limited = tier.unlocked && (tier.used ?? 0) >= (tier.limit_count ?? Infinity);
+  const limited = tier.unlocked && !tier.limit_available;
 
   const start = async () => {
     setStarting(true);
@@ -201,7 +201,7 @@ function TierDetail({ accountId, machine, tier, jobActive, canUpgrade, guildCrys
         {tier.output && <ItemChip itemId={tier.output.item_id} quantity={tier.output.quantity} size={52} />}
       </Box>
       <Text sx={{ fontSize: 1, color: 'fg.muted', display: 'block', textAlign: 'center', mb: 3 }}>
-        {Math.round(tier.duration_seconds / 60)} мин{tier.fee_crystals > 0 ? ` · 💎${tier.fee_crystals}` : ''} · {tier.used}/{tier.limit_count} {tier.limit_window === 'week' ? 'в неделю' : 'в день'}
+        {Math.round(tier.duration_seconds / 60)} мин{tier.fee_crystals > 0 ? ` · 💎${tier.fee_crystals}` : ''} · {tier.limit ? `${tier.limit.used}/${tier.limit.count} ${tier.limit.window === 'week' ? 'в неделю' : tier.limit.window === 'day' ? 'в день' : tier.limit.window ?? ''}` : 'без лимита'}
       </Text>
       <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
         <Button variant="primary" loading={starting} disabled={limited || jobActive} onClick={start}>
