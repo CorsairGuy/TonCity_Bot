@@ -1,4 +1,4 @@
-import { buildingDistrict, canPurchaseCityBuilding, districtCoordsFor, inDistrict, type CityDistrict } from '../cityDistricts';
+import { buildingDistrict, districtCoordsFor, inDistrict, type CityDistrict } from '../cityDistricts';
 import { MapPanelWindow } from '../components/MapPanelWindow';
 import { useState, useEffect, useMemo, useCallback, useRef, startTransition, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -160,11 +160,11 @@ function criteriaListFor(criteria: unknown, buildingId: string): BuildCriterion[
   if (!Array.isArray(arr)) return [];
   return arr.filter((c): c is BuildCriterion => !!c && typeof c === 'object' && (c as any).id === buildingId);
 }
-function isCriteriaUnmet(criteria: unknown, buildingId: string): boolean {
+export function isCriteriaUnmet(criteria: unknown, buildingId: string): boolean {
   return criteriaListFor(criteria, buildingId).some(c => c.criteria_met === false);
 }
 // человекочитаемая причина недоступности — берём первое невыполненное условие
-function criteriaReason(criteria: unknown, buildingId: string): string {
+export function criteriaReason(criteria: unknown, buildingId: string): string {
   const unmet = criteriaListFor(criteria, buildingId).find(c => c.criteria_met === false);
   if (!unmet) return 'Недоступно';
   if (unmet.type === 'population' && unmet.population) return `Нужно ${fmt(Math.ceil(unmet.population.population_required))} нас.`;
@@ -369,6 +369,7 @@ export interface CityMapState {
   pending: PendingView[];
   demolish: { tiles: DemolishTile[]; loss: number; pop: number; income: number };
   balance: number;
+  buildCriteria?: unknown;
   buildBlock: string | null;           // выбранное здание здесь не построить: причина (лимит, условие игры)
   buildMult: number;                   // множитель цены постройки (политики · гильдия)
   moving: boolean;                     // перемещение: здание взято, ждёт клетку «куда»
@@ -1045,7 +1046,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
 
   // палитра построимых зданий (Строительство) — поиск+категории, как в MapEditor.tsx
   const purchasable = useMemo(
-    () => buildingsCatalog.filter(b => buildingDistrict(b) === district && canPurchaseCityBuilding(b)),
+    () => buildingsCatalog.filter(b => buildingDistrict(b) === district && b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)),
     [buildingsCatalog, district],
   );
   const paletteFiltered = purchasable.filter(b => {
@@ -1183,11 +1184,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     onMapRef.current?.({
       account, district, buildings: displayBuildings, unlockedSections, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
       focusSet: mode === 'upgrade' ? planFocus : null, onPick: stablePick, onUnlockCell: stableUnlock, draft: draft || executing, dots: dotsKey ? JSON.parse(dotsKey) : {},
-      fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, buildBlock, buildMult: buildCostMultiplier, moving: !!moveFrom, executing,
+      fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, buildCriteria, buildBlock, buildMult: buildCostMultiplier, moving: !!moveFrom, executing,
       run: stableRun, removePending: stableRemove, cancelPending: stableCancel, cancelMove: stableCancelMove,
       queuePrices: JSON.parse(queuePricesKey), queueDirty: queueDirtyNow, editQueue: stableEditQueue, saveQueue: stableSaveQueue, resetQueue: stableResetQueue,
     });
-  }, [loading, account, district, displayBuildings, unlockedSections, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow, buildBlock, buildCostMultiplier]);
+  }, [loading, account, district, displayBuildings, unlockedSections, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow, buildCriteria, buildBlock, buildCostMultiplier]);
 
   if (props.hidden) return null;
   // во встроенном виде шапку и спиннер на время загрузки рисуют «Города» — свой лоадер не нужен

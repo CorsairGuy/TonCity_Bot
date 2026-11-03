@@ -75,7 +75,7 @@ module.exports=function(app,ctx){
     try{
       const{CitySnapshot,Account,GuildSnapshot,TownhallDiversity}=require('../../db/index');
       const plansMod=require('../../db/cityPlans');
-      const[snaps,accs,queues,builds,targets,guilds,divs]=await Promise.all([
+      const[snaps,accs,queues,builds,targets,guilds,divs,criteria]=await Promise.all([
         CitySnapshot.findAll({order:[['account','ASC']]}),
         Account.findAll({attributes:['name','balance','crystals','staked_coins','staked_crystals','profit','profit_final','population','population_final','happiness']}),
         plansMod.loadAllQueues(),
@@ -83,6 +83,7 @@ module.exports=function(app,ctx){
         plansMod.loadAllTargets(),
         GuildSnapshot.findAll({attributes:['account','benefits']}),
         TownhallDiversity.findAll({attributes:['account','income_bonus']}),
+        require('../../utils/cityLiveData').loadAllBuildCriteria(),
       ]);
       // для «Показателей» любого города без его загрузки: бонусы гильдии и разнообразия из снимков в БД
       const benefitsOf=new Map();
@@ -96,7 +97,7 @@ module.exports=function(app,ctx){
       const n=v=>{const x=Number(v);return isFinite(x)?x:0;};
       const rows=snaps.filter(r=>byName.has(r.account)).map(r=>{
         const a=byName.get(r.account);
-        return{account:r.account,buildings:r.buildings?JSON.parse(r.buildings):[],unlockedSections:r.unlocked_sections?JSON.parse(r.unlocked_sections):null,updated_at:r.updated_at,
+        return{buildCriteria:criteria.get(r.account)??null,account:r.account,buildings:r.buildings?JSON.parse(r.buildings):[],unlockedSections:r.unlocked_sections?JSON.parse(r.unlocked_sections):null,updated_at:r.updated_at,
           balance:n(a.balance),crystals:n(a.crystals),staked_coins:n(a.staked_coins),staked_crystals:n(a.staked_crystals),profit:n(a.profit),profit_final:n(a.profit_final),population:n(a.population),population_final:n(a.population_final),happiness:n(a.happiness),
           queue:queues[r.account]||[],targets:targets[r.account]||[],buildPlan:builds[r.account]||[],
           guild:(b=>({income_boost:n(b?.income_boost),building_purchases_discount:n(b?.building_purchases_discount),upgrades_discount:n(b?.upgrades_discount)}))(benefitsOf.get(r.account)),
