@@ -16,7 +16,7 @@ assert.equal(select(B).count,1);assert.equal(select(undefined).count,1);
 criteria.criteria[0].criteria_met=true;assert.equal(select(A).count,1);
 assert.equal(isCriteriaUnmet({criteria:[{id:'COM_genesis_labs.png',criteria_met:false}]},id),false);
 // Проверяем пакетное чтение сохранённых условий без игрового API.
-const liveCtx={module:{exports:{}},require:()=>({seq:{query:async()=>[[{account:'A',criteria:JSON.stringify(criteria)},{account:'B',criteria:'invalid'}]]}})};
+const liveCtx={module:{exports:{}},require:name=>name==='sequelize'?{QueryTypes:{SELECT:'SELECT'}}:{seq:{query:async()=>[{account:'A',criteria:JSON.stringify(criteria)},{account:'B',criteria:'invalid'}]}}};
 vm.runInNewContext(source('src/utils/cityLiveData.js'),liveCtx);
 liveCtx.module.exports.loadAllBuildCriteria().then(rows=>{
  assert.equal(rows.get('A').criteria[0].criteria_met,true);assert.equal(rows.has('B'),false);
