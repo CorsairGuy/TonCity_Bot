@@ -1,0 +1,104 @@
+{
+  "source": "https://game.toncity.io/assets/tiles/d1/island.json",
+  "sourceManifestSha256": "17a1996109c7b3c3f61dc6b6a34ce98f53392eb30754c67a9920047f90438026",
+  "decoder": "Original game Basis Universal transcoder, RGBA32 level 0",
+  "encoding": "WebP quality92, method6, 0.5x premultiplied-alpha LANCZOS; alpha verified lossless after resample",
+  "sources": [
+    {
+      "image": "d1_island_0_0709a317da4fb9c9c99629023c1f2ce6.ktx2",
+      "sha256": "3c308e790f797880c80403ff7657bc8cedecb18d1f4374b5eea60cfb3425254b",
+      "output": "island-0.webp",
+      "outputSha256": "2a731302fb7073fcd291420887b64f4e3003cb77745d2c3fcb86abdfe8540ee6",
+      "rgbaSha256": "497f9ee3f240427bb5bcaecdbfcbf9b07ce736b93295a4d2302e440fb697611b",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_1_2c298b6bb7bbe2870265ee94a970a35d.ktx2",
+      "sha256": "00af13db9b4f43e35da8f3972e93a4ab6e980d48dc1fb83a5ba536299fcb5bcd",
+      "output": "island-1.webp",
+      "outputSha256": "e091401798c6c70a781ca2e2e498e66d580a5b0916e0090a0258182b2ef55459",
+      "rgbaSha256": "0aa8e0d44febe8ef3bca0335371766066a3e3dd4256a5cf0b2b24308682b08e5",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_2_c162ae87d19e572f48c5829ad188c88a.ktx2",
+      "sha256": "59191122494e81ee3c1bf1cb1a2782d7e2efeaddba3119133123223e3d0a5930",
+      "output": "island-2.webp",
+      "outputSha256": "69e3646e7c8b5bd1ac455ef827095f039e22fb87ff173656a03ead761a6157e8",
+      "rgbaSha256": "73ff83caff3e57502b69c06f65f5107f6d3fec6c6c256d6127ecb75ba97b8b44",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_3_2f73781e444198196b5d91fa5fd4ef2c.ktx2",
+      "sha256": "54535bf1778f03abcc4d52f9ee8a0d7bf799dbc570352bcff375ec295639cd2e",
+      "output": "island-3.webp",
+      "outputSha256": "7feffc317f3003cc6041c36c1329fadda15957cfc127246f0fd06cab22eb8b41",
+      "rgbaSha256": "e36f101747a78f75ed8e8e8268f4f1fa7bdde9c484a5f5ba59e2d60fccba3f4e",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_4_fd1de5f23c19bc801008c87e230fd60a.ktx2",
+      "sha256": "3eee6785b79b22855f5c15b17c0223b15c6ed59dabd3e134343d886eead512ad",
+      "output": "island-4.webp",
+      "outputSha256": "69b2210d61b20a8b0ed9d898917d6dda1a6ff1466327a57958e030a0e59d9791",
+      "rgbaSha256": "95f290580987414b2946eec8889c0f4b6793b41ca7f732ec1a81a27b30c0204f",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_5_bd0080436c13a45abc38c3fb79b0e906.ktx2",
+      "sha256": "8603eebd79789ffb40193d92a1df24e54b7aa1a83e1a9e9d25a84f0f2dde3015",
+      "output": "island-5.webp",
+      "outputSha256": "e0a9cb68941e1cf4f7ce003f164b6fe77fc725140c429c114ac4be0c101fac16",
+      "rgbaSha256": "69cade8e60740f4864ad7b199379c6c40dfa4124c3a2a775c3f8b6fe57f66002",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_6_86b132b94ceab1420d3ffa0b14b70c9d.ktx2",
+      "sha256": "ac6940a6580c4dca7e7d5dcbdd9f6699a2d706763c7d2be65ccc47c6924bfb40",
+      "output": "island-6.webp",
+      "outputSha256": "6d2d8b50eeb54805fe9540d299cc255f02856d114b80832bb75a6027118cecef",
+      "rgbaSha256": "34b994760ce586100a5b2492e2a62aed1f7a496f962ba464f1969dc8073c540e",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_7_6c3568b93fcd7d3bcb7753ed40920ce6.ktx2",
+      "sha256": "af1154c0ef2b8030d717bb928c3fc110b9a238cc2632d4af47268dd3c0c1ef6b",
+      "output": "island-7.webp",
+      "outputSha256": "34ca4364520dd96c2dc792f07a468cffec3d68c69530efe70aa968ce5a460124",
+      "rgbaSha256": "9f6d08cb1832988a845189c29569054f6314c8377f2b0ce294b102f4a8718c6f",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_8_7f33f1cfdb5686f26213b677adbe353d.ktx2",
+      "sha256": "d4bfef0a7aa377720de4e35913666e6ca3fc0116e0ba4920a78ab37b2eb883a1",
+      "output": "island-8.webp",
+      "outputSha256": "cce6399110af93238dcc58354d1cf3dfae411b506c220d8518703886540935d6",
+      "rgbaSha256": "a2996d14d7a650b976ab04fc80521d077096568b40c694c7613434eaf8688d90",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_9_fb4c377cc031916fb188982d15654b9e.ktx2",
+      "sha256": "d58a70e8734254f094b4863c94e9219be2440606f66f90558f4ec1a1e2906631",
+      "output": "island-9.webp",
+      "outputSha256": "599ff29a3b17531aee1238dc82ca97c373ec93252193ffcdabe342da1f15cbfd",
+      "rgbaSha256": "565729ddaeb60e8c664cadda8d9aa009a75f838d54615548cd06c72f9030c2ce",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_10_5c410664829d224e11b2807055efc893.ktx2",
+      "sha256": "573f6dfa93606d33a96212ceca5d99b00628491bbcfc8f7b4c0672c43c027a48",
+      "output": "island-10.webp",
+      "outputSha256": "165b44fd9d4bb6a4e78e0db81e49e9fac26f849e1ac183db27b57be981753da1",
+      "rgbaSha256": "fd2d3c8a6327fd2941f588598305887cc4f6e305b58af467f4754b9cfe512aef",
+      "hasAlpha": true
+    },
+    {
+      "image": "d1_island_11_43bdd127644ed116af78f3424b0521ac.ktx2",
+      "sha256": "6118ff94d1ddf3a9c78d1457e503a37f1fba983eb9686db3583c23b50936760d",
+      "output": "island-11.webp",
+      "outputSha256": "fa5c277e5586059a619bde9a0ae714e7f2d2705bdace96b23da7bf70b6213b53",
+      "rgbaSha256": "8ebf0c39f030e0fd583ebf24cef9f2c0e99d1fc79f2995b05028c0a23494343e",
+      "hasAlpha": true
+    }
+  ]
+}

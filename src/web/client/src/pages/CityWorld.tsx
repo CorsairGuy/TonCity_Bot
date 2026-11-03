@@ -1,3 +1,4 @@
+import { mainIslandRects } from '../cityIsland';
 import { CITY_DISTRICTS, buildingDistrict, districtCoordsFor, districtRoadsFor, districtOf, districtOffset, projectDistrict, type CityDistrict } from '../cityDistricts';
 import { memo, useState, useEffect, useMemo, useCallback, useRef, startTransition, type DragEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -28,7 +29,7 @@ import cityRoadMapData from '../data/road-map.json';
 
 const COORDS = cityCoordsData as { x: number; y: number }[];
 const ROAD_MAP = cityRoadMapData as Record<string, { asset: string; big?: boolean }>;
-// города стоят сеткой на одной карте: SPAN клеток города (с дорогами и лесом), шаг STEP — 3 клетки зазора
+// Города стоят сеткой: 22 клетки земли и прежний зазор в 3 клетки.
 const SPAN = 22, STEP = 25;
 const TH_K = 434 / 753;
 // город шире этой доли экрана — сайдбар и шапка переходят к нему; уже LEAVE — обратно ко всем городам
@@ -308,6 +309,17 @@ export function CityWorld() {
   const boxSize = () => ({ W: mapBoxRef.current?.clientWidth || 1000, H: mapBoxRef.current?.clientHeight || 700 });
   const fitTile = () => {
     const { W, H } = boxSize(), rowsN = Math.max(1, Math.ceil(cities.length / cols));
+    if (district === 'main' && cities.length) {
+      // В обзор целиком входят и земля, и скалы, а не только ромб игровой сетки.
+      const boxes = mainIslandRects(0, 0, 1, TH_K);
+      const local = { x0: Math.min(-(SPAN - 1) / 2, ...boxes.map(b => b.x0)), x1: Math.max((SPAN + 1) / 2, ...boxes.map(b => b.x1)),
+        y0: -2, y1: Math.max(SPAN * TH_K, ...boxes.map(b => b.y1)) };
+      const all = [...offOf.values()].map(o => ({ x: (o.ox - o.oy) / 2, y: (o.ox + o.oy) * TH_K / 2 }));
+      const x0 = Math.min(...all.map(o => o.x + local.x0)), x1 = Math.max(...all.map(o => o.x + local.x1));
+      const y0 = Math.min(...all.map(o => o.y + local.y0)), y1 = Math.max(...all.map(o => o.y + local.y1));
+      const x = (x0 + x1) / 2, y = (y0 + y1) / 2;
+      return { tile: Math.max(2, Math.min(W / (x1 - x0), H / (y1 - y0)) * 0.92), cx: x + y / TH_K - 1, cy: -x + y / TH_K };
+    }
     const wc = (cols - 1) * STEP + SPAN, wr = (rowsN - 1) * STEP + SPAN, half = (wc + wr) / 2;
     return { tile: Math.max(2, Math.min(W / half, H / (half * TH_K + 3)) * 0.92), cx: wc / 2 - 0.5, cy: wr / 2 - 0.5 };
   };

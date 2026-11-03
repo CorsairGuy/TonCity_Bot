@@ -1,0 +1,134 @@
+{
+  "meta": {
+    "sourceSize": {
+      "w": 7772,
+      "h": 4930
+    },
+    "tileSize": 2048,
+    "cols": 4,
+    "rows": 3,
+    "sourceScale": 0.5
+  },
+  "tiles": [
+    {
+      "index": 0,
+      "x": 0,
+      "y": 0,
+      "w": 2048,
+      "h": 2048,
+      "image": "island-0.webp",
+      "textureW": 1024,
+      "textureH": 1024
+    },
+    {
+      "index": 1,
+      "x": 2048,
+      "y": 0,
+      "w": 2048,
+      "h": 2048,
+      "image": "island-1.webp",
+      "textureW": 1024,
+      "textureH": 1024
+    },
+    {
+      "index": 2,
+      "x": 4096,
+      "y": 0,
+      "w": 2048,
+      "h": 2048,
+      "image": "island-2.webp",
+      "textureW": 1024,
+      "textureH": 1024
+    },
+    {
+      "index": 3,
+      "x": 6144,
+      "y": 0,
+      "w": 1628,
+      "h": 2048,
+      "image": "island-3.webp",
+      "textureW": 814,
+      "textureH": 1024
+    },
+    {
+      "index": 4,
+      "x": 0,
+      "y": 2048,
+      "w": 2048,
+      "h": 2048,
+      "image": "island-4.webp",
+      "textureW": 1024,
+      "textureH": 1024
+    },
+    {
+      "index": 5,
+      "x": 2048,
+      "y": 2048,
+      "w": 2048,
+      "h": 2048,
+      "image": "island-5.webp",
+      "textureW": 1024,
+      "textureH": 1024
+    },
+    {
+      "index": 6,
+      "x": 4096,
+      "y": 2048,
+      "w": 2048,
+      "h": 2048,
+      "image": "island-6.webp",
+      "textureW": 1024,
+      "textureH": 1024
+    },
+    {
+      "index": 7,
+      "x": 6144,
+      "y": 2048,
+      "w": 1628,
+      "h": 2048,
+      "image": "island-7.webp",
+      "textureW": 814,
+      "textureH": 1024
+    },
+    {
+      "index": 8,
+      "x": 0,
+      "y": 4096,
+      "w": 2048,
+      "h": 834,
+      "image": "island-8.webp",
+      "textureW": 1024,
+      "textureH": 417
+    },
+    {
+      "index": 9,
+      "x": 2048,
+      "y": 4096,
+      "w": 2048,
+      "h": 834,
+      "image": "island-9.webp",
+      "textureW": 1024,
+      "textureH": 417
+    },
+    {
+      "index": 10,
+      "x": 4096,
+      "y": 4096,
+      "w": 2048,
+      "h": 834,
+      "image": "island-10.webp",
+      "textureW": 1024,
+      "textureH": 417
+    },
+    {
+      "index": 11,
+      "x": 6144,
+      "y": 4096,
+      "w": 1628,
+      "h": 834,
+      "image": "island-11.webp",
+      "textureW": 814,
+      "textureH": 417
+    }
+  ]
+}
