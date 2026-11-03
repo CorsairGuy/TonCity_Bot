@@ -161,6 +161,8 @@ export const api = {
 
   // guilds — server: {account, guild_id, guild_title, role, benefits, updated_at}
   guilds: () => req<{ ok: boolean; rows: GuildMembership[] }>('/api/guilds'),
+  guildFees: (accountId: number) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}`),
+  guildFeesPay: (accountId: number, state: GuildFeesState) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}/pay`, post({ expected_guild_id: state.guild_id, expected_amount: state.remaining, expected_currency: state.currency, expected_deadline: state.deadline })),
   guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[] }>('/api/guild-quests'),
   // живой перезапрос квестов по ВСЕМ аккаунтам (кнопка "Обновить"), в отличие от guildQuests(),
   // которая только читает снимок из БД
@@ -2304,3 +2306,14 @@ export interface ChampionshipOverview {
   squads: ChampionshipSquad[];
 }
 export interface ChampionshipReply { ok: boolean; data?: ChampionshipOverview | null; error?: string; needsRefresh?: boolean; resynced?: boolean }
+// Личный взнос по свежему ответу игры; deadline учитывает возраст снимка.
+export interface GuildFeeMember {
+  user_id?: number; first_name?: string; last_name?: string;
+  required: number; deposited: number; status: 'due' | 'paid' | 'exempt' | 'next_period' | string;
+}
+export interface GuildFeesState {
+  guild_id: string; guild_title: string;
+  fees: { current: { ends_in_seconds: number; terms: { currency: string; amount?: number } } | null; upcoming?: { terms?: { currency?: string; amount?: number } } | null; me: GuildFeeMember | null; members?: GuildFeeMember[] | null };
+  remaining: number | null; currency: string | null; deadline: number | null; payable: boolean;
+}
+export type GuildFeesResponse = { ok: boolean; error?: string; refresh_error?: string | null; paid_amount?: number; already?: boolean } & Partial<GuildFeesState>;

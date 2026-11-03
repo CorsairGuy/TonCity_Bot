@@ -2,12 +2,64 @@ import { useState, useEffect } from 'react';
 import { Box, Button, Checkbox, Flash, Label, Select, Text, TextInput, Spinner } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
-import { api, type GuildMembership, type GuildApplication, type GuildMember, type GuildSettings } from '../api';
+import { api, type GuildMembership, type GuildApplication, type GuildMember, type GuildSettings, type GuildFeesState } from '../api';
 import { fmt } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { PageHeader } from '../components/PageHeader';
 import { useAsk } from '../hooks/useAsk';
+
+const FEE_STATUS: Record<string, string> = { due: 'нужно оплатить', paid: 'оплачен', exempt: 'освобождён', next_period: 'со следующего периода' };
+function GuildFeesModal({ accountId, accountName, onClose }: { accountId: number; accountName: string; onClose: () => void }) {
+  const [data, setData] = useState<GuildFeesState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [note, setNote] = useState<{ msg: string; ok: boolean } | null>(null);
+  const ask = useAsk();
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await api.guildFees(accountId);
+      if (r.ok && r.fees) { setData(r as GuildFeesState); setNote(null); }
+      else { setData(null); setNote({ msg: r.error || 'Ошибка загрузки', ok: false }); }
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, [accountId]);
+  const pay = async () => {
+    if (!data?.payable || data.remaining == null) return;
+    const currency = data.currency === 'crystals' ? 'алмазов' : 'монет';
+    if (!await ask('Оплатить членский взнос?', `С аккаунта «${accountName}» в казну «${data.guild_title}» поступит ${fmt(data.remaining)} ${currency}. Оплачивается только оставшийся долг.`, { ok: 'Оплатить' })) return;
+    setBusy(true);
+    try {
+      const r = await api.guildFeesPay(accountId, data);
+      setData(r.fees ? r as GuildFeesState : null);
+      setNote({ msg: r.ok ? `Взнос оплачен.${r.refresh_error ? ' Не удалось обновить все данные — нажмите Обновить.' : ''}` : r.error || 'Ошибка оплаты', ok: r.ok });
+    } finally { setBusy(false); }
+  };
+  const me = data?.fees.me;
+  return <Dialog title={`Членский взнос · ${accountName}`} onClose={busy ? () => {} : onClose} width="large" position={{ narrow: 'bottom', regular: 'center' }}>
+    <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {note && <Flash variant={note.ok ? 'success' : 'danger'}>{note.msg}</Flash>}
+      {loading ? <Spinner /> : data && <>
+        <Text sx={{ fontWeight: 'semibold' }}>{data.guild_title}</Text>
+        {!data.fees.current ? <Text sx={{ color: 'fg.muted' }}>Текущего периода взносов нет</Text> : <>
+          <Text>Статус: {FEE_STATUS[me?.status ?? ''] ?? me?.status ?? 'нет данных'}</Text>
+          <Text>Внесено {fmt(me?.deposited ?? 0)} из {fmt(me?.required ?? 0)} {data.currency === 'crystals' ? 'алмазов' : 'монет'}</Text>
+          <Text>Остаток: {data.remaining == null ? 'нет данных' : fmt(data.remaining)}</Text>
+          {data.deadline != null && <Text sx={{ color: 'fg.muted' }}>Срок: {new Date(data.deadline).toLocaleString('ru')}</Text>}
+          <Button variant="primary" loading={busy} disabled={!data.payable || busy} onClick={pay}>Оплатить остаток</Button>
+        </>}
+        {data.fees.upcoming && <Text sx={{ color: 'fg.muted' }}>Следующий период: {fmt(data.fees.upcoming.terms?.amount ?? 0)} {data.fees.upcoming.terms?.currency === 'crystals' ? 'алмазов' : 'монет'}</Text>}
+        {!!data.fees.members?.length && <Table.Container><DataTable data={data.fees.members.map((m, i) => ({ ...m, rowId: i }))} columns={[
+          { header: 'Участник', field: 'rowId', rowHeader: true, renderCell: m => [m.first_name, m.last_name].filter(Boolean).join(' ') || `#${m.user_id ?? m.rowId}` },
+          { header: 'Внесено', field: 'deposited', renderCell: m => `${fmt(m.deposited)} / ${fmt(m.required)}` },
+          { header: 'Статус', field: 'status', renderCell: m => FEE_STATUS[m.status] ?? m.status },
+        ]} /></Table.Container>}
+      </>}
+      <Button disabled={loading || busy} onClick={load}>Обновить взнос</Button>
+    </Box>
+  </Dialog>;
+}
 
 // ── бафы гильдии (GET /guilds/benefits) ──────────────────────────────────────
 type GuildBenefits = {
@@ -332,6 +384,8 @@ function SettingsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
 
 export function Guilds() {
   const [rows, setRows] = useState<GuildMembership[]>([]);
+  const [feeAccount, setFeeAccount] = useState('');
+  const [feesOpen, setFeesOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:guilds', () => load());
   const [appsGuild, setAppsGuild] = useState<{ id: string; title: string } | null>(null);
@@ -417,6 +471,15 @@ export function Guilds() {
         </Button>
       </>} />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+
+      {rows.some(r => r.account_id != null) && <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+        <Text sx={{ fontWeight: 'semibold' }}>Членские взносы</Text>
+        <Select aria-label="Аккаунт для взноса" value={feeAccount || String(rows.find(r => r.account_id != null)?.account_id ?? '')} onChange={e => setFeeAccount(e.target.value)}>
+          {rows.filter(r => r.account_id != null).map(r => <Select.Option key={r.account_id!} value={String(r.account_id)}>{r.account} · {r.guild_title}</Select.Option>)}
+        </Select>
+        <Button onClick={() => setFeesOpen(true)}>Проверить взнос</Button>
+      </Box>}
+      {feesOpen && <GuildFeesModal key={feeAccount || String(rows.find(r => r.account_id != null)?.account_id)} accountId={Number(feeAccount || rows.find(r => r.account_id != null)?.account_id)} accountName={rows.find(r => String(r.account_id) === feeAccount)?.account || rows.find(r => r.account_id != null)?.account || ''} onClose={() => setFeesOpen(false)} />}
 
       {leaderGuilds.length === 0
         ? <Text sx={{ color: 'fg.muted' }}>Нет гильдий, где аккаунт — лидер</Text>

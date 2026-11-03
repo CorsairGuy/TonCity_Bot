@@ -7,6 +7,32 @@ const opRegistry=require('../lib/opRegistry');
 module.exports=function(app,ctx){
   const{apiForAcc,makeApiForAccount}=ctx;
 
+  // Взнос персональный: даже обычный участник видит и оплачивает только свой долг.
+  async function feeAccount(id){
+    const{Account}=require('../../db/index');
+    const accountId=Number(id);
+    if(!Number.isSafeInteger(accountId)||accountId<=0)throw Object.assign(new Error('Некорректный аккаунт'),{status:400});
+    const acc=await Account.findByPk(accountId);
+    if(!acc?.access_token||acc.access_token==='placeholder')throw Object.assign(new Error('Аккаунт не найден'),{status:404});
+    return acc;
+  }
+  app.get('/api/guild-fees/:accountId',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.params.accountId);
+      const data=await require('../../modules/guildFees').readGuildFees(apiForAcc(acc));
+      res.json({ok:true,...data});
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+  app.post('/api/guild-fees/:accountId/pay',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.params.accountId);
+      const result=await opRegistry.run(`guildFeesPay:${acc.id}`,()=>require('../../modules/guildFees').payGuildFees(apiForAcc(acc),req.body||{}));
+      const{progress,...data}=result;
+      if(progress)require('../../modules/session').saveStats(acc,acc.name,progress);
+      res.json(data);
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+
   // ── МИД live endpoints ───────────────────────────────────────────────────
   async function midApi(guildId){
     const{GuildSnapshot,Account}=require('../../db/index');
