@@ -4,6 +4,7 @@
 // проход) и кнопка «Обновить» на странице «Города»; бонусы гильдии (/guilds/benefits) лежат в
 // GuildSnapshot.benefits — их пишут квесты гильдии (capital.js) и та же кнопка.
 const{seq,GuildSnapshot}=require('../db/index');
+const{QueryTypes}=require('sequelize');
 
 async function syncBuildCriteria(api,name){
   const d=await api.get('/buildings/criteria');
@@ -12,13 +13,13 @@ async function syncBuildCriteria(api,name){
   return d;
 }
 async function loadBuildCriteria(name){
-  const[rows]=await seq.query('SELECT criteria FROM city_build_criteria WHERE account=?',{replacements:[name]});
+  const rows=await seq.query('SELECT criteria FROM city_build_criteria WHERE account=?',{replacements:[name],type:QueryTypes.SELECT});
   if(!rows.length||rows[0].criteria==null)return null;
   try{return JSON.parse(rows[0].criteria);}catch{return null;}
 }
 // Общая карта получает условия всех городов одним запросом к БД, без запросов в игру.
 async function loadAllBuildCriteria(){
-  const[rows]=await seq.query('SELECT account,criteria FROM city_build_criteria');
+  const rows=await seq.query('SELECT account,criteria FROM city_build_criteria',{type:QueryTypes.SELECT});
   const result=new Map();
   for(const row of rows){try{result.set(row.account,typeof row.criteria==='string'?JSON.parse(row.criteria):row.criteria);}catch{}}
   return result;
