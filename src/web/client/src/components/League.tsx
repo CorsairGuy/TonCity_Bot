@@ -6,24 +6,24 @@ import { fmt } from '../utils';
 
 // Лиги игры и общие кусочки страниц рейтинга («Величайшие мэры», «Лиги»).
 // Пороги — из бандла игры: лига мэра считается по населению (VU в entry), лига гильдии — по доходу
-// в час (W в chunks/leaderboard). Значение — верхняя граница лиги, у вечной её нет.
-export type League = 'wooden' | 'bronze' | 'silver' | 'golden' | 'platinum' | 'diamond' | 'quantum' | 'celestial' | 'limitless';
-export const LEAGUES: League[] = ['wooden', 'bronze', 'silver', 'golden', 'platinum', 'diamond', 'quantum', 'celestial', 'limitless'];
+// в час (W в chunks/leaderboard). Значение — верхняя граница лиги, у аномальной её нет.
+export type League = 'wooden' | 'bronze' | 'silver' | 'golden' | 'platinum' | 'diamond' | 'quantum' | 'celestial' | 'limitless' | 'anomaly';
+export const LEAGUES: League[] = ['wooden', 'bronze', 'silver', 'golden', 'platinum', 'diamond', 'quantum', 'celestial', 'limitless', 'anomaly'];
 export const LEAGUE_RU: Record<League, string> = {
   wooden: 'Деревянная', bronze: 'Бронзовая', silver: 'Серебряная', golden: 'Золотая', platinum: 'Платиновая',
-  diamond: 'Бриллиантовая', quantum: 'Квантовая', celestial: 'Небесная', limitless: 'Вечная',
+  diamond: 'Бриллиантовая', quantum: 'Квантовая', celestial: 'Небесная', limitless: 'Вечная', anomaly: 'Аномальная',
 };
 export const MAYOR_UP: Record<League, number> = {
-  wooden: 100, bronze: 1e3, silver: 1e4, golden: 5e4, platinum: 25e4, diamond: 1e6, quantum: 1e7, celestial: 1e8, limitless: Infinity,
+  wooden: 100, bronze: 1e3, silver: 1e4, golden: 5e4, platinum: 25e4, diamond: 1e6, quantum: 1e7, celestial: 1e8, limitless: 1e9, anomaly: Infinity,
 };
 export const GUILD_UP: Record<League, number> = {
-  wooden: 1e6, bronze: 1e7, silver: 1e8, golden: 1e9, platinum: 1e10, diamond: 1e11, quantum: 1e12, celestial: 1e13, limitless: Infinity,
+  wooden: 1e5, bronze: 1e6, silver: 1e7, golden: 1e8, platinum: 1e9, diamond: 1e10, quantum: 1e11, celestial: 1e12, limitless: 1e13, anomaly: Infinity,
 };
 export const isLeague = (l: unknown): l is League => LEAGUES.includes(l as League);
 // нижняя граница лиги = верхняя граница предыдущей
 export const leagueFrom = (l: League, up: Record<League, number>) => { const i = LEAGUES.indexOf(l); return i > 0 ? up[LEAGUES[i - 1]] : 0; };
 export const mayorLeague = (population: number | null): League | null =>
-  population == null ? null : LEAGUES.find(l => population < MAYOR_UP[l]) ?? 'limitless';
+  population == null ? null : LEAGUES.find(l => population < MAYOR_UP[l]) ?? 'anomaly';
 
 export function LeagueIcon({ league, size = 20 }: { league: League; size?: number }) {
   return <img src={`/leagues/${league}.png`} alt="" title={`${LEAGUE_RU[league]} лига`} style={{ height: size, width: 'auto', display: 'block', flexShrink: 0 }} />;

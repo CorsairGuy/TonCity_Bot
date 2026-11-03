@@ -754,8 +754,8 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
                     </Box>
                   </Box>
                   {c.win_chance != null && (
-                    <Label variant={c.win_chance >= 50 ? 'success' : 'danger'} sx={{ fontSize: 0 }}>
-                      Шанс победы: {Math.round(c.win_chance)}%
+                    <Label variant={(c.my_side === 'defender' ? 100 - c.win_chance : c.win_chance) >= 50 ? 'success' : 'danger'} sx={{ fontSize: 0 }}>
+                      Шанс победы: {Math.round(c.my_side === 'defender' ? 100 - c.win_chance : c.win_chance)}%
                     </Label>
                   )}
                 </Box>
