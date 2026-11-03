@@ -97,6 +97,7 @@ export const ITEMS_BY_ID: Record<number, { tag: string; name: string; scale: num
   35: { tag: 'blueprint_tome',          name: 'Чертёж',                        scale: 0.8 },
   36: { tag: 'reform_stone_epic',       name: 'Камень реформ (эпический)',     scale: 0.8 },
   37: { tag: 'reform_stone_legendary',  name: 'Камень реформ (легендарный)',   scale: 0.8 },
+  43: { tag: 'key', name: 'Ключ', scale: 0.8 },
   38: { tag: 'reform_stone_mythic',     name: 'Камень реформ (мифический)',    scale: 0.8 },
   31: { tag: 'policy_pack_rare',      name: 'Редкий набор политик',      scale: 0.5 },
   32: { tag: 'policy_pack_epic',      name: 'Эпический набор политик',   scale: 0.5 },
@@ -122,7 +123,7 @@ const RARITY_RANK: Record<string, number> = Object.fromEntries(RARITY_ORDER.map(
 // мифическая (см. комментарий у .ic-mythic в global.css), "winter" — редкость ВЫШЕ мифической.
 const TAG_RARITY_OVERRIDE: Record<string, string> = {
   basic: 'common', advanced: 'uncommon', elite: 'rare', premium: 'epic', ultimate: 'legendary',
-  eternal: 'mythic', winter: 'eternal', blueprint_tome: 'legendary',
+  eternal: 'mythic', winter: 'eternal', blueprint_tome: 'legendary', key: 'mythic',
 };
 export function rarityRankFromTag(tag: string): number {
   const override = TAG_RARITY_OVERRIDE[tag];
@@ -134,7 +135,7 @@ export function rarityRankFromTag(tag: string): number {
 // ящики (наборы-открывашки со случайной наградой): booster_pack id 6-11/15/40/41, наборы политик 31-34
 const CRATE_ITEM_IDS = new Set([6, 7, 8, 9, 10, 11, 15, 40, 41, 31, 32, 33, 34]);
 // материалы: компонент/мастерплан (технофабрика) + расходники (чертёж, камни реформ)
-const MATERIAL_ITEM_IDS = new Set([12, 13, 35, 36, 37, 38]);
+const MATERIAL_ITEM_IDS = new Set([12, 13, 35, 36, 37, 38, 43]);
 // ускорители прокачки города
 const BOOSTER_ITEM_IDS = new Set([0, 1, 2, 3, 4, 5, 39]);
 export function itemTypeGroupRank(id: number): number {

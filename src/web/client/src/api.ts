@@ -505,7 +505,7 @@ export const api = {
     req<{ ok: boolean; rows: MarketDealRow[] }>(`/api/market-deals?type=${type}`),
   marketDealsRefresh: (type: 'listings' | 'purchases' | 'sales') =>
     req<{ ok: boolean; results: { name: string; ok: boolean; count?: number; error?: string }[] }>('/api/market-deals/refresh', post({ type })),
-  marketOffers: (params: { categories?: string; rarities?: string; currencies?: string; market_types?: string; sort?: string; page?: number; page_size?: number }) =>
+  marketOffers: (params: { item_id?: number; categories?: string; rarities?: string; currencies?: string; market_types?: string; sort?: string; page?: number; page_size?: number }) =>
     req<{ ok: boolean; offers: MarketOffer[]; pagination: { page: number; page_size: number; total: number } }>(`/api/market/offers?${new URLSearchParams(
       Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)])
     ).toString()}`),
@@ -521,7 +521,7 @@ export const api = {
     req<{ ok: boolean; balances: { id: number; name: string; ton: number | null }[] }>('/api/market/ton-balances'),
   marketBuy: (offerId: number, accountIds: number[]) =>
     req<{ ok: boolean; results: { id: number; name: string; ok: boolean; error?: string }[] }>('/api/market/buy', post({ offer_id: offerId, account_ids: accountIds })),
-  marketAutoBuy: (p: { categories?: string; rarities?: string; currency: string; max_price: number; max_budget?: number; account_ids: number[] }) =>
+  marketAutoBuy: (p: { item_id?: number; categories?: string; rarities?: string; currency: string; max_price: number; max_budget?: number; account_ids: number[] }) =>
     req<{ ok: boolean; available: number; planned: number; spent: number; results: { offer_id: number; account_id: number; name: string; price: number; ok: boolean; error?: string }[] }>('/api/market/auto-buy', post(p)),
   // правила автопокупки (CRUD)
   marketAutobuyList: () => req<{ ok: boolean; rules: MarketAutobuyRule[] }>('/api/market/autobuy'),
