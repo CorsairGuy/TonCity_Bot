@@ -528,18 +528,28 @@ module.exports=function(app,ctx){
       const{from,to}=req.body||{};
       if(!from||!to)return res.status(400).json({ok:false,error:'from и to обязательны'});
       const acc=await findAccountByName(req.params.account);
-      const api=await makeApiForAccount(acc.id,{noLock:true});
-      const r=await api.post('/progress/',[{type:'move',x:Number(from.x),y:Number(from.y),to:{x:Number(to.x),y:Number(to.y)}}]);
-      await resyncSnapshot(api,acc.name);
-      if(r?.coins!==undefined){
+      return await require('../../utils/cityMutation').run(acc.name,async()=>{
+        const api=await makeApiForAccount(acc.id,{noLock:true});
+        require('../../utils/cityMutation').changed(acc.name);
         try{
-          // цель/очередь/план реконструкции привязаны к клетке — переезжают вместе со зданием
-          await require('../../db/cityPlans').moveCell(acc.name,{x:from.x,y:from.y},{x:to.x,y:to.y});
-        }catch(e){logger.warn(`[${acc.name}] [city-strategy] перенос цели при перемещении: ${e.message}`);}
-        await logAction(acc.name,'move',{x:Number(to.x),y:Number(to.y),from_x:Number(from.x),from_y:Number(from.y)});
-      }
-      require('../../utils/cityWake').wake(acc.name);
-      res.json({ok:r?.coins!==undefined});
+        const r=await api.post('/progress/',[{type:'move',x:Number(from.x),y:Number(from.y),to:{x:Number(to.x),y:Number(to.y)}}]);
+        if(r?.coins!==undefined){
+          // Переносим планы до сетевого resync: цикл не должен видеть старые цели на новой карте.
+          // Ошибку БД нельзя выдавать за успешный перенос. Повторный POST перемещения не выполняем.
+          try{
+            await require('../../db/cityPlans').moveCell(acc.name,{x:from.x,y:from.y},{x:to.x,y:to.y});
+          }catch(e){
+            await resyncSnapshot(api,acc.name);
+            logger.error(`[${acc.name}] [city-strategy] здание перемещено, планы не перенесены: ${e.message}`);
+            return res.status(500).json({ok:false,error:'Здание перемещено, но не удалось перенести цели и очередь. Проверьте план улучшений; не повторяйте перемещение.'});
+          }
+          await logAction(acc.name,'move',{x:Number(to.x),y:Number(to.y),from_x:Number(from.x),from_y:Number(from.y)});
+        }
+        await resyncSnapshot(api,acc.name);
+        require('../../utils/cityWake').wake(acc.name);
+        res.json({ok:r?.coins!==undefined});
+        }finally{require('../../utils/cityMutation').changed(acc.name);}
+      });
     }catch(e){res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});}
   });
 

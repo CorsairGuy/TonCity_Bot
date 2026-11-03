@@ -983,7 +983,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     refreshMap(); loadResources();
     // перемещение переносит координату цели улучшения вместе со зданием (см. cityStrategy.js) —
     // подтягиваем свежий список целей, чтобы бейдж "цур→цель" не остался на старой клетке
-    api.cityStrategy(account).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setBuildPlan(t.buildPlan ?? []); } });
+    api.cityStrategy(account).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setManualQueue(t.queue ?? []); setSavedManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); setBuildPlan(t.buildPlan ?? []); } });
     return { ok, fail, deferred, error };
   };
   const removeDeferred = async (x: number, y: number) => {
