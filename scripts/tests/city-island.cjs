@@ -66,8 +66,8 @@ assert(total<3_000_000);console.log(`PASS 23 runtime WebP: dimensions, alpha fla
 const world=fs.readFileSync(path.join(root,'src/web/client/src/pages/CityWorld.tsx'),'utf8');
 const fitSource=world.slice(world.indexOf('  const fitTile ='),world.indexOf('  const enterTile ='));
 for(const count of [1,4,7]){
- const cols=Math.ceil(Math.sqrt(count)),offOf=new Map(Array.from({length:count},(_,i)=>[String(i),{ox:i%cols*34,oy:Math.floor(i/cols)*34}]));
- const fctx={boxSize:()=>({W:1200,H:800}),cities:Array(count),cols,offOf,district:'main',STEP:34,SPAN:22,TH_K:434/753,mainIslandRects,Math};
+ const cols=Math.ceil(Math.sqrt(count)),offOf=new Map(Array.from({length:count},(_,i)=>[String(i),{ox:i%cols*25,oy:Math.floor(i/cols)*25}]));
+ const fctx={boxSize:()=>({W:1200,H:800}),cities:Array(count),cols,offOf,district:'main',STEP:25,SPAN:22,TH_K:434/753,mainIslandRects,Math};
  const fit=vm.runInNewContext(esbuild.transformSync(fitSource,{loader:'ts'}).code+';fitTile()',fctx);
  const centerX=(fit.cx-fit.cy+1)/2,centerY=(fit.cx+fit.cy+1)*434/753/2;
  for(const o of offOf.values())for(const r of mainIslandRects((o.ox-o.oy)/2,(o.ox+o.oy)*434/753/2,1,434/753)){

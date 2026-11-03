@@ -29,8 +29,8 @@ import cityRoadMapData from '../data/road-map.json';
 
 const COORDS = cityCoordsData as { x: number; y: number }[];
 const ROAD_MAP = cityRoadMapData as Record<string, { asset: string; big?: boolean }>;
-// Города стоят сеткой: 22 клетки земли; main требует зазора под скальную часть.
-const SPAN = 22;
+// Города стоят сеткой: 22 клетки земли и прежний зазор в 3 клетки.
+const SPAN = 22, STEP = 25;
 const TH_K = 434 / 753;
 // город шире этой доли экрана — сайдбар и шапка переходят к нему; уже LEAVE — обратно ко всем городам
 const ENTER_SHARE = 0.5, LEAVE_SHARE = 0.42;
@@ -114,7 +114,6 @@ export function CityWorld() {
   const narrow = useNarrow();
   const [params, setParams] = useSearchParams();
   const [district, setDistrict] = useState<CityDistrict>(() => params.get('district') === 'd1' ? 'd1' : 'main');
-  const STEP = district === 'main' ? 34 : 25;
   const COORDS = useMemo(() => districtCoordsFor(district).map(p => ({ ...p, x: p.x - districtOffset(district) })), [district]);
   const ROAD_MAP = useMemo(() => districtRoadsFor(district), [district]);
   const navigate = useNavigate();
@@ -195,13 +194,13 @@ export function CityWorld() {
 
   // ── раскладка: город i в общей сетке стоит со сдвигом (col·STEP, row·STEP) ──────────────────
   const cols = Math.max(1, Math.ceil(Math.sqrt(cities.length)));
-  const offOf = useMemo(() => new Map(cities.map((c, i) => [c.account, { i, ox: (i % cols) * STEP, oy: Math.floor(i / cols) * STEP }])), [cities, cols, STEP]);
+  const offOf = useMemo(() => new Map(cities.map((c, i) => [c.account, { i, ox: (i % cols) * STEP, oy: Math.floor(i / cols) * STEP }])), [cities, cols]);
   const cityAtCell = useCallback((gx: number, gy: number) => {
     const c = Math.floor(gx / STEP), r = Math.floor(gy / STEP);
     if (gx - c * STEP >= SPAN || gy - r * STEP >= SPAN || c < 0 || r < 0 || c >= cols) return -1;
     const i = r * cols + c;
     return i < cities.length ? i : -1;
-  }, [cols, cities.length, STEP]);
+  }, [cols, cities.length]);
   // ближайший город к клетке: зазор между городами делится пополам между соседями
   const nearestCity = useCallback((gx: number, gy: number) => {
     const gap = (STEP - SPAN) / 2, rowsN = Math.ceil(cities.length / cols);
@@ -209,7 +208,7 @@ export function CityWorld() {
     if (c < 0 || c >= cols || r < 0 || r >= rowsN || gx - c * STEP >= SPAN + gap || gy - r * STEP >= SPAN + gap) return -1;
     const i = r * cols + c;
     return i < cities.length ? i : -1;
-  }, [cols, cities.length, STEP]);
+  }, [cols, cities.length]);
   const layoutKey = district + cities.map(c => `${c.account}:${c.unlockedSections?.join(',') ?? '-'}`).join('|');
   const world = useMemo<WorldLayout>(() => {
     const coordsList: { x: number; y: number }[] = [], roadMap: WorldLayout['roadMap'] = {}, lockedCells = new Map<string, string>();
