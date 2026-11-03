@@ -349,6 +349,7 @@ export const api = {
   townhall: () => req<{ ok: boolean; accounts: TownhallAccount[] }>('/api/townhall'),
 
   // городской розыгрыш (civic_draw из /progress/diversity) — обновляется тем же api.refresh('townhall')
+  policyGrantClaim: (accountId: number, defId: string | number) => req<{ok:boolean; result?:unknown; error?:string}>(`/api/civic-draw/${accountId}/grants/claim`, post({def_id:defId})),
   civicDraw: () => req<{ ok: boolean; accounts: CivicDrawAccount[]; error?: string }>('/api/civic-draw'),
   civicDrawClaimAll: () =>
     req<{ ok: boolean; results?: { account: string; ok: boolean; result?: unknown; error?: string }[]; succeeded?: number; total?: number; error?: string }>(
@@ -1388,6 +1389,15 @@ export interface CivicDrawOdds {
   count: number;
 }
 
+export interface PolicyGrantStatus {
+  def_id: string | number;
+  kind: string;
+  reward: string | number;
+  amount: number;
+  ready: number;
+  next_in_seconds?: number | null;
+  ready_at: string | null;
+}
 export interface CivicDrawAccount {
   account_id: number;
   account: string;
@@ -1396,7 +1406,9 @@ export interface CivicDrawAccount {
   draw_progress: number | null;
   claimable: boolean;
   odds: CivicDrawOdds[];
-  ready_at: string | null; // линейный прогноз (см. modules/townhall.js), null если ставка неизвестна
+  ready_at: string | null; // абсолютный серверный срок либо fallback-прогноз
+  timer_source?: 'server' | 'forecast';
+  grants?: PolicyGrantStatus[];
   updated_at: string | null;
 }
 

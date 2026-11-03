@@ -23,41 +23,39 @@ async function runTownhall(api,name){
     logger.info(`[${name}] [townhall] score: ${airdrop?.allocation?Object.entries(airdrop.allocation).filter(([k,v])=>typeof v==='number'&&k!=='user_id').reduce((a,[,v])=>a+v,0).toFixed(2):'—'}, diversity: ${diversity?.score?.toFixed(1)||'—'}%`);
   }catch(e){logger.error(`[${name}] [townhall]: ${e.message}`);}
 }
-// Городской розыгрыш (civic_draw) — блок ответа /progress/diversity, отдельная таблица.
-// Поля (сверено с бандлом игры chunks/townhall-*, 16.10.2026): draws_ready, draw_progress (0..1),
-// draws_per_day, max_draws, at_cap, claimable, odds. Точного времени готовности игра не отдаёт.
+// Абсолютные сроки из ответа 2.5; null означает отсутствие точного таймера.
+function exactReadyAt(seconds,now){
+  const ms=now.getTime()+seconds*1000;
+  return typeof seconds==='number'&&Number.isFinite(seconds)&&seconds>=0&&Number.isFinite(ms)&&Math.abs(ms)<=8640000000000000?new Date(ms):null;
+}
+function normalizeGrants(grants,now=new Date()){
+  if(!Array.isArray(grants))return[];
+  return grants.filter(g=>g&&['string','number'].includes(typeof g.def_id)).map(g=>({...g,
+    ready:Number.isFinite(Number(g.ready))?Math.max(0,Number(g.ready)):0,amount:Number.isFinite(Number(g.amount))?Math.max(0,Number(g.amount)):0,
+    ready_at:exactReadyAt(g.next_in_seconds,now)?.toISOString()??null}));
+}
 async function saveCivicDraw(name,cd,now=new Date()){
-  // ready_at — линейный прогноз "когда будет готов следующий розыгрыш" (абсолютное время),
-  // считаем на КАЖДОМ синке из текущих draws_ready/draw_progress/draws_per_day. Сырой прогресс
-  // между снимками иногда чуть колеблется (не идеально монотонен) — поэтому НЕ даём прогнозу
-  // сдвигаться назад: берём максимум с уже сохранённым ready_at, кроме случая явного
-  // подтверждения готовности прямо сейчас (тогда доверяем игре безусловно).
-  const baseUnits=(cd.draws_ready??0)+(cd.draw_progress??0);
-  const rate=cd.draws_per_day??0;
-  // ГОТОВНОСТЬ — ТОЛЬКО claimable. Раньше было `baseUnits>=1||claimable`, и это давало вечный
-  // цикл: игра отдаёт draws_ready:1 при claimable:false (накоплено ≠ можно забрать), мы писали
-  // ready_at=now → страница показывала «готово: 1» и включала кнопку → claim → сервер видит
-  // claimable:false, отказывает и ресинкает снимок → снимок пишет ТО ЖЕ САМОЕ → кнопка снова
-  // активна. Накопленные draws_ready оставляем в снимке как есть (их показываем), но признаком
-  // готовности считаем исключительно флаг самой игры.
-  const readyNow=!!cd.claimable;
+  const baseUnits=(cd.draws_ready??0)+(cd.draw_progress??0),rate=cd.draws_per_day??0;
+  const exact=exactReadyAt(cd.next_draw_in_seconds,now);
+  const timerSource=exact?'server':'forecast';
   let readyAt=null;
-  if(readyNow){
-    readyAt=now;
-  }else{
-    // Время до СЛЕДУЮЩЕЙ единицы, а не до «первой». Раньше считалось (1-baseUnits)/rate — при
-    // уже накопленном розыгрыше (baseUnits>=1) это давало 0 или отрицательное, т.е. прогноз
-    // «готово прямо сейчас», хотя игра забрать не даёт. Берём дробную часть: сколько осталось
-    // добрать до ближайшего целого — прогноз остаётся рабочим и когда накопления уже есть.
+  if(cd.claimable)readyAt=now;
+  else if(exact)readyAt=exact;
+  else if(cd.next_draw_in_seconds===undefined){
+    // Совместимость со старым ответом: только прогноз защищаем от сдвига назад.
     const frac=baseUnits-Math.floor(baseUnits);
-    const newReadyAt=rate>0?new Date(now.getTime()+((1-frac)/rate)*86400000):null;
-    const prev=await CivicDrawStatus.findOne({where:{account:name},attributes:['ready_at']});
-    const prevReadyAt=prev?.ready_at?new Date(prev.ready_at):null;
-    readyAt=newReadyAt&&prevReadyAt?new Date(Math.max(newReadyAt.getTime(),prevReadyAt.getTime())):(newReadyAt??prevReadyAt);
+    const predicted=rate>0?new Date(now.getTime()+((1-frac)/rate)*86400000):null;
+    const prev=await CivicDrawStatus.findOne({where:{account:name},attributes:['ready_at','timer_source']});
+    const previous=prev?.timer_source!=='server'&&prev?.ready_at?new Date(prev.ready_at):null;
+    readyAt=predicted&&previous?new Date(Math.max(predicted.getTime(),previous.getTime())):(predicted??previous);
   }
-  await CivicDrawStatus.upsert({account:name,draws_per_day:cd.draws_per_day??null,draws_ready:cd.draws_ready??null,draw_progress:cd.draw_progress??null,claimable:!!cd.claimable,odds:JSON.stringify(cd.odds||[]),max_draws:cd.max_draws??null,at_cap:!!cd.at_cap,ready_at:readyAt,updated_at:now},{conflictFields:['account']});
-  // цикл автосбора (modules/civicDrawAuto.js) пересчитывает свой будильник по свежему снимку
+  const grants=normalizeGrants(cd.grants,now);
+  await CivicDrawStatus.upsert({account:name,draws_per_day:cd.draws_per_day??null,draws_ready:cd.draws_ready??null,
+    draw_progress:cd.draw_progress??null,claimable:!!cd.claimable,odds:JSON.stringify(cd.odds||[]),
+    max_draws:cd.max_draws??null,at_cap:!!cd.at_cap,ready_at:readyAt,timer_source:timerSource,
+    grants:JSON.stringify(grants),updated_at:now},{conflictFields:['account']});
   wake(`civic:${name}`);
+  require('../web/lib/panelEvents').emit('civic-draw',{account:name});
 }
 
 // Свежее состояние розыгрыша одним GET (без /airdrop/, который нужен только странице Мэрии).
@@ -78,4 +76,26 @@ async function withClaimLock(name,fn){
   claimLocks.set(name,p);
   try{return await p;}finally{if(claimLocks.get(name)===p)claimLocks.delete(name);}
 }
-module.exports={runTownhall,saveCivicDraw,fetchCivicDraw,withClaimLock};
+// Объединяем одновременные нажатия/автосбор одного grant, затем сериализуем с обычным розыгрышем.
+const grantClaims=new Map();
+function claimPolicyGrant(api,name,defId){
+  if(!['string','number'].includes(typeof defId)||!String(defId).trim()||String(defId).length>128)
+    return Promise.reject(new Error('Некорректная политика'));
+  const key=JSON.stringify([name,String(defId)]);
+  if(grantClaims.has(key))return grantClaims.get(key);
+  const task=withClaimLock(name,async()=>{
+    const cd=await fetchCivicDraw(api,name);
+    const grant=cd?.grants?.find(g=>String(g.def_id)===String(defId)&&Number.isFinite(Number(g.ready))&&Number(g.ready)>0);
+    if(!grant||!Number.isFinite(Number(grant.ready))||!(Number(grant.ready)>0))return{ok:false,notReady:true,error:'Награда политики ещё не готова — снимок обновлён'};
+    let result,error;
+    try{result=await api.post('/policies/civic-draw/grants/claim',{def_id:grant.def_id});}
+    catch(e){error=e;}
+    // Ни ошибка, ни обрыв не повторяют POST: сначала выясняем состояние и обновляем склад.
+    const after=await fetchCivicDraw(api,name).catch(()=>null);
+    await require('./inventory').runInventory(api,name).catch(()=>{});
+    if(error)return{ok:false,error:error.message||String(error),ambiguous:true,refreshed:!!after};
+    return{ok:true,result,refreshed:!!after};
+  }).finally(()=>{if(grantClaims.get(key)===task)grantClaims.delete(key);});
+  grantClaims.set(key,task);return task;
+}
+module.exports={runTownhall,saveCivicDraw,fetchCivicDraw,withClaimLock,claimPolicyGrant,normalizeGrants,exactReadyAt};
