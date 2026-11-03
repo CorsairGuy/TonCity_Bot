@@ -1,0 +1,96 @@
+{
+  "source": "https://game.toncity.io/assets/tiles/floating_island.json",
+  "sourceManifestSha256": "5fe5bef9933246e7e1707f9d6a9ba667bdbcdfff4c2891b6eaf8e1e93d34b677",
+  "decoder": "Original game Basis Universal transcoder, RGBA32 level 0",
+  "encoding": "WebP quality92, method6, 0.85x premultiplied-alpha LANCZOS; alpha verified lossless after resample",
+  "sources": [
+    {
+      "image": "floating_island_0_0a9d8544b094a7eae9824f0358ca5452.ktx2",
+      "sha256": "67559df146ffca338c32e4df5ed0b86352a84b7bdf43a9172f7a034c150b970e",
+      "output": "island-0.webp",
+      "outputSha256": "803fb6c864b46e817b8cafa0cdd29d21c4a722cc011fe572a4aa8326d72f30fc",
+      "rgbaSha256": "6fa88d5aee03784cc344e296249784dd4fc8ca1ae9ef664c36696bf2f27b3455",
+      "hasAlpha": true
+    },
+    {
+      "image": "floating_island_1_5dde5135e0e58141276be1947dd8f3a2.ktx2",
+      "sha256": "5aa884b4b92dcd7f1c1645186792cf6fbd87b553f5f687e68db1ea7414349b29",
+      "output": "island-1.webp",
+      "outputSha256": "6a056ebb3f9d57ed25f6036471db182ccd8dfa277d6d4acbf859befa344f65bb",
+      "rgbaSha256": "a6711c0b2422a5542c3524487381ba5e92ac38c946db94804e0bce4e0aa81620",
+      "hasAlpha": false
+    },
+    {
+      "image": "floating_island_2_16fe53e885c9d309816ea374092e8cc2.ktx2",
+      "sha256": "b14afffe09d59211ea7f28d44c97e70aeeb6003bc951644cbaf3b39c9689d737",
+      "output": "island-2.webp",
+      "outputSha256": "460555e99202c80d63b0b057c8310b7eb51761043e5059373df318e835aaa876",
+      "rgbaSha256": "52910e88646f72b612492a2858dd8ed97e1a175b93ae8d4e4b3bc05edd10bd85",
+      "hasAlpha": false
+    },
+    {
+      "image": "floating_island_3_8579b762fe18f35de9253f0ac7813f93.ktx2",
+      "sha256": "d217a087ef352c316826183d28642d2a07de1d0bd758851e00d4870b85de5727",
+      "output": "island-3.webp",
+      "outputSha256": "3dda63df65b9a9dfd84758be7b77f55c72d9cfc55dfb111761ce479ba482c65d",
+      "rgbaSha256": "c648edd0829e859e5267eb6e374b3a25380717a92065324d09a3de61288d5e44",
+      "hasAlpha": true
+    },
+    {
+      "image": "floating_island_4_022598035657fba4092c4ae8dcff7d9e.ktx2",
+      "sha256": "42296f00f296b495205136dae739c192fd72c613419a6c8faf2bd2046db95956",
+      "output": "island-4.webp",
+      "outputSha256": "8d3c9b58e289e79d080b5219387a4f597920431c3d2b0050b65e2e08633b3bfb",
+      "rgbaSha256": "f8ef44467c7303af6a72cfe699295d72240c9943091f3b81e5d5057f35b3c735",
+      "hasAlpha": true
+    },
+    {
+      "image": "floating_island_5_ae853b8b188c8687d118d8e80dcf74ba.ktx2",
+      "sha256": "4ab88500766171a6030f52d50d77985a0e1ab3297c740b9a113877b85a5878da",
+      "output": "island-5.webp",
+      "outputSha256": "ee25045189610d9e4ce97a560b6e942956d55b7060fe9fa01c51fd84df7e6b98",
+      "rgbaSha256": "52e4ed7528c896482af4d836f8759e2335b2d0fdf58b960dab559e106473184d",
+      "hasAlpha": true
+    },
+    {
+      "image": "floating_island_6_b43fc31213d6e04d35309d6b26fd7c31.ktx2",
+      "sha256": "a13f3ab735fe8524ab86ca1b94d8f8f17d6044e97ccbb83fde63fa24eb638799",
+      "output": "island-6.webp",
+      "outputSha256": "b2c2e0e6bdbe6c19cf63936a744b3cfb4ac9f79f6919c752223112b77bebbeab",
+      "rgbaSha256": "2a53002b4289b7d0e5ab1638a5c50a27bc290aa484ac76f5e9e858c2c101c1c2",
+      "hasAlpha": true
+    },
+    {
+      "image": "floating_island_7_ffc5db3e452b81b4e4900ef3eb643e9f.ktx2",
+      "sha256": "36b4d6b5128457a77a387ad5d00dc6d50716af76a99a650c2fb1809eee5f0cbb",
+      "output": "island-7.webp",
+      "outputSha256": "eb0cdcd26c67774c9deb1796850b2ef91aa7dc0c39472961199b64b0b81d74bc",
+      "rgbaSha256": "c9fcd1a18d04fb8384076e030d083ab06cc21eaabc8e4876b1bddb39664d9207",
+      "hasAlpha": true
+    },
+    {
+      "image": "floating_island_8_082200e5ea9e0cdc2ec3bdb45477e190.ktx2",
+      "sha256": "59b0de090e1851011ef40982e2c1cd9031f219d952fada90db2efb3fd54ada5b",
+      "output": "island-8.webp",
+      "outputSha256": "5f10c4673c3b793dcde898d5eeb44ebedb55adde7ece64a94871796adecb8758",
+      "rgbaSha256": "3b998d358c1b4d62af520bcb487cfc6b277513a6b1ed4ff40a093d961f986eaa",
+      "hasAlpha": true
+    },
+    {
+      "image": "floating_island_9_754ea571dfdf70df2dfd63888c8b4dc9.ktx2",
+      "sha256": "1c8a47c09b03a3dcbb7b8ab4280eb34dcd51840f410c1d4b154d32ed296a34af",
+      "output": "island-9.webp",
+      "outputSha256": "927c1c142381297c73bf032d69b75d455a7a88ffe04ede31001c51400970b3b1",
+      "rgbaSha256": "d00a8a60bf608adca2159d07a4442849b7204c70a596568db5d325a63643e006",
+      "hasAlpha": true
+    },
+    {
+      "image": "floating_island_10_34ba74423c66b262c18dcaed7d8a1f78.ktx2",
+      "sha256": "e5713a9e55c1c893eb91e0048a3f310cdeaaf439509fcab66507d6b3b2361d3c",
+      "output": "island-10.webp",
+      "outputSha256": "2b49e5cf19042496f72ba1ea915d6ad1bf8ea3e26ea92704767eb6973b8ddc73",
+      "rgbaSha256": "7126dc7621336992964500d4ebfc47af2ca9bae2267a69c3a1a0d2b2d02cdc1a",
+      "hasAlpha": true
+    }
+  ]
+}

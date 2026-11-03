@@ -1,3 +1,4 @@
+import { mainIslandRects } from '../cityIsland';
 import { CITY_DISTRICTS, buildingDistrict, districtCoordsFor, districtRoadsFor, districtOf, districtOffset, projectDistrict, type CityDistrict } from '../cityDistricts';
 import { memo, useState, useEffect, useMemo, useCallback, useRef, startTransition, type DragEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -28,8 +29,8 @@ import cityRoadMapData from '../data/road-map.json';
 
 const COORDS = cityCoordsData as { x: number; y: number }[];
 const ROAD_MAP = cityRoadMapData as Record<string, { asset: string; big?: boolean }>;
-// города стоят сеткой на одной карте: SPAN клеток города (с дорогами и лесом), шаг STEP — 3 клетки зазора
-const SPAN = 22, STEP = 25;
+// Города стоят сеткой: 22 клетки земли; main требует зазора под скальную часть.
+const SPAN = 22;
 const TH_K = 434 / 753;
 // город шире этой доли экрана — сайдбар и шапка переходят к нему; уже LEAVE — обратно ко всем городам
 const ENTER_SHARE = 0.5, LEAVE_SHARE = 0.42;
@@ -113,6 +114,7 @@ export function CityWorld() {
   const narrow = useNarrow();
   const [params, setParams] = useSearchParams();
   const [district, setDistrict] = useState<CityDistrict>(() => params.get('district') === 'd1' ? 'd1' : 'main');
+  const STEP = district === 'main' ? 34 : 25;
   const COORDS = useMemo(() => districtCoordsFor(district).map(p => ({ ...p, x: p.x - districtOffset(district) })), [district]);
   const ROAD_MAP = useMemo(() => districtRoadsFor(district), [district]);
   const navigate = useNavigate();
@@ -193,13 +195,13 @@ export function CityWorld() {
 
   // ── раскладка: город i в общей сетке стоит со сдвигом (col·STEP, row·STEP) ──────────────────
   const cols = Math.max(1, Math.ceil(Math.sqrt(cities.length)));
-  const offOf = useMemo(() => new Map(cities.map((c, i) => [c.account, { i, ox: (i % cols) * STEP, oy: Math.floor(i / cols) * STEP }])), [cities, cols]);
+  const offOf = useMemo(() => new Map(cities.map((c, i) => [c.account, { i, ox: (i % cols) * STEP, oy: Math.floor(i / cols) * STEP }])), [cities, cols, STEP]);
   const cityAtCell = useCallback((gx: number, gy: number) => {
     const c = Math.floor(gx / STEP), r = Math.floor(gy / STEP);
     if (gx - c * STEP >= SPAN || gy - r * STEP >= SPAN || c < 0 || r < 0 || c >= cols) return -1;
     const i = r * cols + c;
     return i < cities.length ? i : -1;
-  }, [cols, cities.length]);
+  }, [cols, cities.length, STEP]);
   // ближайший город к клетке: зазор между городами делится пополам между соседями
   const nearestCity = useCallback((gx: number, gy: number) => {
     const gap = (STEP - SPAN) / 2, rowsN = Math.ceil(cities.length / cols);
@@ -207,7 +209,7 @@ export function CityWorld() {
     if (c < 0 || c >= cols || r < 0 || r >= rowsN || gx - c * STEP >= SPAN + gap || gy - r * STEP >= SPAN + gap) return -1;
     const i = r * cols + c;
     return i < cities.length ? i : -1;
-  }, [cols, cities.length]);
+  }, [cols, cities.length, STEP]);
   const layoutKey = district + cities.map(c => `${c.account}:${c.unlockedSections?.join(',') ?? '-'}`).join('|');
   const world = useMemo<WorldLayout>(() => {
     const coordsList: { x: number; y: number }[] = [], roadMap: WorldLayout['roadMap'] = {}, lockedCells = new Map<string, string>();
@@ -308,6 +310,17 @@ export function CityWorld() {
   const boxSize = () => ({ W: mapBoxRef.current?.clientWidth || 1000, H: mapBoxRef.current?.clientHeight || 700 });
   const fitTile = () => {
     const { W, H } = boxSize(), rowsN = Math.max(1, Math.ceil(cities.length / cols));
+    if (district === 'main' && cities.length) {
+      // В обзор целиком входят и земля, и скалы, а не только ромб игровой сетки.
+      const boxes = mainIslandRects(0, 0, 1, TH_K);
+      const local = { x0: Math.min(-(SPAN - 1) / 2, ...boxes.map(b => b.x0)), x1: Math.max((SPAN + 1) / 2, ...boxes.map(b => b.x1)),
+        y0: -2, y1: Math.max(SPAN * TH_K, ...boxes.map(b => b.y1)) };
+      const all = [...offOf.values()].map(o => ({ x: (o.ox - o.oy) / 2, y: (o.ox + o.oy) * TH_K / 2 }));
+      const x0 = Math.min(...all.map(o => o.x + local.x0)), x1 = Math.max(...all.map(o => o.x + local.x1));
+      const y0 = Math.min(...all.map(o => o.y + local.y0)), y1 = Math.max(...all.map(o => o.y + local.y1));
+      const x = (x0 + x1) / 2, y = (y0 + y1) / 2;
+      return { tile: Math.max(2, Math.min(W / (x1 - x0), H / (y1 - y0)) * 0.92), cx: x + y / TH_K - 1, cy: -x + y / TH_K };
+    }
     const wc = (cols - 1) * STEP + SPAN, wr = (rowsN - 1) * STEP + SPAN, half = (wc + wr) / 2;
     return { tile: Math.max(2, Math.min(W / half, H / (half * TH_K + 3)) * 0.92), cx: wc / 2 - 0.5, cy: wr / 2 - 0.5 };
   };

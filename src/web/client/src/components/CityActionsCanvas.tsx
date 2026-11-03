@@ -1,3 +1,4 @@
+import { D1_ISLAND_SPRITES, MAIN_ISLAND_SPRITES, d1IslandRects, mainIslandRects } from '../cityIsland';
 import { upgradeDuration } from '../cityStats';
 import type { CityDistrict } from '../cityDistricts';
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
@@ -458,6 +459,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     // следующий кадр рисует все видимые куски разом и снимает loading. wantKeys — все спрайты карты
     // (id, ширина нарезки, атлас) из последней сборки draw-list
     loadKey: '',
+    layerMapKey: '',
     loading: true,
     loadReady: false,
     loadStart: 0,
@@ -481,9 +483,11 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     lastCenter: null as { cx: number; cy: number; tile: number } | null,
     fillPaths: [] as { fill: string; stroke?: string; path: Path2D }[],
     regionPaths: [] as { fill: string; path: Path2D }[],
+    district,
     groundSprite: 'empty.png',
     hoverGx: null as number | null, hoverGy: null as number | null,
   });
+  state.current.district = district;
   state.current.groundSprite = district === 'd1' ? 'd1/D1_empty.png' : 'empty.png';
   state.current.mode = mode;
   state.current.validSet = validSet;
@@ -653,6 +657,17 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       }
     }
     const underForest = s.underForest;
+    const emitIsland = (P: Part, gx: number, gy: number, c?: number) => {
+      if (s.type !== 'city') return;
+      const origin = isoToScreen(gx - s.x0, gy - s.y0);
+      for (const box of (s.district === 'd1' ? d1IslandRects : mainIslandRects)(origin.x, origin.y, TW, TH)) {
+        const w = box.x1 - box.x0, h = box.y1 - box.y0;
+        P.want.push([box.id, w]);
+        P.items.push({ ...box, c, z: 0, draw: (ctx, r) => {
+          drawSprite(ctx, box.id, w, r, box.x0, box.y0, w, h);
+        } });
+      }
+    };
     const emit = (P: Part, col: number, row: number, c?: number) => {
       const items = P.items, want = P.want, first = items.length;
       const gx = s.x0 + col, gy = s.y0 + row;
@@ -793,7 +808,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       const byCity: MapBuilding[][] = regions.map(() => []);
       for (const b of s.blist) { const c = s.cityAt(b.x, b.y); if (c >= 0 && c < byCity.length) byCity[c].push(b); }
       const full = s.fullList || s.cityParts.length !== regions.length;
-      const glob = `${s.mode}|${s.nightOn}|${Object.keys(s.spriteMap).length}|${s.dpr}`;
+      const glob = `${s.district}|${s.mode}|${s.nightOn}|${Object.keys(s.spriteMap).length}|${s.dpr}`;
       parts = regions.map((rg, c) => {
         const list = byCity[c];
         let sig = glob;
@@ -801,6 +816,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
         const prev = s.cityParts[c];
         if (!full && prev && prev.sig === sig) return prev;
         const P = newPart(sig);
+        emitIsland(P, rg.gx, rg.gy, c);
         for (let d = 0; d <= 2 * (rg.span - 1); d++) for (let i = 0; i <= d; i++) {
           const j = d - i;
           if (i >= rg.span || j >= rg.span) continue;
@@ -815,6 +831,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       s.cityParts = parts;
     } else {
       const P = newPart('');
+      emitIsland(P, 0, 0);
       for (let d = 0; d <= (s.cols - 1) + (s.rows - 1); d++) {
         for (let col = 0; col <= d; col++) {
           const row = d - col;
@@ -1680,6 +1697,13 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
   // (регенерируется download-sprites.js при обновлении игры), кэшируем на уровне модуля.
   useEffect(() => {
     const s = state.current;
+    // Другая карта имеет другие границы: старые DOM-куски вне новых границ
+    // иначе остаются видимыми (например, фрагмент main под островом D1).
+    if (s.layerMapKey !== loadKey) {
+      for (const r of [...s.layers.keys()]) dropLayer(r);
+      s.coarseImg.clear(); s.coarseDirty.clear(); s.cityParts = [];
+      s.layerMapKey = loadKey;
+    }
     s.roadMap = world?.roadMap ?? ROAD_MAP[type];
     s.coordsList = world?.coordsList ?? COORDS[type];
     s.coords = new Set(s.coordsList.map(c => `${c.x}_${c.y}`));
@@ -1690,7 +1714,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
         s.listDirty = true; s.fullList = true; invalidateLayer();
       } else {
         fetch('/sprites/sprite-map.json').then(r => r.json()).then(sm => {
-          const map: typeof s.spriteMap = {};
+          const map: typeof s.spriteMap = { ...D1_ISLAND_SPRITES, ...MAIN_ISLAND_SPRITES };
           for (const [id, info] of Object.entries(sm as Record<string, { atlas: string; frame: any }>)) {
             map[id] = { pngUrl: '/sprites/' + info.atlas, frame: info.frame };
           }
@@ -1701,7 +1725,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
         }).catch(() => { s.spriteMapState = 'failed'; }); // без карты спрайтов — плитки-заглушки
       }
     }
-  }, [type, requestRedraw, world]);
+  }, [type, mapKey, requestRedraw, world]);
 
   // данные карты (постройки) — центрируем ЗАНОВО только когда реально переключились на другую карту
   // (другой аккаунт/гильдия, либо city<->capital, см. mapKey), НЕ на каждое обновление buildings —
