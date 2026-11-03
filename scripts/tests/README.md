@@ -97,3 +97,23 @@ node scripts/tests/browser/city-sidebar-window/run.cjs
 Проверка обновления окна исполняет настоящий effect `requestAnimationFrame`/`ResizeObserver`: изменение диапазона попадает в transition, после cleanup наблюдатель не запускает новые кадры. Проверки `CityWorld` также покрывают живой callback возврата мемоизированного редактора и отсутствие измерений скрытой строительной подсказки во время свайпа остальных вкладок.
 
 Результаты нагрузочного сравнения с `07530b4` — `reports/city-sidebar-2026-10-25.json`: production React, локальный Chromium, CPU ×4, 36 городов ×144 здания, 64 записи очереди, ответы отпускаются во время правого pan. Максимальный интервал RAF очереди уменьшился с 500–583 до 183–184 мс, показателей — с 67–150 до 17 мс; повторных пересборок карты/подписей нет. Это синтетические наблюдения, не гарантия плавности на любом устройстве: в очереди остаются интервалы кадров, поэтому #180 остаётся открытой. Эксперимент с кэшем размеров Canvas не дал измеренного выигрыша и исключён.
+
+## TON City 2.5
+
+Офлайн-регрессии без БД и игровых аккаунтов:
+
+```sh
+node scripts/tests/city-districts.cjs
+node scripts/tests/city-sprites-25.cjs
+node scripts/tests/city-economy-25.cjs
+node scripts/tests/market-keys-autobuy.cjs
+node scripts/tests/policy-grants.cjs
+node scripts/tests/tech-factory-limits.cjs
+node scripts/tests/guild-fees.cjs
+node scripts/tests/championships.cjs
+node scripts/tests/quiz-revealed-answers.cjs
+node scripts/tests/satoshi-margin.cjs
+node scripts/tests/leagues25.cjs
+```
+
+Проверяются новые формулы и ресурсы, точный ID покупки (ключ43/камень38), свежие права/балансы/лимиты, отдельные grants, актуальные таймеры, конкурирующие действия и обновление состояния после неоднозначного ответа без повторной мутации. Процентные TP/SL при добавлении маржи сохраняют прежние денежные цели. Автосбор grants — отдельная настройка, по умолчанию выключенная. Полная проверка фронтенда: `npm run build --prefix src/web/client`.
