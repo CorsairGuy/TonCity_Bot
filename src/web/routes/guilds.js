@@ -7,6 +7,32 @@ const opRegistry=require('../lib/opRegistry');
 module.exports=function(app,ctx){
   const{apiForAcc,makeApiForAccount}=ctx;
 
+  // Взнос персональный: даже обычный участник видит и оплачивает только свой долг.
+  async function feeAccount(id){
+    const{Account}=require('../../db/index');
+    const accountId=Number(id);
+    if(!Number.isSafeInteger(accountId)||accountId<=0)throw Object.assign(new Error('Некорректный аккаунт'),{status:400});
+    const acc=await Account.findByPk(accountId);
+    if(!acc?.access_token||acc.access_token==='placeholder')throw Object.assign(new Error('Аккаунт не найден'),{status:404});
+    return acc;
+  }
+  app.get('/api/guild-fees/:accountId',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.params.accountId);
+      const data=await require('../../modules/guildFees').readGuildFees(apiForAcc(acc));
+      res.json({ok:true,...data});
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+  app.post('/api/guild-fees/:accountId/pay',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.params.accountId);
+      const result=await opRegistry.run(`guildFeesPay:${acc.id}`,()=>require('../../modules/guildFees').payGuildFees(apiForAcc(acc),req.body||{}));
+      const{progress,...data}=result;
+      if(progress)require('../../modules/session').saveStats(acc,acc.name,progress);
+      res.json(data);
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+
   // ── МИД live endpoints ───────────────────────────────────────────────────
   async function midApi(guildId){
     const{GuildSnapshot,Account}=require('../../db/index');
@@ -165,6 +191,16 @@ module.exports=function(app,ctx){
   // Кампании Гильдий (guild-campaigns) — замена удалённого scouting (06.07.2026).
   // target_guild_id ищем через уже существующий /search?type=enemies (та же ручка,
   // которой пользуется диалог старта кампании в самой игре — реверс chunks/foreign_ministry-*.js).
+  app.get('/api/mid-live/:guildId/campaigns/preview',async(req,res)=>{
+    try{
+      const target=Number(req.query.target_guild_id);
+      if(!Number.isSafeInteger(target)||target<=0)return res.status(400).json({ok:false,error:'Выберите целевую гильдию'});
+      const api=await midApi(req.params.guildId);
+      const data=await api.get('/guild-campaigns/preview',{target_guild_id:target});
+      if(!data||!Number.isFinite(data.size_handicap)||!Number.isFinite(data.repeat_handicap))return res.status(502).json({ok:false,error:'Игра не вернула коэффициенты кампании'});
+      res.json({ok:true,data});
+    }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
+  });
   app.post('/api/mid-live/:guildId/campaigns/start',async(req,res)=>{
     try{
       const api=await midApi(req.params.guildId);

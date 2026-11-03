@@ -1,3 +1,4 @@
+import { buildingDistrict, districtCoordsFor, inDistrict, type CityDistrict } from '../cityDistricts';
 import { MapPanelWindow } from '../components/MapPanelWindow';
 import { useState, useEffect, useMemo, useCallback, useRef, startTransition, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -14,7 +15,7 @@ import { DayNightMenu } from '../components/DayNightMenu';
 import type { DayNightMode } from '../components/mapNight';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
-import { upgradeStep, computeCityStats, type CityStatsMods } from '../cityStats';
+import { upgradeStep, reconstructYieldAt, renovationComponentsAt, computeCityStats, type CityStatsMods } from '../cityStats';
 import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, CancelButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, type DemolishTile, type RenovItem, LogPanel, ForecastPanel, Empty, fmtTimeLeft, Caption, Row, Thumb, fillOf, FILL_ATTENTION, type PanelMode, type ReconGroup } from './cityMapPanels';
 import { useAsk } from '../hooks/useAsk';
 import { useNarrow } from '../hooks/useNarrow';
@@ -230,19 +231,21 @@ function applyQueue(owned: MapBuilding[], queue: PendingAction[], catalog: Build
   return list;
 }
 
-function actionLabel(a: PendingAction, labelFor: (id: string) => string, findInfoAt: (x: number, y: number) => BuildingDef | undefined): string {
+function actionLabel(a: PendingAction, labelFor: (id: string) => string, findInfoAt: (x: number, y: number) => BuildingDef | undefined, findLevelAt: (x: number, y: number) => number): string {
   if (a.kind === 'build') return `Строительство: ${labelFor(a.family_id)} (${a.x},${a.y})`;
   if (a.kind === 'move') return `Перемещение: (${a.from.x},${a.from.y}) → (${a.to.x},${a.to.y})`;
   if (a.kind === 'demolish') return `Снос: (${a.x},${a.y})`;
   if (a.kind === 'reconstruct') {
     const info = findInfoAt(a.x, a.y);
-    const cost = info?.components_required != null ? ` (−${info.components_required} компонентов` : '';
-    const reward = info?.masterplans_to_get != null ? `${cost ? ', ' : ' ('}+${info.masterplans_to_get} мастерпланов` : '';
+    const output = info ? reconstructYieldAt(info, findLevelAt(a.x, a.y)) : null;
+    const cost = output ? ` (−${output.components} компонентов` : '';
+    const reward = output ? `${cost ? ', ' : ' ('}+${output.masterplans} мастерпланов` : '';
     const suffix = cost || reward ? `${cost}${reward})` : '';
     return `Реконструкция: (${a.x},${a.y})${suffix}`;
   }
   const info = findInfoAt(a.x, a.y);
-  const cost = info?.masterplans_num != null ? ` (−${info.masterplans_num} мастерпланов)` : '';
+  const returned = info ? renovationComponentsAt(info, findLevelAt(a.x, a.y)) : 0;
+  const cost = info?.masterplans_num != null ? ` (−${info.masterplans_num} мастерпланов, +${returned} компонентов)` : '';
   return `Реновация: (${a.x},${a.y})${cost}`;
 }
 
@@ -267,9 +270,9 @@ export function logLabel(r: CityActionLogRow, labelFor: (id: string) => string, 
       return `Комбинирование: ${detail.requiredAmount ?? '?'}× ${fromName} → 1× ${toName}`;
     }
     case 'unlock_section': {
-      let detail: { section_id?: string } = {};
+      let detail: { section_id?: string; keys_spent?: number } = {};
       try { detail = r.detail ? JSON.parse(r.detail) : {}; } catch { /* старый/битый снимок — покажем без id */ }
-      return `Разблокирована секция карты: ${detail.section_id ?? '—'}`;
+      return `Разблокирована секция карты: ${detail.section_id ?? '—'}${detail.keys_spent ? ` · ключей −${detail.keys_spent}` : ''}`;
     }
     default: return r.type;
   }
@@ -318,6 +321,7 @@ export function validCellsFor(mode: CityActionMode, s: CityCellSets, buildFamily
 // вкладка и выход обратно приходят оттуда. Без пропсов (старый адрес /city-map?account=) аккаунт
 // берётся из адреса.
 export interface CityMapCityProps {
+  district?: CityDistrict;
   account?: string;
   mode?: CityActionMode;
   onModeChange?: (m: CityActionMode) => void;
@@ -346,6 +350,7 @@ export function mergeUnlockedSections(current: string[] | null | undefined, inco
 
 // город на общей карте: его постройки с превью действий и всё, что карта выделяет в его клетках
 export interface CityMapState {
+  district?: CityDistrict;
   account: string;
   buildings: MapBuilding[];
   unlockedSections: string[] | null;
@@ -383,6 +388,7 @@ export interface CityMapState {
 }
 
 export function CityMapCity(props: CityMapCityProps = {}) {
+  const district = props.district ?? 'main';
   const ask = useAsk();
   const narrow = useNarrow();
   const [panelCollapsed, setPanelCollapsed] = useState(false);
@@ -418,13 +424,14 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // смене аккаунта, обновляем после каждой реконструкции/реновации (они тратят/дают эти предметы)
   const [components, setComponents] = useState(0);
   const [masterplans, setMasterplans] = useState(0);
+  const [keys, setKeys] = useState(0);
   // accountRef — ответ за прошлый аккаунт (быстрый переход назад/вперёд) не затирает текущий
   const accountRef = useRef(account);
   accountRef.current = account;
   const loadResources = useCallback(() => {
     if (!account) return;
     api.cityResources(account).then(d => startTransition(() => {
-      if (d.ok && accountRef.current === account) { setComponents(d.components); setMasterplans(d.masterplans); }
+      if (d.ok && accountRef.current === account) { setComponents(d.components); setMasterplans(d.masterplans); setKeys(d.keys ?? 0); }
     }));
   }, [account]);
   useEffect(() => { loadResources(); }, [loadResources]);
@@ -515,6 +522,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // отложенная стройка: здания, на которые не хватило монет; бот построит сам (progress.js runPendingBuilds)
   const [buildPlan, setBuildPlan] = useState<{ x: number; y: number; family_id: string }[]>([]);
   const [moveFrom, setMoveFrom] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => { setMoveFrom(null); }, [district]);
   const [search, setSearch] = useState('');
   // вкладки категорий без «ВСЕ»: по умолчанию COM
   const [catFilter, setCatFilter] = useState('COM');
@@ -633,11 +641,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const unlockedSections: string[] | null = (row && 'unlockedSections' in row ? row.unlockedSections : null) ?? null;
   const lockedCellKeys = useMemo(() => {
     const s = new Set<string>();
-    if (!unlockedSections) return s;
-    const unlocked = new Set(unlockedSections);
+    if (!unlockedSections && district === 'main') return s;
+    const unlocked = new Set(unlockedSections ?? []);
     for (const sec of sections) { if (!unlocked.has(sec.id)) for (const c of sec.coordinates) s.add(`${c.x}_${c.y}`); }
     return s;
-  }, [sections, unlockedSections]);
+  }, [sections, unlockedSections, district]);
 
   // оптимистичное превью — то, что реально нарисуется и что используется для расчёта валидных клеток
   // индекс каталога по id: раньше по нему искали линейным buildingsCatalog.find() в десяти местах,
@@ -690,8 +698,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // ── множества клеток по режимам (на основе ОПТИМИСТИЧНОГО состояния — с учётом очереди) ───────
   // клетки отложенной стройки тоже заняты: здание туда уже назначено
   const deferredSet = useMemo(() => new Set(buildPlan.map(p => `${p.x}_${p.y}`)), [buildPlan]);
-  const sets = useMemo(() => cityCellSets(displayBuildings, buildingParamMap, coordsSet, lockedCellKeys, deferredSet),
-    [displayBuildings, buildingParamMap, coordsSet, lockedCellKeys, deferredSet]);
+  const sets = useMemo(() => cityCellSets(inDistrict(displayBuildings, district), buildingParamMap, districtCoordsFor(district).map(c => `${c.x}_${c.y}`), lockedCellKeys, deferredSet),
+    [displayBuildings, buildingParamMap, coordsSet, lockedCellKeys, deferredSet, district]);
   const { occupied: occupiedSet, reconstructable: reconstructableSet } = sets;
   const underConstruction = isUnderway;
   // выбранное здание этому городу не построить (лимит или условие игры) — его клетки не принимают
@@ -701,11 +709,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     const info = buildingParamMap.get(buildFamily);
     const have = displayBuildings.filter(b => familyId(b.id) === familyId(buildFamily)).length;
     return (info?.limit != null && have >= info.limit) || isCriteriaUnmet(buildCriteria, buildFamily);
-  }, [buildFamily, buildingParamMap, displayBuildings, buildCriteria]);
+  }, [buildFamily, buildingParamMap, displayBuildings, buildCriteria, district]);
   const buildBlock = !buildFamily ? null : (() => {
     const info = buildingParamMap.get(buildFamily);
     const have = displayBuildings.filter(b => familyId(b.id) === familyId(buildFamily)).length;
-    return info?.limit != null && have >= info.limit ? 'уже построено' : isCriteriaUnmet(buildCriteria, buildFamily) ? criteriaReason(buildCriteria, buildFamily) : null;
+    return info && buildingDistrict(info) !== district ? 'здание другого района' : info?.limit != null && have >= info.limit ? 'уже построено' : isCriteriaUnmet(buildCriteria, buildFamily) ? criteriaReason(buildCriteria, buildFamily) : null;
   })();
   const validSet = useMemo(() => executing || (mode === 'build' && buildBlocked) ? new Set<string>() : validCellsFor(mode, sets, buildFamily, moveFrom),
     [executing, mode, buildFamily, buildBlocked, moveFrom, sets]);
@@ -774,21 +782,28 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const onUnlockCell = useCallback(async (sectionId: string) => {
     if (unlockingSection) return;
     const sec = sections.find(s => s.id === sectionId);
+    if (!sec) { showFlash('Неизвестная секция карты. Обновите данные.', false); return; }
+    if (sec.minPopulation && currentStats.population < sec.minPopulation) { showFlash(`Нужно ${fmt(sec.minPopulation)} жителей`, false); return; }
+    if (sec.adjacentSections.some(id => !unlockedSections?.includes(id))) { showFlash('Сначала откройте соседнюю секцию', false); return; }
+    if ((sec.unlockCost.coins ?? 0) > balance || (sec.unlockCost.crystals ?? 0) > walletRest.crystals) { showFlash('Недостаточно монет или кристаллов для секции', false); return; }
+    if ((sec.unlockCost.keys ?? 0) > keys) { showFlash(`Недостаточно ключей: нужно ${sec.unlockCost.keys}, в снимке ${keys}. Обновите склад.`, false); return; }
     const costParts: string[] = [];
     if (sec?.unlockCost.coins) costParts.push(`${fmt(sec.unlockCost.coins)} монет`);
     if (sec?.unlockCost.crystals) costParts.push(`${fmt(sec.unlockCost.crystals)} кристаллов`);
-    const costText = costParts.length ? costParts.join(' + ') : 'бесплатно';
+    if (sec.unlockCost.keys) costParts.push(`${fmt(sec.unlockCost.keys)} ключей (включая привязанные)`);
+    const costText = costParts.length ? costParts.join(' + ') : Object.keys(sec.unlockCost).some(k => !['coins', 'crystals', 'keys'].includes(k)) ? null : 'бесплатно';
+    if (costText == null) { showFlash('Неизвестная валюта стоимости секции', false); return; }
     if (!await ask('Открыть секцию карты?', `Разблокировать эту секцию за ${costText}?`, { ok: 'Открыть' })) return;
     setUnlockingSection(true);
     try {
-      const r = await api.cityActionUnlockSection(account, sectionId);
+      const r = await api.cityActionUnlockSection(account, sectionId, sec.unlockCost.keys);
       if (r.ok) {
         if (Array.isArray(r.unlockedSections)) setRows(prev => (prev as CityRow[]).map(row => row.account === account ? { ...row, unlockedSections: mergeUnlockedSections(row.unlockedSections, r.unlockedSections) } : row));
         showFlash('Секция разблокирована', true); refreshMap();
       }
       else showFlash(r.error ?? 'Не удалось разблокировать секцию', false);
     } catch (e) { showFlash(String(e), false); } finally { setUnlockingSection(false); }
-  }, [account, sections, unlockingSection, refreshMap, showFlash, ask]);
+  }, [account, sections, unlockingSection, refreshMap, showFlash, ask, currentStats.population, unlockedSections, keys, balance, walletRest.crystals]);
 
   const removeQueued = (id: number) => setQueue(prev => prev.filter(a => a.id !== id));
   // Реконструкция одним кликом: клетка в плане — убрать из плана; уже отмечена сейчас — снять отметку;
@@ -964,7 +979,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     setExecuting(false);
     setProgress(null);
     if (!quiet) showFlash(`Выполнено: ${ok}${deferred ? `, ждут монет: ${deferred}` : ''}${fail ? `, ошибок: ${fail}${error ? ` (${error})` : ''}` : ''}`, fail === 0);
-    refreshMap();
+    refreshMap(); loadResources();
     // перемещение переносит координату цели улучшения вместе со зданием (см. cityStrategy.js) —
     // подтягиваем свежий список целей, чтобы бейдж "цур→цель" не остался на старой клетке
     api.cityStrategy(account).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setBuildPlan(t.buildPlan ?? []); } });
@@ -1030,8 +1045,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
 
   // палитра построимых зданий (Строительство) — поиск+категории, как в MapEditor.tsx
   const purchasable = useMemo(
-    () => buildingsCatalog.filter(b => b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)),
-    [buildingsCatalog],
+    () => buildingsCatalog.filter(b => buildingDistrict(b) === district && b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)),
+    [buildingsCatalog, district],
   );
   const paletteFiltered = purchasable.filter(b => {
     if (buildingCat(b.id) !== catFilter) return false;
@@ -1092,7 +1107,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     if (!info?.is_renovatable || !info.next_id || info.required_lvl == null) return [];
     if ((Number(b.level) || 0) < info.required_lvl || underConstruction(b)) return [];
     const marked = queue.some(a => a.kind === 'renovate' && a.x === b.x && a.y === b.y);
-    return [{ x: b.x, y: b.y, id: b.id, nextId: info.next_id, name: nameWithStar(b.id), nextName: nameWithStar(info.next_id), cost: info.masterplans_num, marked }];
+    return [{ x: b.x, y: b.y, id: b.id, nextId: info.next_id, name: nameWithStar(b.id), nextName: nameWithStar(info.next_id), cost: info.masterplans_num, components: renovationComponentsAt(info, Number(b.level) || 0), marked }];
   });
   // реконструкция: все клетки, которые умеют реконструироваться, группами по типу здания;
   // уровень — реальный (во время стройки игра уже отдаёт целевой, realLevel = level−1)
@@ -1104,7 +1119,9 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       const building = underConstruction(b);
       const level = (Number(b.level) || 0) - (building ? 1 : 0);
       if (!m.has(b.id)) m.set(b.id, { id: b.id, name: nameWithStar(b.id), comp: info.components_required ?? null, gain: info.masterplans_to_get ?? null, cells: [] });
+      const output = reconstructYieldAt(info, level);
       m.get(b.id)!.cells.push({
+        comp: output.components, gain: output.masterplans, nextBonusLevel: info.required_lvl + (Math.floor(Math.max(0, level - info.required_lvl) / 2) + 1) * 2,
         x: b.x, y: b.y, level, req: info.required_lvl, building, ready: !building && level >= info.required_lvl,
         queued: queue.some(a => a.kind === 'reconstruct' && a.x === b.x && a.y === b.y),
         planned: reconstructPlan.some(p => p.x === b.x && p.y === b.y),
@@ -1119,7 +1136,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const pendingRows = queue.map(a => {
     const at = a.kind === 'move' ? a.from : a.kind === 'build' ? null : { x: a.x, y: a.y };
     const sprite = a.kind === 'build' ? a.family_id : at ? ownedAt(at.x, at.y)?.id : undefined;
-    return { id: a.id, kind: a.kind, label: actionLabel(a, labelFor, findInfoAt) + (overBudget.has(a.id) ? ' · когда накопит' : ''), sprite };
+    return { id: a.id, kind: a.kind, label: actionLabel(a, labelFor, findInfoAt, (x, y) => { const b = ownedAt(x, y); return b ? (Number(b.level) || 0) - (underConstruction(b) ? 1 : 0) : 0; }) + (overBudget.has(a.id) ? ' · когда накопит' : ''), sprite };
   });
   const pendingKinds = new Set(queue.map(a => a.kind));
   const dots: Partial<Record<PanelMode, boolean>> = {
@@ -1164,13 +1181,13 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   useEffect(() => {
     if (loading) return;
     onMapRef.current?.({
-      account, buildings: displayBuildings, unlockedSections, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
+      account, district, buildings: displayBuildings, unlockedSections, mode: !executing ? mode : 'view', validSet, pickedSet, targets, queue: manualQueue,
       focusSet: mode === 'upgrade' ? planFocus : null, onPick: stablePick, onUnlockCell: stableUnlock, draft: draft || executing, dots: dotsKey ? JSON.parse(dotsKey) : {},
       fills: deferFills, pending: JSON.parse(pendingKey), demolish: JSON.parse(demolishKey), recon: JSON.parse(reconKey), renov: JSON.parse(renovKey), balance, buildBlock, buildMult: buildCostMultiplier, moving: !!moveFrom, executing,
       run: stableRun, removePending: stableRemove, cancelPending: stableCancel, cancelMove: stableCancelMove,
       queuePrices: JSON.parse(queuePricesKey), queueDirty: queueDirtyNow, editQueue: stableEditQueue, saveQueue: stableSaveQueue, resetQueue: stableResetQueue,
     });
-  }, [loading, account, displayBuildings, unlockedSections, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow, buildBlock, buildCostMultiplier]);
+  }, [loading, account, district, displayBuildings, unlockedSections, executing, mode, validSet, pickedSet, targets, manualQueue, planFocus, stablePick, stableUnlock, draft, dotsKey, deferFills, pendingKey, demolishKey, reconKey, renovKey, balance, moveFrom, queuePricesKey, queueDirtyNow, buildBlock, buildCostMultiplier]);
 
   if (props.hidden) return null;
   // во встроенном виде шапку и спиннер на время загрузки рисуют «Города» — свой лоадер не нужен

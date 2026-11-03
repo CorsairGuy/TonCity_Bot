@@ -5,6 +5,7 @@ const logger=require('../../utils/logger');
 const opRegistry=require('../lib/opRegistry');
 
 const marketAccess=require('../lib/marketAccess');
+const{matchesAutobuyItem,verifyAutobuyItem}=require('../lib/marketAutobuy');
 module.exports=function(app,ctx){
   const{makeApiForAccount}=ctx;
 
@@ -156,9 +157,10 @@ module.exports=function(app,ctx){
       // рынка. Параметры множественные, списками через запятую: categories, rarities, currencies,
       // market_types (direct|auction|negotiation). Валюта GRAM = значение 'ton' (только подпись
       // переименована в игре, значение в API прежнее). Ответ: {offers, pagination:{total}}.
-      const{categories,rarities,currency,currencies,market_types,sort='ends_at',page='1',page_size='20'}=req.query;
+      const{item_id,categories,rarities,currency,currencies,market_types,sort='ends_at',page='1',page_size='20'}=req.query;
       const api=await randomTokenedApi();
       const qs=new URLSearchParams({sort,page:String(page),page_size:String(page_size)});
+      if(item_id!=null&&item_id!=='')qs.set('item_ids',String(item_id));
       if(categories)qs.set('categories',categories);
       if(rarities)qs.set('rarities',rarities);
       const cur=currencies||currency; // принимаем и старое имя currency, и новое currencies
@@ -167,7 +169,7 @@ module.exports=function(app,ctx){
       const d=await api.get('/market/offers?'+qs.toString());
       // ответ несёт is_frozen/is_warned — попутно фиксируем статус аккаунта-источника
       marketAccess.record(api._accName||null,d).catch(()=>{});
-      const offers=d?.offers||[];
+      const offers=(d?.offers||[]).filter(o=>matchesAutobuyItem(o,{item_id}));
       // копим в каталог политики, «засветившиеся» на рынке (даже те, которых нет на аккаунтах) —
       // фоном, чтобы не задерживать ответ витрины
       const withPolicy=offers.filter(o=>o.item_category==='policy'&&o.policy);
@@ -230,7 +232,7 @@ module.exports=function(app,ctx){
   // Автоскупка: скупить все доступные лоты предмета дешевле max_price, распределяя по аккаунтам, в рамках бюджета.
   app.post('/api/market/auto-buy',async(req,res)=>{
     try{
-      const{categories,rarities,currency,max_price,max_budget,account_ids}=req.body||{};
+      const{item_id,categories,rarities,currency,max_price,max_budget,account_ids}=req.body||{};
       if(!currency||max_price==null||!Array.isArray(account_ids)||!account_ids.length)
         return res.status(400).json({ok:false,error:'currency, max_price, account_ids обязательны'});
       const{Account}=require('../../db/index');
@@ -256,6 +258,7 @@ module.exports=function(app,ctx){
       const offers=[];
       for(let p=1;p<=25;p++){
         const qs=new URLSearchParams({sort:'price_asc',page:String(p),page_size:'20',currencies:currency,market_types:'direct'});
+        if(item_id!=null&&item_id!=='')qs.set('item_ids',String(item_id));
         if(categories)qs.set('categories',categories);
         if(rarities)qs.set('rarities',rarities);
         let d;try{d=await api.get('/market/offers?'+qs.toString());}catch(_){break;}
@@ -265,7 +268,7 @@ module.exports=function(app,ctx){
         await new Promise(r=>setTimeout(r,150));
       }
       const now=Date.now();
-      const avail=offers.filter(o=>o.status==='active'&&(!o.available_at||new Date(o.available_at).getTime()<=now)&&o.your_offer!==true&&o.can_buy!==false);
+      const avail=offers.filter(o=>matchesAutobuyItem(o,{item_id})&&o.status==='active'&&(!o.available_at||new Date(o.available_at).getTime()<=now)&&o.your_offer!==true&&o.can_buy!==false);
       // жадное распределение в рамках бюджета; раскидываем по аккаунтам (least-assigned, кап 5/день)
       const budget=max_budget!=null&&max_budget!==''?Number(max_budget):Infinity;
       const assigned=new Map();let spent=0;const plan=[];
@@ -284,7 +287,7 @@ module.exports=function(app,ctx){
       for(let i=0;i<plan.length;i+=CONC){
         const chunk=plan.slice(i,i+CONC);
         const part=await Promise.all(chunk.map(async pl=>{
-          try{const a=await makeApiForAccount(pl.account_id,{noLock:true});await a.post('/market/direct/buy',{offer_id:pl.offer_id});return{offer_id:pl.offer_id,account_id:pl.account_id,name:nameOf(pl.account_id),price:pl.price,ok:true};}
+          try{const a=await makeApiForAccount(pl.account_id,{noLock:true});await verifyAutobuyItem(a,pl.offer_id,{item_id,currency},pl.price);await a.post('/market/direct/buy',{offer_id:pl.offer_id});return{offer_id:pl.offer_id,account_id:pl.account_id,name:nameOf(pl.account_id),price:pl.price,ok:true};}
           catch(e){return{offer_id:pl.offer_id,account_id:pl.account_id,name:nameOf(pl.account_id),price:pl.price,ok:false,error:e.message};}
         }));
         results.push(...part);
@@ -340,11 +343,12 @@ module.exports=function(app,ctx){
   });
 
   // ── Автопокупка: правила (CRUD) + фоновый воркер ────────────────────────────
-  async function abFetchOffers(api,{categories,rarities,currency,max_price}){
+  async function abFetchOffers(api,{item_id,categories,rarities,currency,max_price}){
     const offers=[];
     for(let p=1;p<=25;p++){
       // унифицированная витрина + только прямой рынок для автопокупки (мгновенная покупка)
       const qs=new URLSearchParams({sort:'price_asc',page:String(p),page_size:'20',currencies:currency,market_types:'direct'});
+      if(item_id!=null&&item_id!=='')qs.set('item_ids',String(item_id));
       if(categories)qs.set('categories',categories);
       if(rarities)qs.set('rarities',rarities);
       let d;try{d=await api.get('/market/offers?'+qs.toString());}catch(_){break;}
@@ -376,13 +380,13 @@ module.exports=function(app,ctx){
     }
     return plan;
   }
-  async function abExecute(plan,accsById){
+  async function abExecute(plan,accsById,rule){
     const results=[];const CONC=10;
     for(let i=0;i<plan.length;i+=CONC){
       const chunk=plan.slice(i,i+CONC);
       const part=await Promise.all(chunk.map(async pl=>{
         const name=accsById.get(pl.account_id)?.name||String(pl.account_id);
-        try{const a=await makeApiForAccount(pl.account_id,{noLock:true});await a.post('/market/direct/buy',{offer_id:pl.offer_id});return{...pl,name,ok:true};}
+        try{const a=await makeApiForAccount(pl.account_id,{noLock:true});await verifyAutobuyItem(a,pl.offer_id,rule,pl.price);await a.post('/market/direct/buy',{offer_id:pl.offer_id});return{...pl,name,ok:true};}
         catch(e){return{...pl,name,ok:false,error:e.message};}
       }));
       results.push(...part);
@@ -400,18 +404,18 @@ module.exports=function(app,ctx){
     const accsById=new Map(accs.map(a=>[a.id,a]));
     const balance=await abBalances(accs,rule.currency);
     const api=await randomTokenedApi();
-    const offers=await abFetchOffers(api,{categories:rule.categories,rarities:rule.rarities,currency:rule.currency,max_price:rule.max_price});
+    const offers=await abFetchOffers(api,{item_id:rule.item_id,categories:rule.categories,rarities:rule.rarities,currency:rule.currency,max_price:rule.max_price});
     const now=Date.now();
-    const availableNow=offers.filter(o=>o.status==='active'&&(!o.available_at||new Date(o.available_at).getTime()<=now)&&o.your_offer!==true&&o.can_buy!==false);
+    const availableNow=offers.filter(o=>matchesAutobuyItem(o,rule)&&o.status==='active'&&(!o.available_at||new Date(o.available_at).getTime()<=now)&&o.your_offer!==true&&o.can_buy!==false);
     const plan=abPlan(availableNow,ids,balance,budgetRemaining);
     if(plan.length){
-      const results=await abExecute(plan,accsById);
+      const results=await abExecute(plan,accsById,rule);
       const spentOk=results.filter(r=>r.ok).reduce((s,r)=>s+r.price,0);
       if(spentOk>0){await MarketAutobuy.update({spent:(rule.spent||0)+spentOk,updated_at:new Date()},{where:{id:rule.id}});rule.spent=(rule.spent||0)+spentOk;logger.info(`[autobuy] rule ${rule.id}: куплено ${results.filter(r=>r.ok).length}, потрачено ${spentOk}`);}
     }
     // эскроу: купить точно в available_at
     if(rule.include_escrow){
-      const escrow=offers.filter(o=>o.status==='active'&&o.available_at&&new Date(o.available_at).getTime()>now&&o.display_price<=rule.max_price&&!abScheduled.has(o.id));
+      const escrow=offers.filter(o=>matchesAutobuyItem(o,rule)&&o.status==='active'&&o.available_at&&new Date(o.available_at).getTime()>now&&o.display_price<=rule.max_price&&!abScheduled.has(o.id));
       for(const o of escrow){
         abScheduled.add(o.id);
         const delay=Math.max(0,new Date(o.available_at).getTime()-Date.now()+300);
@@ -419,14 +423,15 @@ module.exports=function(app,ctx){
           try{
             const db=require('../../db/index');
             const r=await db.MarketAutobuy.findByPk(rule.id);
-            if(!r||!r.enabled){return;}
+            if(!r||!r.enabled||!matchesAutobuyItem(o,r)){return;}
             const br=r.max_budget!=null?(r.max_budget-(r.spent||0)):Infinity;
             if(br<o.display_price)return;
-            const accs2=await db.Account.findAll({where:{id:ids}});
+            const currentIds=JSON.parse(r.account_ids||'[]');
+            const accs2=await db.Account.findAll({where:{id:currentIds}});
             const bal2=await abBalances(accs2,r.currency);
-            const plan2=abPlan([o],ids,bal2,br);
+            const plan2=abPlan([o],currentIds,bal2,br);
             if(plan2.length){
-              const res2=await abExecute(plan2,new Map(accs2.map(a=>[a.id,a])));
+              const res2=await abExecute(plan2,new Map(accs2.map(a=>[a.id,a])),r);
               const s=res2.filter(x=>x.ok).reduce((acc,x)=>acc+x.price,0);
               if(s>0){await db.MarketAutobuy.update({spent:(r.spent||0)+s,updated_at:new Date()},{where:{id:r.id}});logger.info(`[autobuy] rule ${r.id}: эскроу offer ${o.id} куплен (+${s})`);}
             }

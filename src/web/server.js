@@ -81,6 +81,7 @@ function startWebServer(port){
   require('./routes/fortune')(app,ctx);     // павильон удачи
   require('./routes/dashboards')(app,ctx);  // магазин/мэрия/путь/достижения/промо/гильдии/спецздания/строители
   require('./routes/market')(app,ctx);      // центральный рынок: статистика/лоты/автоскупка/снайп/листинги (+воркеры)
+  require('./routes/championships')(app,ctx); // чемпионаты: отряды и заявки
   require('./routes/guilds')(app,ctx);      // инфо/МИД live/настройки/управление гильдией
   require('./routes/economy')(app,ctx);     // дорога верности, склад live, магазин live, стейкинг, реклама
   require('./routes/policies')(app,ctx);    // политики: библиотека/кабинет мэра

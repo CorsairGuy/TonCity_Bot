@@ -25,10 +25,23 @@ module.exports=function(app,ctx){
           claimable:!!r.claimable,
           odds:(()=>{try{return JSON.parse(r.odds||'[]');}catch(_){return [];}})(),
           ready_at:r.ready_at,
+          timer_source:r.timer_source??'forecast',
+          grants:(()=>{try{return JSON.parse(r.grants||'[]');}catch(_){return[];}})(),
           updated_at:r.updated_at,
         }));
       res.json({ok:true,accounts});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
+  app.post('/api/civic-draw/:accountId/grants/claim',async(req,res)=>{
+    try{
+      const{Account}=require('../../db/index');
+      const acc=await Account.findByPk(req.params.accountId);
+      if(!acc?.access_token)return res.status(404).json({ok:false,error:'Аккаунт не найден или нет токена'});
+      const api=await makeApiForAccount(acc.id,{noLock:true});
+      const out=await require('../../modules/townhall').claimPolicyGrant(api,acc.name,req.body?.def_id);
+      res.status(out.ok?200:409).json(out);
+    }catch(e){res.status(400).json({ok:false,error:e.message});}
   });
 
   // ready_at — линейный прогноз, посчитанный и сохранённый modules/townhall.js на каждом синке

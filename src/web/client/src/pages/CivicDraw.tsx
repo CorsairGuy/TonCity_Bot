@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Box, Button, Flash, Heading, Spinner, Text, Label, ProgressBar, ToggleSwitch } from '@primer/react';
 import { SyncIcon, GiftIcon } from '@primer/octicons-react';
-import { api, type CivicDrawAccount } from '../api';
+import { api, type CivicDrawAccount, type PolicyGrantStatus } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { itemImgSrc } from '../utils';
+import { useItemCatalog, itemName } from '../hooks/useItemCatalog';
+import { ItemThumb } from '../components/ItemThumb';
+import { onServerEvent } from '../serverEvents';
 
 // Формат ответа /policies/civic-draw/claim подтверждён живым сбором (скриншот 14.07.2026):
 // {draw_progress, draws_consumed, shards?: {rarity: qty}, quartermaster_shards?: {rarity: qty}}.
@@ -63,7 +66,36 @@ function timeLeftText(ms: number): string {
   const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
   if (d > 0) return `${d}д ${h}ч`;
   if (h > 0) return `${h}ч ${m}м`;
-  return `${Math.max(0, m)}м`;
+  return m > 0 ? `${m}м` : `${Math.max(0, Math.ceil(ms / 1000))}с`;
+}
+
+function GrantRow({ grant, accountId, now, onRefresh }: { grant: PolicyGrantStatus; accountId: number; now: number; onRefresh: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const { flash, showFlash } = useFlash();
+  const itemId = grant.kind === 'item' ? Number(grant.reward) : null;
+  const catalog = useItemCatalog(itemId != null && Number.isFinite(itemId) ? [itemId] : []);
+  const ready = grant.ready > 0;
+  const remaining = grant.ready_at ? Math.max(0, Date.parse(grant.ready_at) - now) : null;
+  const label = itemId != null ? itemName(itemId, catalog) : `${RARITY_NAME[String(grant.reward)] ?? grant.reward} осколки`;
+  const claim = async () => {
+    setBusy(true);
+    try {
+      const result = await api.policyGrantClaim(accountId, grant.def_id);
+      showFlash(result.ok ? 'Награда получена' : result.error ?? 'Ошибка сбора', result.ok);
+      onRefresh();
+    } finally { setBusy(false); }
+  };
+  return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, p: 2, bg: 'canvas.subtle', borderRadius: 2 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      {itemId != null ? <ItemThumb itemId={itemId} item={catalog.get(itemId)} size={32} /> : <Box as="img" src={itemImgSrc(`shard_${grant.reward}`)} alt="" sx={{ width: 32, height: 32 }} />}
+      <Box>
+        <Text sx={{ display: 'block', fontWeight: 'semibold' }}>{label} ×{grant.amount}</Text>
+        <Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted' }}>Политика {grant.def_id} · {ready ? `готово: ${grant.ready}` : remaining == null ? 'время неизвестно' : remaining === 0 ? 'ожидает обновления' : `через ${timeLeftText(remaining)}`}</Text>
+      </Box>
+    </Box>
+    {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ py: 1, px: 2, fontSize: 0 }}>{flash.msg}</Flash>}
+    <Button leadingVisual={GiftIcon} loading={busy} disabled={busy || !ready} onClick={claim}>Получить{ready ? ` ×${grant.ready * grant.amount}` : ''}</Button>
+  </Box>;
 }
 
 function AccountRow({ row, now, onClaimed, onRefresh }: { row: CivicDrawAccount; now: number; onClaimed: (result: unknown) => void; onRefresh: () => void }) {
@@ -82,7 +114,7 @@ function AccountRow({ row, now, onClaimed, onRefresh }: { row: CivicDrawAccount;
   // он давал «готово прямо сейчас», из-за чего кнопка долбила игру одним и тем же отказом).
   // ВАЖНО: сырой draws_ready в условие НЕ входит — именно он приходит равным 1 при claimable:false.
   // Если прогноз всё же ошибётся, serverSaysNotReady погасит кнопку после первого отказа.
-  const ready = !serverSaysNotReady && (!!row.claimable || readyByForecast);
+  const ready = !serverSaysNotReady && (!!row.claimable || (row.timer_source !== 'server' && readyByForecast));
   // прогресс-бар: реальный draw_progress НА МОМЕНТ снимка, экстраполированный вперёд по прошедшему
   // времени × скорости (draws_per_day) — тикает вживую между синками, не трогая прогноз ready_at
   // (используется только для готовности/обратного отсчёта). ВАЖНО: раньше бар считал долю пути
@@ -118,7 +150,7 @@ function AccountRow({ row, now, onClaimed, onRefresh }: { row: CivicDrawAccount;
         <Text sx={{ fontWeight: 'bold' }}>{row.account}</Text>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ fontSize: 0, py: 1, px: 2 }}>{flash.msg}</Flash>}
-          <Label variant={ready ? 'success' : 'default'}>{ready ? `готово: ${Math.max(1, drawsReady)}` : `≈ через ${timeLeftText(readyAtMs != null ? readyAtMs - now : 0)}`}</Label>
+          <Label variant={ready ? 'success' : 'default'}>{ready ? `готово: ${Math.max(1, drawsReady)}` : readyAtMs == null ? 'время неизвестно' : readyAtMs <= now ? 'ожидает обновления' : `${row.timer_source === 'server' ? '' : '≈ '}через ${timeLeftText(readyAtMs - now)}`}</Label>
           <Button variant="primary" leadingVisual={GiftIcon} loading={busy} disabled={busy || !ready} onClick={claim}>
             Получить
           </Button>
@@ -143,6 +175,10 @@ function AccountRow({ row, now, onClaimed, onRefresh }: { row: CivicDrawAccount;
           ))}
         </Box>
       )}
+      {(row.grants?.length ?? 0) > 0 && <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Text sx={{ fontWeight: 'semibold' }}>Награды политик</Text>
+        {row.grants!.map(g => <GrantRow key={`${g.def_id}:${g.kind}:${g.reward}`} grant={g} accountId={row.account_id} now={now} onRefresh={onRefresh} />)}
+      </Box>}
     </Box>
   );
 }
@@ -165,6 +201,8 @@ export function CivicDraw() {
   // автосбор (modules/civicDrawAuto.js): бот сам забирает розыгрыш, когда игра говорит «готово»
   const [auto, setAuto] = useState(true);
   const [savingAuto, setSavingAuto] = useState(false);
+  const [autoGrants, setAutoGrants] = useState(false);
+  const [savingGrants, setSavingGrants] = useState(false);
   const { flash, showFlash } = useFlash();
 
   const toggleAuto = async (next: boolean) => {
@@ -177,6 +215,14 @@ export function CivicDraw() {
     finally { setSavingAuto(false); }
   };
 
+  const toggleGrants = async () => {
+    const next = !autoGrants;
+    setSavingGrants(true);
+    try {
+      const d = await api.saveConfig({ features: { policyGrants: next } });
+      if (d.ok) setAutoGrants(next); else showFlash(d.error ?? 'Ошибка сохранения', false);
+    } finally { setSavingGrants(false); }
+  };
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -220,10 +266,16 @@ export function CivicDraw() {
   useEffect(() => { load(); }, []);
   useEffect(() => {
     api.config().then(d => {
-      if (d.ok) setAuto(((d.settings.features as Record<string, boolean> | undefined)?.civicDraw) ?? true);
+      if (d.ok) { setAuto(((d.settings.features as Record<string, boolean> | undefined)?.civicDraw) ?? true); setAutoGrants((d.settings.features as Record<string, boolean> | undefined)?.policyGrants === true); }
     }).catch(() => {});
   }, []);
-  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(id); }, []);
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = onServerEvent('civic-draw', () => { clearTimeout(timer); timer = setTimeout(() => load(true), 100); });
+    return () => { off(); clearTimeout(timer); };
+  }, []);
 
   if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
 
@@ -231,7 +283,7 @@ export function CivicDraw() {
   // то же правило, что и в строке аккаунта: живой claimable ЛИБО наступивший прогноз ready_at
   // (сырой draws_ready намеренно не участвует — он бывает 1 при claimable:false, см. AccountRow)
   const isReady = (a: CivicDrawAccount) =>
-    !denied.has(a.account) && (!!a.claimable || (a.ready_at != null && now >= new Date(a.ready_at).getTime()));
+    !denied.has(a.account) && (!!a.claimable || (a.timer_source !== 'server' && a.ready_at != null && now >= new Date(a.ready_at).getTime()));
   const readyCount = sorted.filter(isReady).length;
 
   return (
@@ -243,6 +295,10 @@ export function CivicDraw() {
             <Text id="civic-auto-label" sx={{ fontSize: 1 }}>Автосбор</Text>
             <ToggleSwitch size="small" aria-labelledby="civic-auto-label" statusLabelPosition="end"
               checked={auto} disabled={savingAuto} onClick={() => toggleAuto(!auto)} />
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Text id="grants-auto-label" sx={{ fontSize: 1 }}>Автосбор наград политик</Text>
+            <ToggleSwitch size="small" aria-labelledby="grants-auto-label" statusLabelPosition="end" checked={autoGrants} disabled={savingGrants} onClick={toggleGrants} />
           </Box>
           <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
             Обновить

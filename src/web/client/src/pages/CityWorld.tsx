@@ -1,3 +1,4 @@
+import { CITY_DISTRICTS, buildingDistrict, districtCoordsFor, districtRoadsFor, districtOf, districtOffset, projectDistrict, type CityDistrict } from '../cityDistricts';
 import { memo, useState, useEffect, useMemo, useCallback, useRef, startTransition, type DragEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } from '@primer/react';
@@ -110,8 +111,11 @@ const FAR_HINT: Partial<Record<PanelMode, string>> = {
 
 export function CityWorld() {
   const narrow = useNarrow();
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  const [district, setDistrict] = useState<CityDistrict>(() => params.get('district') === 'd1' ? 'd1' : 'main');
+  const COORDS = useMemo(() => districtCoordsFor(district).map(p => ({ ...p, x: p.x - districtOffset(district) })), [district]);
+  const ROAD_MAP = useMemo(() => districtRoadsFor(district), [district]);
+  const navigate = useNavigate();
   const [mode, setMode] = useState<CityActionMode>('view');
   const modeRef = useRef(mode); modeRef.current = mode;
   const [dayNight, setDayNight] = useMapDayNight();
@@ -180,7 +184,7 @@ export function CityWorld() {
     saveOrder(list);
   };
 
-  const catMap = useMemo(() => new Map(catalog.map(b => [b.id, b])), [catalog]);
+  const catMap = useMemo(() => new Map(catalog.map(b => [b.id, b])), [catalog, district]);
   // «Показатели» каждого города по снимку и данным из БД — при наведении и пока город грузится его не ждём
   const statsByCity = useMemo(() => new Map(catalog.length ? cities.map(r => [r.account,
     cityStatsFor(r.buildings, catMap, cabinets[r.account], r.guild, r.diversity ?? 0, r.targets, r.queue, globalPlan)] as const) : []),
@@ -204,18 +208,18 @@ export function CityWorld() {
     const i = r * cols + c;
     return i < cities.length ? i : -1;
   }, [cols, cities.length]);
-  const layoutKey = cities.map(c => `${c.account}:${c.unlockedSections?.join(',') ?? '-'}`).join('|');
+  const layoutKey = district + cities.map(c => `${c.account}:${c.unlockedSections?.join(',') ?? '-'}`).join('|');
   const world = useMemo<WorldLayout>(() => {
     const coordsList: { x: number; y: number }[] = [], roadMap: WorldLayout['roadMap'] = {}, lockedCells = new Map<string, string>();
     for (const c of cities) {
       const o = offOf.get(c.account)!;
       for (const p of COORDS) coordsList.push({ x: p.x + o.ox, y: p.y + o.oy });
       for (const [k, v] of Object.entries(ROAD_MAP)) { const i = k.indexOf('_'); roadMap[`${+k.slice(0, i) + o.ox}_${+k.slice(i + 1) + o.oy}`] = v; }
-      if (c.unlockedSections) { const u = new Set(c.unlockedSections); for (const sec of sections) if (!u.has(sec.id)) for (const p of sec.coordinates) lockedCells.set(`${p.x + o.ox}_${p.y + o.oy}`, `${c.account}|${sec.id}`); }
+      if (c.unlockedSections || district === 'd1') { const u = new Set(c.unlockedSections ?? []); for (const sec of sections) if ((sec.district ?? 'main') === district && !u.has(sec.id)) for (const p of sec.coordinates) lockedCells.set(`${p.x - districtOffset(district) + o.ox}_${p.y + o.oy}`, `${c.account}|${sec.id}`); }
     }
     const regions = cities.map(c => { const o = offOf.get(c.account)!; return { gx: o.ox, gy: o.oy, span: SPAN }; });
     return { coordsList, roadMap, lockedCells, cityAt: cityAtCell, regions };
-  }, [layoutKey, sections, cityAtCell]);
+  }, [layoutKey, sections, cityAtCell, district, COORDS, ROAD_MAP]);
 
   // ── города, открытые кодом карты города ───────────────────────────────────────────────────
   // Текущий город показывает свою шапку и панель; кроме него открыты (скрыто) города с черновиком
@@ -292,7 +296,7 @@ export function CityWorld() {
   const [addLevel, setAddLevel] = useState('20');
   useEffect(() => { if (mode !== 'build') setBuildFamily(''); }, [mode]);
   const tool = useMemo(() => ({ buildFamily, setBuildFamily, addLevel, setAddLevel }), [buildFamily, addLevel]);
-  const pickTool = JSON.stringify([mode, mode === 'build' ? buildFamily : '', mode === 'upgrade' ? addLevel : '']);
+  const pickTool = JSON.stringify([district, mode, mode === 'build' ? buildFamily : '', mode === 'upgrade' ? addLevel : '']);
   const pickRevision = useRef({ tool: pickTool, value: 0 });
   if (pickRevision.current.tool !== pickTool) pickRevision.current = { tool: pickTool, value: pickRevision.current.value + 1 };
 
@@ -397,8 +401,8 @@ export function CityWorld() {
   useEffect(() => {
     if (!placed.current) return;
     const c = params.get('account');
-    if ((cur ?? null) !== c) setParams(cur ? { account: cur } : {}, { replace: true });
-  }, [cur]);
+    if ((cur ?? null) !== c || (params.get('district') ?? 'main') !== district) setParams({ ...(cur ? { account: cur } : {}), ...(district === 'd1' ? { district } : {}) }, { replace: true });
+  }, [cur, district]);
 
   // ── сводка всех городов: лог и прогноз одной лентой ─────────────────────────────────────────
   const [log, setLog] = useState<CityActionLogRow[]>([]);
@@ -516,36 +520,36 @@ export function CityWorld() {
   };
 
   // ── всё для общей карты в общих координатах ─────────────────────────────────────────────────
-  const shiftKey = (account: string, x: number, y: number) => { const o = offOf.get(account); return o ? `${x + o.ox}_${y + o.oy}` : ''; };
+  const shiftKey = (account: string, x: number, y: number) => { const o = offOf.get(account); return o && districtOf(x) === district ? `${x - districtOffset(district) + o.ox}_${y + o.oy}` : ''; };
   const shiftInto = (out: Set<string>, account: string, set: Iterable<string> | null | undefined) => {
     const o = offOf.get(account);
     if (!o || !set) return;
-    for (const k of set) { const i = k.indexOf('_'); out.add(`${+k.slice(0, i) + o.ox}_${+k.slice(i + 1) + o.oy}`); }
+    for (const k of set) { const i = k.indexOf('_'), x = +k.slice(0, i); if (districtOf(x) === district) out.add(`${x - districtOffset(district) + o.ox}_${+k.slice(i + 1) + o.oy}`); }
   };
   const allBuildings = useStableMapRows(useMemo(() => cities.flatMap(c => {
     const o = offOf.get(c.account)!;
-    return (live(c.account)?.buildings ?? c.buildings).map(b => ({ ...b, x: b.x + o.ox, y: b.y + o.oy }));
-  }), [cities, offOf, live]));
+    return projectDistrict(live(c.account)?.buildings ?? c.buildings, district, o.ox, o.oy);
+  }), [cities, offOf, live, district]));
   const allQueue = useStableMapRows(useMemo(() => cities.flatMap(c => {
     const o = offOf.get(c.account)!;
-    return (live(c.account)?.queue ?? c.queue).map(v => ({ ...v, x: v.x + o.ox, y: v.y + o.oy }));
-  }), [cities, offOf, live]));
+    return projectDistrict(live(c.account)?.queue ?? c.queue, district, o.ox, o.oy);
+  }), [cities, offOf, live, district]));
   const allTargets = useStableMapRows(useMemo(() => cities.flatMap(c => {
     const o = offOf.get(c.account)!;
-    return (live(c.account)?.targets ?? c.targets ?? []).map(t => ({ ...t, x: t.x + o.ox, y: t.y + o.oy }));
-  }), [cities, offOf, live]));
+    return projectDistrict(live(c.account)?.targets ?? c.targets ?? [], district, o.ox, o.oy);
+  }), [cities, offOf, live, district]));
   // клетки для действий: открытый город отдаёт свои, ещё не открытый считается той же функцией по
   // своему снимку (cityCellSets) — клик по ней откроет город, и выполнит его уже код карты города
-  const coordKeys = useMemo(() => COORDS.map(c => `${c.x}_${c.y}`), []);
+  const coordKeys = useMemo(() => COORDS.map(c => `${c.x + districtOffset(district)}_${c.y}`), [COORDS, district]);
   const rowSets = useMemo(() => {
     const m = new Map<string, CityCellSets>();
     for (const c of cities) {
       const locked = new Set<string>();
-      if (c.unlockedSections) { const u = new Set(c.unlockedSections); for (const sec of sections) if (!u.has(sec.id)) for (const p of sec.coordinates) locked.add(`${p.x}_${p.y}`); }
+      if (c.unlockedSections || district === 'd1') { const u = new Set(c.unlockedSections ?? []); for (const sec of sections) if (!u.has(sec.id)) for (const p of sec.coordinates) locked.add(`${p.x}_${p.y}`); }
       m.set(c.account, cityCellSets(c.buildings, catMap, coordKeys, locked, new Set((c.buildPlan ?? []).map(p => `${p.x}_${p.y}`))));
     }
     return m;
-  }, [cities, catMap, sections, coordKeys]);
+  }, [cities, catMap, sections, coordKeys, district]);
   // выбранное здание по лимиту уже не построить в этих городах: их клетки не принимают стройку и гаснут
   const famLimitHit = useCallback((r: CityWorldRow, id: string) => {
     const info = catMap.get(id);
@@ -584,7 +588,7 @@ export function CityWorld() {
     const focus = curState?.focusSet ? new Set<string>() : null;
     if (focus && cur) shiftInto(focus, cur, curState!.focusSet);
     return { valid, picked, focus };
-  }, [cities, live, rowSets, mode, buildFamily, curState, cur, offOf, movingCity, buildBlockedIn]);
+  }, [cities, live, rowSets, mode, buildFamily, curState, cur, offOf, movingCity, buildBlockedIn, district]);
 
   const mapSets = {
     valid: useStableMapSet(rawMapSets.valid)!,
@@ -600,7 +604,7 @@ export function CityWorld() {
     for (const c of cities) {
       const st = live(c.account);
       if (st) { for (const f of st.fills) { const k = new Set<string>(); shiftInto(k, c.account, [f.key]); for (const key of k) fills.push({ ...f, key }); } }
-      else if (mode === 'build') for (const p of c.buildPlan ?? []) fills.push({ key: shiftKey(c.account, p.x, p.y), fill: 'rgba(212,167,44,.8)', stroke: '#9a6700' });
+      else if (mode === 'build') for (const p of c.buildPlan ?? []) if (districtOf(p.x) === district) fills.push({ key: shiftKey(c.account, p.x, p.y), fill: 'rgba(212,167,44,.8)', stroke: '#9a6700' });
     }
     if (movingCity) {
       for (const c of cities) if (c.account !== movingCity) { const o = offOf.get(c.account)!; regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: FADE }); }
@@ -627,7 +631,7 @@ export function CityWorld() {
       if (k) regions.push({ gx: o.ox, gy: o.oy, span: SPAN, fill: `rgba(130,80,223,${(0.06 + k / max * 0.3).toFixed(2)})` });
     }
     return { fills, regions };
-  }, [cities, live, mode, cur, forecast, log, offOf, movingCity, buildBlockedIn, buildInfo, rowSets, buildFamily, boosterDim && [...boosterDim].join()]);
+  }, [cities, live, mode, cur, forecast, log, offOf, movingCity, buildBlockedIn, buildInfo, rowSets, buildFamily, district, boosterDim && [...boosterDim].join()]);
   // для курсора зазор между городами делится пополам между соседями: подсветка не гаснет на переходе
   const [buildHover, setBuildHover] = useState<string | null>(null);   // «Строительство»: город под курсором
   const onHoverCell = useCallback((gx: number | null, gy: number | null) => {
@@ -654,7 +658,7 @@ export function CityWorld() {
     const i = cityAtCell(gx, gy);
     if (i < 0) return null;
     const o = offOf.get(cities[i].account)!;
-    return { account: cities[i].account, x: gx - o.ox, y: gy - o.oy };
+    return { account: cities[i].account, x: gx - o.ox + districtOffset(district), y: gy - o.oy };
   };
 
   // ── клики и кисть: каждую клетку выполняет код её города ─────────────────────────────────────
@@ -669,7 +673,7 @@ export function CityWorld() {
     const p = pending.current.get(a);
     if (!p) return;
     // React уже сменил инструмент, но дочерний обработчик ещё может быть от старого режима.
-    if (p.picks.length && st.mode !== modeRef.current) return;
+    if (p.picks.length && (st.mode !== modeRef.current || (st.district != null && st.district !== district))) return;
     pending.current.delete(a);
     for (const c of p.picks.filter(c => c.revision === pickRevision.current.value)) if (st.validSet.has(`${c.x}_${c.y}`)) st.onPick(c.x, c.y);
     if (p.unlock) st.onUnlockCell(p.unlock);
@@ -701,7 +705,7 @@ export function CityWorld() {
       });
     }
     batch.current.push({ ...l, revision: pickRevision.current.value });
-  }, [offOf, cityAtCell, choose]);
+  }, [offOf, cityAtCell, choose, district]);
   const onUnlockCell = useCallback((v: string) => {
     const i = v.indexOf('|'), account = v.slice(0, i);
     const p = pending.current.get(account) ?? { picks: [] };
@@ -760,7 +764,7 @@ export function CityWorld() {
       const i = l ? -1 : nearestCity(gx, gy), a = l?.account ?? (i >= 0 ? cities[i].account : null);
       if (a) { clickedCity.current = a; flyRef.current(a); }
     }
-  }, [offOf, cityAtCell, choose, nearestCity, cities]);
+  }, [offOf, cityAtCell, choose, nearestCity, cities, district]);
   const minScale = useMemo(() => (cities.length ? fitTile().tile * 0.7 / 90 : 0.05), [cities.length, cols]);
 
   // слоты для города: его шапка, сайдбар и плашка кисти встают сюда порталами
@@ -815,7 +819,7 @@ export function CityWorld() {
   const [planAdd, setPlanAdd] = useState(false);
   const [planSearch, setPlanSearch] = useState('');
   const [catFilter, setCatFilter] = useState('COM');
-  const purchasable = useMemo(() => catalog.filter(b => b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)), [catalog]);
+  const purchasable = useMemo(() => catalog.filter(b => buildingDistrict(b) === district && b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)), [catalog, district]);
   const buildCats = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean).sort((a, b) => ((['COM', 'RES'].indexOf(a) + 1) || 99) - ((['COM', 'RES'].indexOf(b) + 1) || 99));
   const buildCat = buildCats.includes(catFilter) ? catFilter : buildCats[0];
   const buildPicker = mode === 'build' && (() => {
@@ -880,9 +884,9 @@ export function CityWorld() {
     for (const r of cities) {
       const rs = rowSets.get(r.account);
       if (rs) { ready += rs.reconstructable.size; all += rs.reconstructPlannable.size; if (rs.reconstructable.size) readyCities++; }
-      comp += resources[r.account]?.components ?? 0;
+      comp += live(r.account)?.recon.components ?? resources[r.account]?.components ?? 0;
       for (const g of live(r.account)?.recon.groups ?? []) for (const c of g.cells) {
-        if (c.queued) { marked++; spend += g.comp ?? 0; gain += g.gain ?? 0; }
+        if (c.queued) { marked++; spend += c.comp ?? g.comp ?? 0; gain += c.gain ?? g.gain ?? 0; }
         if (c.planned) planned++;
       }
     }
@@ -897,7 +901,7 @@ export function CityWorld() {
       </Summary>
     );
   }
-  const mpAll = Object.values(resources).reduce((s, v) => s + v.masterplans, 0);
+  const mpAll = cities.reduce((s, r) => s + (live(r.account)?.renov.masterplans ?? resources[r.account]?.masterplans ?? 0), 0);
   const mpUsed = cities.reduce((s, r) => s + (live(r.account)?.renov.items.filter(i => i.marked).reduce((a, i) => a + (i.cost ?? 0), 0) ?? 0), 0);
   const renovSummary = mode === 'renovate' && <MasterplanBar masterplans={mpAll} used={mpUsed} />;
   // города с отмеченной реконструкцией (или реконструкцией в плане) и реновацией — их списки кодом карты города
@@ -1154,7 +1158,7 @@ export function CityWorld() {
     <CityActionsCanvas
       buildings={allBuildings}
       type="city"
-      mapKey="world"
+      mapKey={`world:${district}`}
       mode={mode}
       validSet={mapSets.valid}
       pickedSet={mapSets.picked}
@@ -1167,6 +1171,7 @@ export function CityWorld() {
       focusSet={mapSets.focus}
       dayNight={dayNight}
       world={world}
+      district={district}
       minScale={minScale}
       camera={camera}
       onView={onView}
@@ -1235,7 +1240,7 @@ export function CityWorld() {
             pointerEvents: 'none', '& > *': { pointerEvents: 'auto' },
             '@media (max-width: 768px)': { display: 'flex', flexDirection: 'column-reverse', alignItems: 'center', gap: 2 },
           }}>
-            <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><WorldMapPalette mode={panelMode} onSelect={selectPanel} dots={paletteDots} /></Box>
+            <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}><Box sx={{ display: 'flex', gap: 1 }}>{CITY_DISTRICTS.map(d => <Button key={d.id} size="small" variant={district === d.id ? 'primary' : 'default'} onClick={() => { setDistrict(d.id); setBuildFamily(''); }}>{d.title}</Button>)}</Box><WorldMapPalette mode={panelMode} onSelect={selectPanel} dots={paletteDots} /></Box></Box>
             {/* уровень кисти «Плана» — общий для всех городов, виден и без текущего города */}
             <Box ref={setDockEl} sx={{ gridColumn: 3, justifySelf: 'start', '&:empty': { display: 'none' } }}>
               {!cur && mode === 'upgrade' && <MapBrushLevel value={Math.max(1, Math.floor(Number(addLevel)) || 1)} onChange={v => setAddLevel(String(v))} />}
@@ -1267,7 +1272,7 @@ export function CityWorld() {
         </Box>
       </Box>
       {withWarm.map(a => (
-        <WorldCityEditor key={a} account={a} mode={mode} onModeChange={setMode} onBack={editorBack} hidden={a !== cur} tool={tool}
+        <WorldCityEditor key={a} district={district} account={a} mode={mode} onModeChange={setMode} onBack={editorBack} hidden={a !== cur} tool={tool}
           slots={slots} onMap={onMap} dayNight={dayNight} onDayNight={setDayNight} panelActions={panelToggle} />
       ))}
     </Box>

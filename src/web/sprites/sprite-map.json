@@ -1,4 +1,562 @@
 {
+  "CAP_DEC_turn_1.png": {
+    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_SPE_quest_dome.png": {
+    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 511
+    }
+  },
+  "CAP_guild_headquarters.png": {
+    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 2006
+    }
+  },
+  "CAP_COM_office_tower.png": {
+    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 671
+    }
+  },
+  "CAP_COM_startup_hub.png": {
+    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 796
+    }
+  },
+  "CAP_BEN_prosperity_tower.png": {
+    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 642
+    }
+  },
+  "CAP_DEC_t_turn_3.png": {
+    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_COM_crystal_mine.png": {
+    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 453
+    }
+  },
+  "CAP_DEC_t_turn_1.png": {
+    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_SPE_foreign_ministry.png": {
+    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1403
+    }
+  },
+  "CAP_DEC_road_1.png": {
+    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 438
+    }
+  },
+  "CAP_DEC_t_turn_2.png": {
+    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 439
+    }
+  },
+  "CAP_DEC_park.png": {
+    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 438
+    }
+  },
+  "CAP_DEC_t_turn_4.png": {
+    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_DEC_road_2.png": {
+    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 439
+    }
+  },
+  "CAP_COM_finance_center.png": {
+    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1087
+    }
+  },
+  "CAP_BEN_commerce_hall.png": {
+    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 494
+    }
+  },
+  "CAP_BEN_resource_barn.png": {
+    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 515
+    }
+  },
+  "CAP_BEN_trade_center.png": {
+    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1636
+    }
+  },
+  "CAP_SPE_timeless_market.png": {
+    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 603
+    }
+  },
+  "CAP_level0.png": {
+    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 565
+    }
+  },
+  "CAP_DEC_turn_2.png": {
+    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 439
+    }
+  },
+  "CAP_DEC_turn_3.png": {
+    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_BEN_treasury_hall.png": {
+    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 637
+    }
+  },
+  "CAP_DEC_turn_4.png": {
+    "atlas": "capital/capital_9_5ccffc5647e5f90a778270074967954e.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 439
+    }
+  },
+  "CAP_SPE_tech_factory.png": {
+    "atlas": "capital/capital_9_5ccffc5647e5f90a778270074967954e.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 509
+    }
+  },
+  "CAP_DEC_intersection.png": {
+    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 440
+    }
+  },
+  "CAP_BEN_clock_tower.png": {
+    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 884
+    }
+  },
+  "CAP_BEN_foundation_stones.png": {
+    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 523
+    }
+  },
+  "d1/RES_worldtree.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1517
+    }
+  },
+  "RES_worldtree.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1517
+    }
+  },
+  "d1/RES_bough_towers.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 834
+    }
+  },
+  "RES_bough_towers.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 834
+    }
+  },
+  "d1/COM_amber_vault.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 770
+    }
+  },
+  "COM_amber_vault.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 770
+    }
+  },
+  "d1/SER_heartwood.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 770,
+      "w": 753,
+      "h": 727
+    }
+  },
+  "SER_heartwood.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 770,
+      "w": 753,
+      "h": 727
+    }
+  },
+  "d1/COM_eden_consortium.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 834,
+      "w": 753,
+      "h": 679
+    }
+  },
+  "COM_eden_consortium.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 834,
+      "w": 753,
+      "h": 679
+    }
+  },
+  "d1/COM_bloom_market.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 1497,
+      "w": 753,
+      "h": 600
+    }
+  },
+  "COM_bloom_market.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 1497,
+      "w": 753,
+      "h": 600
+    }
+  },
+  "d1/D1_construction_tall.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 1513,
+      "w": 753,
+      "h": 551
+    }
+  },
+  "d1/D1_grove_gold_2.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 0,
+      "y": 1517,
+      "w": 753,
+      "h": 534
+    }
+  },
+  "d1/D1_gate_x_closed.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 0,
+      "y": 2051,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "d1/D1_construction.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 2064,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "d1/D1_grove_oak_3.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 514
+    }
+  },
+  "d1/RES_rootweave.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 505
+    }
+  },
+  "RES_rootweave.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 505
+    }
+  },
+  "d1/D1_grove_gold_1.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 500
+    }
+  },
+  "d1/D1_grove_rocks_1.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 500,
+      "w": 753,
+      "h": 499
+    }
+  },
+  "d1/D1_grove_oak_1.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 505,
+      "w": 753,
+      "h": 496
+    }
+  },
+  "d1/D1_grove_rocks_3.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 514,
+      "w": 753,
+      "h": 495
+    }
+  },
+  "d1/D1_grove_rocks_2.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 999,
+      "w": 753,
+      "h": 493
+    }
+  },
+  "d1/D1_grove_gold_3.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 1001,
+      "w": 753,
+      "h": 487
+    }
+  },
+  "d1/D1_grove_oak_2.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 1009,
+      "w": 753,
+      "h": 484
+    }
+  },
+  "d1/D1_gate_x_open.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 1488,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "d1/D1_gate_y_closed.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 1492,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "d1/D1_gate_y_open.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 1493,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "d1/D1_empty.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 1936,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "d1/D1_locked_amber.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 1940,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "d1/D1_locked_bramble.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 1941,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "d1/D1_sap_font.png": {
+    "atlas": "tiles/d1/d1_2_d91296489c4eaff71ba4582971fe831b.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 429
+    }
+  },
   "COM_wonderland_kingdom.png": {
     "atlas": "tiles/tonCityTiles_8_a35b2779af9448a62983ccf122221375.png",
     "frame": {
@@ -51,114 +609,6 @@
       "y": 0,
       "w": 753,
       "h": 637
-    }
-  },
-  "road_2_trees_2.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 0,
-      "y": 0,
-      "w": 753,
-      "h": 576
-    }
-  },
-  "crossroads.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 753,
-      "y": 0,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "road_2_trees_1.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 1506,
-      "y": 0,
-      "w": 753,
-      "h": 576
-    }
-  },
-  "road_1.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 0,
-      "y": 576,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "t_turn_1_2.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 753,
-      "y": 576,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "road_2.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 1506,
-      "y": 576,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "road_1_christmas.png": {
-    "atlas": "tiles/tonCityTiles_5_1109321e20e4eb2a8f317afd6868b8ea.png",
-    "frame": {
-      "x": 1506,
-      "y": 0,
-      "w": 753,
-      "h": 448
-    }
-  },
-  "t_turn_1_1.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 753,
-      "y": 1152,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "t_turn_2_2.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 1506,
-      "y": 1152,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "t_turn_2_1.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 0,
-      "y": 1728,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "asphalt.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 753,
-      "y": 1728,
-      "w": 753,
-      "h": 422
-    }
-  },
-  "crosswalk_2.png": {
-    "atlas": "tiles/roadTiles_0_98fafd946b95ba9a1933d3a59165b952.png",
-    "frame": {
-      "x": 1506,
-      "y": 1728,
-      "w": 753,
-      "h": 434
     }
   },
   "SER_central_park.png": {
@@ -546,6 +996,15 @@
       "y": 0,
       "w": 753,
       "h": 796
+    }
+  },
+  "road_1_christmas.png": {
+    "atlas": "tiles/tonCityTiles_5_1109321e20e4eb2a8f317afd6868b8ea.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 448
     }
   },
   "SER_botanical_garden_3_star.png": {
@@ -1061,69 +1520,6 @@
       "h": 434
     }
   },
-  "crosswalk_1.png": {
-    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
-    "frame": {
-      "x": 0,
-      "y": 0,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "sand.png": {
-    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
-    "frame": {
-      "x": 753,
-      "y": 0,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "turn_4.png": {
-    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
-    "frame": {
-      "x": 1506,
-      "y": 0,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "turn_1.png": {
-    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
-    "frame": {
-      "x": 0,
-      "y": 576,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "turn_3.png": {
-    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
-    "frame": {
-      "x": 753,
-      "y": 576,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "roundabout.png": {
-    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
-    "frame": {
-      "x": 1506,
-      "y": 576,
-      "w": 753,
-      "h": 434
-    }
-  },
-  "turn_2.png": {
-    "atlas": "tiles/roadTiles_1_ef040dace5c01254fbc1012e323a164a.png",
-    "frame": {
-      "x": 0,
-      "y": 1152,
-      "w": 753,
-      "h": 434
-    }
-  },
   "COM_startup_hub_3_star.png": {
     "atlas": "tiles/tonCityTiles_2_309f0503da4032027231eaac31985878.png",
     "frame": {
@@ -1178,265 +1574,238 @@
       "h": 1507
     }
   },
-  "CAP_DEC_turn_1.png": {
-    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+  "RES_polaris_arcology.png": {
+    "atlas": "tiles/tonCityTiles_31_f3d39f3386d4fbf3ce8aa288a611e88c.png",
     "frame": {
       "x": 0,
       "y": 0,
       "w": 753,
-      "h": 440
+      "h": 1970
     }
   },
-  "CAP_SPE_quest_dome.png": {
-    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+  "COM_atlas_foundry.png": {
+    "atlas": "tiles/tonCityTiles_31_f3d39f3386d4fbf3ce8aa288a611e88c.png",
     "frame": {
       "x": 753,
       "y": 0,
       "w": 753,
-      "h": 511
+      "h": 1587
     }
   },
-  "CAP_guild_headquarters.png": {
-    "atlas": "capital/capital_8_6098f471b678db539b61eaeb1a2da3b1.png",
+  "COM_aurelian_skyport.png": {
+    "atlas": "tiles/tonCityTiles_31_f3d39f3386d4fbf3ce8aa288a611e88c.png",
     "frame": {
       "x": 1506,
       "y": 0,
       "w": 753,
-      "h": 2006
+      "h": 1359
     }
   },
-  "CAP_COM_office_tower.png": {
-    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+  "RES_cascade_residences.png": {
+    "atlas": "tiles/tonCityTiles_31_f3d39f3386d4fbf3ce8aa288a611e88c.png",
+    "frame": {
+      "x": 1506,
+      "y": 1359,
+      "w": 753,
+      "h": 1027
+    }
+  },
+  "SER_rescue_command.png": {
+    "atlas": "tiles/tonCityTiles_31_f3d39f3386d4fbf3ce8aa288a611e88c.png",
+    "frame": {
+      "x": 753,
+      "y": 1587,
+      "w": 753,
+      "h": 891
+    }
+  },
+  "COM_genesis_labs.png": {
+    "atlas": "tiles/tonCityTiles_32_a2a9a907617aea3e81ba13c8164a1b2c.png",
     "frame": {
       "x": 0,
       "y": 0,
       "w": 753,
-      "h": 671
+      "h": 1300
     }
   },
-  "CAP_COM_startup_hub.png": {
-    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+  "RES_titan_gate.png": {
+    "atlas": "tiles/tonCityTiles_32_a2a9a907617aea3e81ba13c8164a1b2c.png",
     "frame": {
       "x": 753,
       "y": 0,
       "w": 753,
-      "h": 796
+      "h": 1264
     }
   },
-  "CAP_BEN_prosperity_tower.png": {
-    "atlas": "capital/capital_3_751542461f75fc51131df94361fe7a77.png",
+  "SER_sentinel_command.png": {
+    "atlas": "tiles/tonCityTiles_32_a2a9a907617aea3e81ba13c8164a1b2c.png",
     "frame": {
       "x": 1506,
       "y": 0,
       "w": 753,
-      "h": 642
+      "h": 876
     }
   },
-  "CAP_DEC_t_turn_3.png": {
-    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+  "SER_longevity_institute.png": {
+    "atlas": "tiles/tonCityTiles_32_a2a9a907617aea3e81ba13c8164a1b2c.png",
+    "frame": {
+      "x": 1506,
+      "y": 876,
+      "w": 753,
+      "h": 702
+    }
+  },
+  "SER_biosphere_reserve.png": {
+    "atlas": "tiles/tonCityTiles_32_a2a9a907617aea3e81ba13c8164a1b2c.png",
+    "frame": {
+      "x": 753,
+      "y": 1264,
+      "w": 753,
+      "h": 628
+    }
+  },
+  "road_2_trees_1.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 0,
       "y": 0,
       "w": 753,
-      "h": 440
+      "h": 576
     }
   },
-  "CAP_COM_crystal_mine.png": {
-    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+  "road_2_trees_2.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 753,
       "y": 0,
       "w": 753,
-      "h": 453
+      "h": 576
     }
   },
-  "CAP_DEC_t_turn_1.png": {
-    "atlas": "capital/capital_2_fba81fe9cbcba1e471f59ad9995bfa61.png",
+  "crossroads.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 1506,
       "y": 0,
       "w": 753,
-      "h": 440
+      "h": 434
     }
   },
-  "CAP_SPE_foreign_ministry.png": {
-    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
-    "frame": {
-      "x": 0,
-      "y": 0,
-      "w": 753,
-      "h": 1403
-    }
-  },
-  "CAP_DEC_road_1.png": {
-    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
-    "frame": {
-      "x": 753,
-      "y": 0,
-      "w": 753,
-      "h": 438
-    }
-  },
-  "CAP_DEC_t_turn_2.png": {
-    "atlas": "capital/capital_1_da160fe028354a8b047b0798f8d5b9ec.png",
+  "crosswalk_1.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 1506,
-      "y": 0,
+      "y": 434,
       "w": 753,
-      "h": 439
+      "h": 434
     }
   },
-  "CAP_DEC_park.png": {
-    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+  "crosswalk_2.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 0,
-      "y": 0,
+      "y": 576,
       "w": 753,
-      "h": 438
+      "h": 434
     }
   },
-  "CAP_DEC_t_turn_4.png": {
-    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+  "road_1.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 753,
-      "y": 0,
+      "y": 576,
       "w": 753,
-      "h": 440
+      "h": 434
     }
   },
-  "CAP_DEC_road_2.png": {
-    "atlas": "capital/capital_0_68337cb57e2ec02224b1559a65b29a21.png",
+  "road_2.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 1506,
-      "y": 0,
+      "y": 868,
       "w": 753,
-      "h": 439
+      "h": 434
     }
   },
-  "CAP_COM_finance_center.png": {
-    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+  "roundabout.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 0,
-      "y": 0,
+      "y": 1010,
       "w": 753,
-      "h": 1087
+      "h": 434
     }
   },
-  "CAP_BEN_commerce_hall.png": {
-    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+  "t_turn_1_1.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 753,
-      "y": 0,
+      "y": 1010,
       "w": 753,
-      "h": 494
+      "h": 434
     }
   },
-  "CAP_BEN_resource_barn.png": {
-    "atlas": "capital/capital_5_0fa2e2fa21729a84b1ca9278c6f77220.png",
+  "t_turn_1_2.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 1506,
-      "y": 0,
+      "y": 1302,
       "w": 753,
-      "h": 515
+      "h": 434
     }
   },
-  "CAP_BEN_trade_center.png": {
-    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+  "t_turn_2_1.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 0,
-      "y": 0,
+      "y": 1444,
       "w": 753,
-      "h": 1636
+      "h": 434
     }
   },
-  "CAP_SPE_timeless_market.png": {
-    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+  "t_turn_2_2.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 753,
-      "y": 0,
+      "y": 1444,
       "w": 753,
-      "h": 603
+      "h": 434
     }
   },
-  "CAP_level0.png": {
-    "atlas": "capital/capital_4_882f976fd02d815daf5dcf976b942fd0.png",
+  "turn_1.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
     "frame": {
       "x": 1506,
-      "y": 0,
+      "y": 1736,
       "w": 753,
-      "h": 565
+      "h": 434
     }
   },
-  "CAP_DEC_turn_2.png": {
-    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
+  "turn_2.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
+    "frame": {
+      "x": 0,
+      "y": 1878,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "turn_3.png": {
+    "atlas": "tiles/roadTiles_0_3c59447360ebfba18320edf32fc46e8e.png",
+    "frame": {
+      "x": 753,
+      "y": 1878,
+      "w": 753,
+      "h": 434
+    }
+  },
+  "turn_4.png": {
+    "atlas": "tiles/roadTiles_1_7825ea635ee3f9e43eaa8036a40fd7fb.png",
     "frame": {
       "x": 0,
       "y": 0,
       "w": 753,
-      "h": 439
-    }
-  },
-  "CAP_DEC_turn_3.png": {
-    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
-    "frame": {
-      "x": 753,
-      "y": 0,
-      "w": 753,
-      "h": 440
-    }
-  },
-  "CAP_BEN_treasury_hall.png": {
-    "atlas": "capital/capital_7_756c206bcb8ced523b978e917280c743.png",
-    "frame": {
-      "x": 1506,
-      "y": 0,
-      "w": 753,
-      "h": 637
-    }
-  },
-  "CAP_DEC_turn_4.png": {
-    "atlas": "capital/capital_9_5ccffc5647e5f90a778270074967954e.png",
-    "frame": {
-      "x": 0,
-      "y": 0,
-      "w": 753,
-      "h": 439
-    }
-  },
-  "CAP_SPE_tech_factory.png": {
-    "atlas": "capital/capital_9_5ccffc5647e5f90a778270074967954e.png",
-    "frame": {
-      "x": 753,
-      "y": 0,
-      "w": 753,
-      "h": 509
-    }
-  },
-  "CAP_DEC_intersection.png": {
-    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
-    "frame": {
-      "x": 0,
-      "y": 0,
-      "w": 753,
-      "h": 440
-    }
-  },
-  "CAP_BEN_clock_tower.png": {
-    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
-    "frame": {
-      "x": 753,
-      "y": 0,
-      "w": 753,
-      "h": 884
-    }
-  },
-  "CAP_BEN_foundation_stones.png": {
-    "atlas": "capital/capital_6_8bd999cedf95c90bf4ea7674b1b3a82c.png",
-    "frame": {
-      "x": 1506,
-      "y": 0,
-      "w": 753,
-      "h": 523
+      "h": 434
     }
   }
 }

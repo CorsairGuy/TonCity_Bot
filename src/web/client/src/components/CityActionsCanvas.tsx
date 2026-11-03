@@ -1,3 +1,5 @@
+import { upgradeDuration } from '../cityStats';
+import type { CityDistrict } from '../cityDistricts';
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { Box } from '@primer/react';
 import type { MapBuilding, CityStrategyTarget, CityStrategyQueueItem, BuildingDef, GlobalUpgradeRule, MapSection } from '../api';
@@ -170,7 +172,8 @@ const EVENT_CAP_TO_MS = Date.UTC(2026, 7, 24);
 function upgradeTimeCapSec(nowMs = Date.now()): number {
   return (nowMs >= EVENT_CAP_FROM_MS && nowMs < EVENT_CAP_TO_MS) ? EVENT_UPGRADE_TIME_CAP_SEC : UPGRADE_TIME_CAP_SEC;
 }
-function upgradeDurationSec(incSec: number, level: number): number {
+function upgradeDurationSec(incSec: number, level: number, info?: BuildingDef): number {
+  if (info?.max_construction_seconds) return upgradeDuration(info, level);
   if (!incSec) return 0;
   const cap = upgradeTimeCapSec();
   const capLevel = Math.floor(Math.log2(cap / incSec)) + 2;
@@ -212,6 +215,7 @@ export function constructionSpriteId(id: string, type: 'city' | 'capital'): stri
     if (CAPITAL_TALL_CONSTRUCTION_IDS.has(id)) return 'construction2.png';
     return 'construction.png';
   }
+  if (/^(RES_(rootweave|bough_towers|worldtree)|COM_(bloom_market|amber_vault|eden_consortium)|SER_heartwood)\.png$/.test(id)) return /rootweave|bloom_market/.test(id) ? 'd1/D1_construction.png' : 'd1/D1_construction_tall.png';
   return CITY_TALL_CONSTRUCTION_IDS.has(id) ? 'construction2.png' : 'construction.png';
 }
 
@@ -223,6 +227,7 @@ export type CityActionMode = 'view' | 'upgrade' | 'queue' | 'build' | 'move' | '
 const DIM_INAPPLICABLE_MODES = new Set<CityActionMode>(['reconstruct', 'renovate', 'queue', 'upgrade', 'skip']);
 
 interface Props {
+  district?: CityDistrict;
   buildings: MapBuilding[];
   type: 'city' | 'capital';
   // идентификатор конкретной карты (имя аккаунта у города / guild_title у столицы) — нужен, чтобы
@@ -330,7 +335,7 @@ function MapLoadOverlay({ tick, runKey }: { tick: () => LoadState | null; runKey
   );
 }
 
-export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut, world, minScale, camera, onView, onCameraCancel, fills, regions, onTap, onHoverCell }: Props) {
+export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut, world, minScale, camera, onView, onCameraCancel, fills, regions, onTap, onHoverCell }: Props) {
   const onZoomOutRef = useRef(onZoomOut);
   onZoomOutRef.current = onZoomOut;
   const cb = useRef({ onView, onTap, onHoverCell, onCameraCancel });
@@ -476,8 +481,10 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
     lastCenter: null as { cx: number; cy: number; tile: number } | null,
     fillPaths: [] as { fill: string; stroke?: string; path: Path2D }[],
     regionPaths: [] as { fill: string; path: Path2D }[],
+    groundSprite: 'empty.png',
     hoverGx: null as number | null, hoverGy: null as number | null,
   });
+  state.current.groundSprite = district === 'd1' ? 'd1/D1_empty.png' : 'empty.png';
   state.current.mode = mode;
   state.current.validSet = validSet;
   state.current.lockedCells = lockedCells;
@@ -680,11 +687,11 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
         if (!underConstruction) P.itemBox.set(key, box);
         // ночью площадка вырезана из спрайта здания (см. padMask в mapNight.ts): под здание кладётся
         // пустая клетка-мостовая, и свет фонарей и окон ложится на неё так же, как на дорогу
-        const empSp = s.spriteMap['empty.png'];
+        const empSp = s.spriteMap[s.groundSprite];
         if (ROAD_LIGHTS && s.nightOn && s.type === 'city' && empSp) {
           const gh = empSp.frame.h * TW / 753 * RS, gy = sy + TH - gh;
-          want.push(['empty.png', dw]);
-          items.push({ x0: dx, y0: gy, x1: dx + dw, y1: gy + gh, z: 0, draw: (ctx, r) => { drawSprite(ctx, 'empty.png', dw, r, dx, gy, dw, gh); } });
+          want.push([s.groundSprite, dw]);
+          items.push({ x0: dx, y0: gy, x1: dx + dw, y1: gy + gh, z: 0, draw: (ctx, r) => { drawSprite(ctx, s.groundSprite, dw, r, dx, gy, dw, gh); } });
           P.roadCells.push({ x: sx, y: sy });
           if (!underConstruction) P.spill.push({ x: sx + TW / 2, y: sy + TH * 0.72, key });
         }
@@ -697,14 +704,14 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           else if (ok && s.ph && !underConstruction) drawBuildingLights(ctx, s.ph, spriteId, s.lit.get(key) ?? 0, spriteTargetW(dw), r, dx, dy, dw, dh);
         } });
       } else if (valid) {
-        const empSp = s.spriteMap['empty.png'];
+        const empSp = s.spriteMap[s.groundSprite];
         const RS = 1.025, dw = TW * RS;
         const dh0 = empSp ? empSp.frame.h * TW / 753 : TH, dh = dh0 * RS;
         const dx = sx - (dw - TW) / 2, dy = sy + TH - dh + (dh - dh0) / 2;
-        want.push(['empty.png', dw]);
+        want.push([s.groundSprite, dw]);
         if (s.nightOn) P.roadCells.push({ x: sx, y: sy });
         items.push({ x0: Math.min(sx, dx), y0: Math.min(sy, dy), x1: Math.max(sx + TW, dx + dw), y1: Math.max(sy + TH, dy + dh), z: 0, draw: (ctx, r) => {
-          if (!drawSprite(ctx, 'empty.png', dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.18)');
+          if (!drawSprite(ctx, s.groundSprite, dw, r, dx, dy, dw, dh)) drawTile(ctx, sx, sy, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.18)');
         } });
       } else {
         const env = s.roadMap[`${gx}_${gy}`] || null;
@@ -1359,7 +1366,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
       const bx = sx + TW / 2, by = sy + TH / 2;
       const endMs = b.end ? new Date(b.end).getTime() : 0;
       if (endMs > nowMs) {
-        const durationMs = b.start ? endMs - new Date(b.start).getTime() : upgradeDurationSec(s.catalog.find(c => c.id === b.id)?.construction_increment || 0, b.level || 1) * 1000;
+        const durationMs = b.start ? endMs - new Date(b.start).getTime() : upgradeDurationSec(s.catalog.find(c => c.id === b.id)?.construction_increment || 0, b.level || 1, s.catalog.find(c => c.id === b.id)) * 1000;
         const progress = durationMs > 0 ? Math.min(1, Math.max(0, 1 - (endMs - nowMs) / durationMs)) : 0;
         drawProgressBadge(ctx, bx, by, label, fsz, progress, fmtTimeLeft(endMs - nowMs), false);
       } else drawLevelBadge(ctx, bx, by, label, fsz);
@@ -1494,7 +1501,7 @@ export function CityActionsCanvas({ buildings, type, mapKey, mode, validSet, pic
           durationMs = endMs - new Date(b.start).getTime();
         } else {
           const info = s.catalog.find(c => c.id === b.id);
-          durationMs = upgradeDurationSec(info?.construction_increment || 0, b.level || 1) * 1000;
+          durationMs = upgradeDurationSec(info?.construction_increment || 0, b.level || 1, info) * 1000;
         }
         const progress = durationMs > 0 ? Math.min(1, Math.max(0, 1 - (endMs - nowMs) / durationMs)) : 0;
         const hovered = s.badgeHoverGx === b.x && s.badgeHoverGy === b.y;

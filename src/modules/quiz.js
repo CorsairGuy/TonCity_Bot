@@ -42,12 +42,23 @@ async function cleanupWrongAnswers(){
 async function pickAnswer(q){
   let rows=[];
   try{rows=await QuizAnswer.findAll({where:{question_id:q.id}});}catch(_){}
-  const correct=rows.find(r=>r.status==='correct');
-  if(correct)return correct.answer_id;
-  const wrong=new Set(rows.filter(r=>r.status==='wrong').map(r=>r.answer_id));
   const opts=q.answers||[];
-  const fresh=opts.find(a=>!wrong.has(a.id));
+  const correct=rows.find(r=>r.status==='correct'&&opts.some(a=>String(a.id)===String(r.answer_id)));
+  if(correct)return opts.find(a=>String(a.id)===String(correct.answer_id)).id;
+  const wrong=new Set(rows.filter(r=>r.status==='wrong').map(r=>String(r.answer_id)));
+  const fresh=opts.find(a=>!wrong.has(String(a.id)));
   return (fresh||opts[0])?.id??null;
+}
+
+// После ошибки игра 2.5 раскрывает правильные варианты. Учим только ID текущего
+// вопроса, не доверяем посторонним/неполным данным ответа и сохраняем старый fallback.
+async function learnResponse(q,answer_id,response,pruneWrong){
+  await recordAnswer(q,answer_id,!!response?.is_correct,pruneWrong);
+  if(!Array.isArray(response?.correct_answer_ids))return;
+  const revealed=new Set(response.correct_answer_ids.filter(id=>typeof id==='string'||typeof id==='number').map(String));
+  for(const option of q.answers||[]){
+    if(option.id!=null&&revealed.has(String(option.id)))await recordAnswer(q,option.id,true,pruneWrong);
+  }
 }
 
 const isTransient=m=>/Невозможно ответить|Too Many|429|\b400\b/i.test(m||'');
@@ -59,7 +70,7 @@ async function answerOne(api,q,pruneWrong){
   for(let tries=0;tries<12;tries++){
     try{
       const r=await api.post('/quiz/answer',{question_id:q.id,answer_id});
-      await recordAnswer(q,answer_id,!!r?.is_correct,pruneWrong);
+      await learnResponse(q,answer_id,r,pruneWrong);
       return r;
     }catch(e){
       const msg=e?.message||String(e);

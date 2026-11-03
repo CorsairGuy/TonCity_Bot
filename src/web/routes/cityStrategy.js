@@ -3,6 +3,8 @@ const logger=require('../../utils/logger');
 const {logAction}=require('../../modules/cityActionLog');
 const opRegistry=require('../lib/opRegistry');
 const cityLive=require('../../utils/cityLive');
+const{buildingsMap,reconstructYieldAt,renovationComponentsAt}=require('../cityStats');
+const{syncCityResources}=require('../../utils/cityResources');
 
 // Действия по городу (страница "Города" → "Карта" → редактор карты, см. client/src/pages/CityMap.tsx)
 // — заменяет автоматику по эталонному плану (см. modules/progress.js). Только цели улучшений
@@ -110,9 +112,9 @@ module.exports=function(app,ctx){
   app.get('/api/city-strategy/:account/resources',async(req,res)=>{
     try{
       const{Inventory}=require('../../db/index');
-      const rows=await Inventory.findAll({where:{account:req.params.account,name:['12','13']}});
-      const byName=Object.fromEntries(rows.map(r=>[r.name,Number(r.marketable||0)]));
-      res.json({ok:true,components:byName['13']||0,masterplans:byName['12']||0});
+      const rows=await Inventory.findAll({where:{account:req.params.account,name:['12','13','43']}});
+      const byName=Object.fromEntries(rows.map(r=>[r.name,Number(r.marketable||0)+Number(r.locked||0)]));
+      res.json({ok:true,components:byName['13']||0,masterplans:byName['12']||0,keys:byName['43']||0});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
@@ -573,12 +575,18 @@ module.exports=function(app,ctx){
       const current=Array.isArray(prog?.progress?.data?.buildings)?prog.progress.data.buildings:[];
       const target=current.find(b=>Number(b.x)===Number(x)&&Number(b.y)===Number(y));
       if(!target)return res.status(400).json({ok:false,error:'На этой клетке нет здания'});
+      const info=buildingsMap().get(target.id);
+      if(!info?.is_reconstructible||info.required_lvl==null||Number(target.level||0)<info.required_lvl||target.end&&Date.parse(target.end)>Date.now())return res.status(400).json({ok:false,error:'Здание не готово к реконструкции'});
+      const output=reconstructYieldAt(info,Number(target.level)||0);
+      const resources=await syncCityResources(api,acc.name);
+      if(resources.components<output.components)return res.status(400).json({ok:false,error:`Нужно ${output.components} компонентов, доступно ${resources.components}`});
       const r=await api.post('/progress/',[{type:'reconstruct',id:target.id,x:Number(x),y:Number(y)}]);
       await resyncSnapshot(api,acc.name);
+      await syncCityResources(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [reconstruct] ресурсы после действия: ${e.message}`));
       // если эта же клетка стояла в запланированных реконструкциях — она уже выполнена вручную,
       // убираем из плана, чтобы фоновый цикл не попытался повторить её ещё раз
       if(r?.coins!==undefined){
-        await logAction(acc.name,'reconstruct',{x:Number(x),y:Number(y),building_id:target.id,level_from:Number(target.level||0)});
+        await logAction(acc.name,'reconstruct',{x:Number(x),y:Number(y),building_id:target.id,level_from:Number(target.level||0),detail:JSON.stringify({components_spent:output.components,masterplans_gained:output.masterplans})});
         // клетка уже реконструирована руками — убираем ЕЁ строку из плана, остальные не трогаем
         try{await require('../../db/cityPlans').removeReconstruct(acc.name,[{x,y}]);}catch(_){}
       }
@@ -598,9 +606,15 @@ module.exports=function(app,ctx){
       const current=Array.isArray(prog?.progress?.data?.buildings)?prog.progress.data.buildings:[];
       const target=current.find(b=>Number(b.x)===Number(x)&&Number(b.y)===Number(y));
       if(!target)return res.status(400).json({ok:false,error:'На этой клетке нет здания'});
+      const info=buildingsMap().get(target.id);
+      if(!info?.is_renovatable||!info.next_id||info.required_lvl==null||Number(target.level||0)<info.required_lvl||target.end&&Date.parse(target.end)>Date.now())return res.status(400).json({ok:false,error:'Здание не готово к реновации'});
+      const resources=await syncCityResources(api,acc.name);
+      const cost=info.masterplans_num??0,returned=renovationComponentsAt(info,Number(target.level)||0);
+      if(resources.masterplans<cost)return res.status(400).json({ok:false,error:`Нужно ${cost} мастерпланов, доступно ${resources.masterplans}`});
       const r=await api.post('/progress/',[{type:'renovate',id:target.id,x:Number(x),y:Number(y)}]);
       await resyncSnapshot(api,acc.name);
-      if(r?.coins!==undefined)await logAction(acc.name,'renovate',{x:Number(x),y:Number(y),building_id:target.id,level_from:Number(target.level||0)});
+      await syncCityResources(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [renovate] ресурсы после действия: ${e.message}`));
+      if(r?.coins!==undefined)await logAction(acc.name,'renovate',{x:Number(x),y:Number(y),building_id:target.id,level_from:Number(target.level||0),detail:JSON.stringify({masterplans_spent:cost,components_gained:returned})});
       require('../../utils/cityWake').wake(acc.name);
       res.json({ok:r?.coins!==undefined});
     }catch(e){res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});}
@@ -616,16 +630,25 @@ module.exports=function(app,ctx){
   // Проверку "хватает ли денег"/"смежна ли с открытой зоной" бот НЕ делает — вернёт сама игра.
   app.post('/api/city-actions/:account/unlock-section',async(req,res)=>{
     try{
-      const{section_id}=req.body||{};
+      const{section_id,confirmed_keys}=req.body||{};
       if(!section_id)return res.status(400).json({ok:false,error:'section_id обязателен'});
-      const acc=await findAccountByName(req.params.account);
-      const api=await makeApiForAccount(acc.id,{noLock:true});
-      const r=await api.post('/progress/unlock-section',{section_id});
-      if(!r?.success)return res.status(400).json({ok:false,error:r?.message||'Не удалось разблокировать секцию'});
-      await resyncSnapshot(api,acc.name,r.unlocked_sections);
-      await logAction(acc.name,'unlock_section',{detail:JSON.stringify({section_id,coins_spent:r.coins_spent,crystals_spent:r.crystals_spent})});
-      require('../../utils/cityWake').wake(acc.name);
-      res.json({ok:true,unlockedSections:r.unlocked_sections});
+      const sections=JSON.parse(require('fs').readFileSync(require('path').join(process.cwd(),'config','city_sections.json'),'utf8'));
+      const section=sections.find(s=>s.id===section_id);
+      if(!section)return res.status(400).json({ok:false,error:'Неизвестная секция карты'});
+      if(section.unlockCost?.keys&&confirmed_keys!==section.unlockCost.keys)return res.status(400).json({ok:false,error:'Подтвердите точное количество ключей для секции'});
+      const result=await opRegistry.run(`cityUnlock:${req.params.account}:${section_id}`,async()=>{
+        const acc=await findAccountByName(req.params.account);
+        const api=await makeApiForAccount(acc.id,{noLock:true});
+        const r=await api.post('/progress/unlock-section',{section_id});
+        if(!r?.success)throw Object.assign(new Error(r?.message||'Не удалось разблокировать секцию'),{status:400});
+        await resyncSnapshot(api,acc.name,r.unlocked_sections);
+        // После успешной мутации ошибка обновления склада не должна маскировать успех и провоцировать повтор.
+        if(r.keys_spent)await require('../../modules/inventory').runInventory(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [unlock] склад: ${e.message}`));
+        await logAction(acc.name,'unlock_section',{detail:JSON.stringify({section_id,coins_spent:r.coins_spent,crystals_spent:r.crystals_spent,keys_spent:r.keys_spent})});
+        require('../../utils/cityWake').wake(acc.name);
+        return{ok:true,unlockedSections:r.unlocked_sections};
+      });
+      res.json(result);
     }catch(e){res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});}
   });
 };

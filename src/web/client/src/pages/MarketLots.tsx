@@ -54,7 +54,7 @@ function lotItemName(itemId: number | null | undefined, category: string | null)
 }
 const LIMIT_PERIOD: Record<string, string> = { day: 'день', week: 'нед', month: 'мес', hour: 'ч', total: 'всего' };
 
-// Предмет → серверные фильтры маркета (category + rarity). Пара уникальна = один предмет.
+// Предмет → предварительные серверные фильтры. Для точного выбора дополнительно проверяем item_id.
 const ITEM_FILTERS: { id: number; category: string; rarity: string }[] = [
   { id: 3, category: 'booster', rarity: 'epic' },
   { id: 4, category: 'booster', rarity: 'legendary' },
@@ -65,6 +65,7 @@ const ITEM_FILTERS: { id: number; category: string; rarity: string }[] = [
   { id: 15, category: 'pack', rarity: 'eternal' },
   { id: 12, category: 'masterplan', rarity: 'legendary' },
   { id: 13, category: 'component', rarity: 'epic' },
+  { id: 43, category: 'consumable', rarity: 'mythic' },
 ];
 const PAGE_SIZE = 20;
 
@@ -553,7 +554,7 @@ export function MarketLots() {
     try {
       const [o, a] = await Promise.all([
         api.marketOffers({
-          categories: effCategory, rarities: effRarity,
+          categories: effCategory, rarities: effRarity, item_id: pickedItem?.id,
           currencies: currency === 'all' ? undefined : currency,
           market_types: marketType === 'all' ? undefined : marketType,
           sort, page: toPage, page_size: PAGE_SIZE,

@@ -270,7 +270,7 @@ html[data-theme="dark"] .version-changes { background: rgb(110 118 129 / 20%); }
    (id 22 "Вечный осколок") и mystery_eternal (id 29 "Вечная тайная политика") — это ДЕЙСТВИТЕЛЬНО
    отдельная редкость ВЫШЕ мифической (см. группу ниже, красится как "Зимний набор"), их с
    .ic-eternal (bare) путать нельзя — разные предметы, разная семантика тега. */
-.ic-mythic,.ic-reform_stone_mythic,.ic-shard_mythic,.ic-mystery_mythic,.ic-policy_pack_mythic,.ic-eternal { --rc: #d35400;
+.ic-key,.ic-mythic,.ic-reform_stone_mythic,.ic-shard_mythic,.ic-mystery_mythic,.ic-policy_pack_mythic,.ic-eternal { --rc: #d35400;
   background: linear-gradient(45deg, rgba(211,84,0,.10), rgba(211,84,0,.18) 50%, rgba(211,84,0,.10));
   border: 1px solid rgba(211,84,0,.5);
 }
@@ -526,7 +526,7 @@ html[data-theme="dark"] .ic-component,html[data-theme="dark"] .ic-reform_stone_e
 html[data-theme="dark"] .ic-legendary,html[data-theme="dark"] .ic-reform_stone_legendary,html[data-theme="dark"] .ic-ultimate,html[data-theme="dark"] .ic-masterplan,html[data-theme="dark"] .ic-blueprint_tome,html[data-theme="dark"] .ic-shard_legendary,html[data-theme="dark"] .ic-mystery_legendary,html[data-theme="dark"] .ic-snowflake,html[data-theme="dark"] .ic-policy_pack_legendary {
   background: linear-gradient(45deg, rgba(241,196,15,.35), rgba(241,196,15,.45) 50%, rgba(241,196,15,.35));
 }
-html[data-theme="dark"] .ic-mythic,html[data-theme="dark"] .ic-reform_stone_mythic,html[data-theme="dark"] .ic-shard_mythic,html[data-theme="dark"] .ic-mystery_mythic,html[data-theme="dark"] .ic-policy_pack_mythic,html[data-theme="dark"] .ic-eternal {
+html[data-theme="dark"] .ic-key,html[data-theme="dark"] .ic-mythic,html[data-theme="dark"] .ic-reform_stone_mythic,html[data-theme="dark"] .ic-shard_mythic,html[data-theme="dark"] .ic-mystery_mythic,html[data-theme="dark"] .ic-policy_pack_mythic,html[data-theme="dark"] .ic-eternal {
   background: linear-gradient(45deg, rgba(211,84,0,.15), rgba(211,84,0,.3) 50%, rgba(211,84,0,.15));
 }
 html[data-theme="dark"] .ic-shard_eternal,html[data-theme="dark"] .ic-mystery_eternal,html[data-theme="dark"] .ic-winter {

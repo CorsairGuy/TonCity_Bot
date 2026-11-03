@@ -14,11 +14,11 @@ import {
 } from '../components/League';
 
 type Kind = 'players' | 'guilds';
-const LADDER = [...LEAGUES].reverse(); // сверху вниз: от вечной к деревянной
+const LADDER = [...LEAGUES].reverse(); // сверху вниз: от аномальной к деревянной
 const TOKENS = 8;  // сколько своих аккаунтов показывать в строке лиги, остальное — «+N»
 const FIRST = 20;  // строк в раскрытой лиге до «Показать все»
 
-// Лиги игры — «лестница»: все 9 лиг сверху вниз с порогом, своими аккаунтами и лидером, раскрытая лига —
+// Лиги игры — «лестница»: все 10 лиг сверху вниз с порогом, своими аккаунтами и лидером, раскрытая лига —
 // её топ-100. Мэры делятся по населению, гильдии — по доходу в час. Данные — /api/leaderboard/leagues.
 export function Leagues() {
   const [data, setData] = useState<LeaderboardLeagues | null>(null);

@@ -102,6 +102,11 @@ export const api = {
     req<{ ok: boolean; word?: string; error?: string; results?: { name: string; ok: boolean; won?: boolean; skipped?: string; error?: string; attempts?: number }[] }>(
       '/api/wordle/guess-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ word }) }),
 
+  // Чемпионаты: чтение и явно выбранные действия от имени аккаунта.
+  championships: (accountId: number) => req<ChampionshipReply>(`/api/championships?accountId=${accountId}`),
+  championshipAction: (accountId: number, action: ChampionshipAction, input: { squadId?: ChampionshipId; memberId?: ChampionshipId; name?: string; toSquadId?: ChampionshipId } = {}) =>
+    req<ChampionshipReply>('/api/championships/action', post({ accountId, action, ...input })),
+
   // journey
   journey: () => req<{ ok: boolean; accounts: JourneyAccount[] }>('/api/journey'),
 
@@ -156,6 +161,8 @@ export const api = {
 
   // guilds — server: {account, guild_id, guild_title, role, benefits, updated_at}
   guilds: () => req<{ ok: boolean; rows: GuildMembership[] }>('/api/guilds'),
+  guildFees: (accountId: number) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}`),
+  guildFeesPay: (accountId: number, state: GuildFeesState) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}/pay`, post({ expected_guild_id: state.guild_id, expected_amount: state.remaining, expected_currency: state.currency, expected_deadline: state.deadline })),
   guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[] }>('/api/guild-quests'),
   // живой перезапрос квестов по ВСЕМ аккаунтам (кнопка "Обновить"), в отличие от guildQuests(),
   // которая только читает снимок из БД
@@ -258,7 +265,7 @@ export const api = {
   sections: () => req<{ ok: boolean; sections: MapSection[] }>('/api/sections'),
   // запас компонентов/мастерпланов (вкладки "Реконструкция"/"Реновация") — из БД (Inventory), без живого запроса
   cityResources: (account: string) =>
-    req<{ ok: boolean; components: number; masterplans: number; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/resources`),
+    req<{ ok: boolean; components: number; masterplans: number; keys?: number; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/resources`),
   // гильдийская скидка на постройку зданий (building_purchases_discount из /guilds/benefits) —
   // отдельная от скидки политик, см. cityStrategy.js
   cityGuildBenefits: (account: string) =>
@@ -304,8 +311,8 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/city-actions/${encodeURIComponent(account)}/renovate`, post({ x, y })),
   // разблокировка закрытой секции карты — единственное действие с ОТДЕЛЬНЫМ игровым эндпоинтом
   // (/progress/unlock-section, не общий /progress/ массив), см. web/routes/cityStrategy.js
-  cityActionUnlockSection: (account: string, section_id: string) =>
-    req<{ ok: boolean; unlockedSections?: string[]; error?: string }>(`/api/city-actions/${encodeURIComponent(account)}/unlock-section`, post({ section_id })),
+  cityActionUnlockSection: (account: string, section_id: string, confirmed_keys?: number) =>
+    req<{ ok: boolean; unlockedSections?: string[]; error?: string }>(`/api/city-actions/${encodeURIComponent(account)}/unlock-section`, post({ section_id, confirmed_keys })),
 
   // Действия по столице (страница "Карта города" → тип столица) — та же архитектура, что и у
   // города, минус Реконструкция/Реновация/Ускорители, плюс Снос; guildTitle вместо account, см.
@@ -344,6 +351,7 @@ export const api = {
   townhall: () => req<{ ok: boolean; accounts: TownhallAccount[] }>('/api/townhall'),
 
   // городской розыгрыш (civic_draw из /progress/diversity) — обновляется тем же api.refresh('townhall')
+  policyGrantClaim: (accountId: number, defId: string | number) => req<{ok:boolean; result?:unknown; error?:string}>(`/api/civic-draw/${accountId}/grants/claim`, post({def_id:defId})),
   civicDraw: () => req<{ ok: boolean; accounts: CivicDrawAccount[]; error?: string }>('/api/civic-draw'),
   civicDrawClaimAll: () =>
     req<{ ok: boolean; results?: { account: string; ok: boolean; result?: unknown; error?: string }[]; succeeded?: number; total?: number; error?: string }>(
@@ -384,6 +392,8 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/enemy/remove`, post({ enemy_guild_id: enemyGuildId })),
   midEnemyUpdateTariff: (guildId: string, enemyGuildId: number, tariffLevel: string) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/enemy/update-tariff`, post({ enemy_guild_id: enemyGuildId, tariff_level: tariffLevel })),
+  midCampaignsPreview: (guildId: string, targetGuildId: number) =>
+    req<{ ok: boolean; data?: { size_handicap: number; repeat_handicap: number; recent_attacks?: number }; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/preview?target_guild_id=${targetGuildId}`),
   midCampaignsStart: (guildId: string, targetGuildId: number, durationHours: number) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/start`, post({ target_guild_id: targetGuildId, duration_hours: durationHours })),
   midCampaignsDeploy: (guildId: string, campaignId: number) =>
@@ -495,7 +505,7 @@ export const api = {
     req<{ ok: boolean; rows: MarketDealRow[] }>(`/api/market-deals?type=${type}`),
   marketDealsRefresh: (type: 'listings' | 'purchases' | 'sales') =>
     req<{ ok: boolean; results: { name: string; ok: boolean; count?: number; error?: string }[] }>('/api/market-deals/refresh', post({ type })),
-  marketOffers: (params: { categories?: string; rarities?: string; currencies?: string; market_types?: string; sort?: string; page?: number; page_size?: number }) =>
+  marketOffers: (params: { item_id?: number; categories?: string; rarities?: string; currencies?: string; market_types?: string; sort?: string; page?: number; page_size?: number }) =>
     req<{ ok: boolean; offers: MarketOffer[]; pagination: { page: number; page_size: number; total: number } }>(`/api/market/offers?${new URLSearchParams(
       Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)])
     ).toString()}`),
@@ -511,7 +521,7 @@ export const api = {
     req<{ ok: boolean; balances: { id: number; name: string; ton: number | null }[] }>('/api/market/ton-balances'),
   marketBuy: (offerId: number, accountIds: number[]) =>
     req<{ ok: boolean; results: { id: number; name: string; ok: boolean; error?: string }[] }>('/api/market/buy', post({ offer_id: offerId, account_ids: accountIds })),
-  marketAutoBuy: (p: { categories?: string; rarities?: string; currency: string; max_price: number; max_budget?: number; account_ids: number[] }) =>
+  marketAutoBuy: (p: { item_id?: number; categories?: string; rarities?: string; currency: string; max_price: number; max_budget?: number; account_ids: number[] }) =>
     req<{ ok: boolean; available: number; planned: number; spent: number; results: { offer_id: number; account_id: number; name: string; price: number; ok: boolean; error?: string }[] }>('/api/market/auto-buy', post(p)),
   // правила автопокупки (CRUD)
   marketAutobuyList: () => req<{ ok: boolean; rules: MarketAutobuyRule[] }>('/api/market/autobuy'),
@@ -620,6 +630,10 @@ export const api = {
     req<{ ok: boolean; result?: unknown; error?: string }>(`/api/satoshi/${accountId}/open`, post({ side, leverage, margin, ...tpSl })),
   satoshiClose: (accountId: number, positionId: number) =>
     req<{ ok: boolean; result?: unknown; error?: string }>(`/api/satoshi/${accountId}/close`, post({ position_id: positionId })),
+  satoshiMarginPreview: (accountId: number, positionId: number) =>
+    req<{ ok: boolean; position?: SatoshiOpenPosition; balance?: number; maxAmount?: number; error?: string }>(`/api/satoshi/${accountId}/margin-preview`, post({ position_id: positionId })),
+  satoshiAddMargin: (accountId: number, positionId: number, amount: number) =>
+    req<{ ok: boolean; position?: SatoshiOpenPosition; refreshWarning?: string; error?: string }>(`/api/satoshi/${accountId}/margin`, post({ position_id: positionId, amount })),
   satoshiUpdateTpSl: (positionId: number, tpSl: SatoshiTpSl) =>
     req<{ ok: boolean; error?: string }>(`/api/satoshi/positions/${positionId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tpSl) }),
 
@@ -859,9 +873,9 @@ export interface TechFactoryTier {
   fee_crystals: number;
   inputs: TechFactoryItemStack[];
   output: TechFactoryItemStack;
-  used: number;
-  limit_count: number;
-  limit_window: 'day' | 'week' | string;
+  // Нормализуется сервером для новых ответов и старых сохранённых снимков.
+  limit: { used: number; count: number; window: string | null } | null;
+  limit_available: boolean;
   upgrade_crystals?: number; // цена разблокировки ЭТОГО тира (присутствует, пока tier не unlocked)
 }
 export interface TechFactoryMachine {
@@ -1204,7 +1218,9 @@ export interface MapSection {
   id: string;
   coordinates: { x: number; y: number }[];
   adjacentSections: string[];
-  unlockCost: { coins?: number; crystals?: number };
+  unlockCost: { coins?: number; crystals?: number; keys?: number };
+  district?: 'main' | 'd1';
+  minPopulation?: number;
   defaultUnlocked: boolean;
 }
 
@@ -1319,6 +1335,8 @@ export interface ForecastMods { reducedUpgradeTimes: number; constructionTimeMul
 export interface ForecastDiag { samples: number; median: number | null; spread: [number, number] | null }
 export interface BuildingDef {
   id: string;
+  district?: 'main' | 'd1' | null;
+  max_construction_seconds?: number | null;
   category: string;
   service_category: string | null;
   is_purchasable: boolean;
@@ -1375,6 +1393,15 @@ export interface CivicDrawOdds {
   count: number;
 }
 
+export interface PolicyGrantStatus {
+  def_id: string | number;
+  kind: string;
+  reward: string | number;
+  amount: number;
+  ready: number;
+  next_in_seconds?: number | null;
+  ready_at: string | null;
+}
 export interface CivicDrawAccount {
   account_id: number;
   account: string;
@@ -1383,7 +1410,9 @@ export interface CivicDrawAccount {
   draw_progress: number | null;
   claimable: boolean;
   odds: CivicDrawOdds[];
-  ready_at: string | null; // линейный прогноз (см. modules/townhall.js), null если ставка неизвестна
+  ready_at: string | null; // абсолютный серверный срок либо fallback-прогноз
+  timer_source?: 'server' | 'forecast';
+  grants?: PolicyGrantStatus[];
   updated_at: string | null;
 }
 
@@ -2264,3 +2293,29 @@ export interface PlayerCity {
   buildings?: MapBuilding[]; unlocked_sections?: string[] | null;
   profit_per_hour?: number | null; happiness?: number | null; income_boost?: number | null;
 }
+
+
+export type ChampionshipId = string | number;
+export type ChampionshipAction = 'create' | 'rename' | 'apply' | 'withdrawApplication' | 'accept' | 'decline' | 'kick' | 'move' | 'leave' | 'leader' | 'disband' | 'submit' | 'recall' | 'approve' | 'reject' | 'withdraw';
+export interface ChampionshipMember { user_id: ChampionshipId; name: string; avatar?: string | null }
+export interface ChampionshipSquad {
+  id: ChampionshipId; name: string; leader_id: ChampionshipId; status: 'forming' | 'submitted' | 'fielded';
+  members: ChampionshipMember[]; applications?: ChampionshipMember[]; applicant_count?: number;
+}
+export interface ChampionshipOverview {
+  config: { season?: number; season_starts_on?: string; min_squad_size: number; max_squad_size: number; name_min_length: number; name_max_length: number } | null;
+  viewer: { user_id: ChampionshipId; squad_id: ChampionshipId | null; applied_squad_ids: ChampionshipId[]; is_guild_admin: boolean } | null;
+  squads: ChampionshipSquad[];
+}
+export interface ChampionshipReply { ok: boolean; data?: ChampionshipOverview | null; error?: string; needsRefresh?: boolean; resynced?: boolean }
+// Личный взнос по свежему ответу игры; deadline учитывает возраст снимка.
+export interface GuildFeeMember {
+  user_id?: number; first_name?: string; last_name?: string;
+  required: number; deposited: number; status: 'due' | 'paid' | 'exempt' | 'next_period' | string;
+}
+export interface GuildFeesState {
+  guild_id: string; guild_title: string;
+  fees: { current: { ends_in_seconds: number; terms: { currency: string; amount?: number } } | null; upcoming?: { terms?: { currency?: string; amount?: number } } | null; me: GuildFeeMember | null; members?: GuildFeeMember[] | null };
+  remaining: number | null; currency: string | null; deadline: number | null; payable: boolean;
+}
+export type GuildFeesResponse = { ok: boolean; error?: string; refresh_error?: string | null; paid_amount?: number; already?: boolean } & Partial<GuildFeesState>;

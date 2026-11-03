@@ -510,6 +510,8 @@ const CivicDrawStatus=seq.define('CivicDrawStatus',{
   draw_progress:{type:DataTypes.DOUBLE,defaultValue:null},
   claimable:{type:DataTypes.BOOLEAN,defaultValue:false},
   odds:T, // JSON: [{rarity,chance,count}] — шансы наград розыгрыша
+  grants:T, // JSON: отдельные награды политик с абсолютным ready_at
+  timer_source:S(16), // server либо forecast
   // линейный прогноз "когда будет готов следующий розыгрыш", посчитанный на сервере при каждом
   // синке (см. modules/townhall.js) и НИКОГДА не сдвигаемый назад между синками (max со старым
   // значением) — защита от того, что сырой прогресс иногда чуть колеблется между снимками
@@ -754,6 +756,8 @@ async function init(){
     // потолок накопления розыгрышей — для предохранителя автосбора (modules/civicDrawAuto.js)
     `ALTER TABLE civic_draw_status ADD COLUMN max_draws INT DEFAULT NULL`,
     `ALTER TABLE civic_draw_status ADD COLUMN at_cap TINYINT(1) DEFAULT 0`,
+    `ALTER TABLE civic_draw_status ADD COLUMN grants LONGTEXT DEFAULT NULL`,
+    `ALTER TABLE civic_draw_status ADD COLUMN timer_source VARCHAR(16) DEFAULT NULL`,
     // общий каталог описаний политик (растёт по мере открытия разными аккаунтами)
     `CREATE TABLE IF NOT EXISTS policy_def_catalog (def_id VARCHAR(100) PRIMARY KEY, rarity VARCHAR(20), name TEXT, description TEXT, icon_key VARCHAR(100), theme VARCHAR(50), badge VARCHAR(50), badge_n INT DEFAULT NULL, max_level INT DEFAULT NULL, effects TEXT, seen_account VARCHAR(255), updated_at DATETIME DEFAULT NULL)`,
     // PK был только def_id — но одна политика бывает в НЕСКОЛЬКИХ редкостях с тем же def_id, и

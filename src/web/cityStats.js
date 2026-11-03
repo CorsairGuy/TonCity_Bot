@@ -46,6 +46,13 @@ const SERVICE_CATS = ['hospital', 'police-station', 'fire-station', 'park'];
 // (grand_arcanum_2_star) — в бандле их 13, у каждого СВОЙ набор изменённых показателей (не все три
 // сразу) и часто СВОЯ цена улучшения, отличная и от общей, и от чужих исключений.
 const BUILDING_OVERRIDES = {
+  'RES_rootweave.png': { population: (b, n) => b * Math.pow(n, 0.67), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'RES_bough_towers.png': { population: (b, n) => b * Math.pow(n, 0.67), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'RES_worldtree.png': { population: (b, n) => b * Math.pow(n, 0.67), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'COM_bloom_market.png': { profit: (b, n) => b * Math.pow(n, 1.1), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'COM_amber_vault.png': { profit: (b, n) => b * Math.pow(n, 1.1), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'COM_eden_consortium.png': { profit: (b, n) => b * Math.pow(n, 1.1), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
+  'SER_heartwood.png': { coverage: (b, n) => b * Math.pow(n, 0.67), upgradePrice: (b, n) => b * Math.exp(0.4 * n) },
   'COM_grand_arcanum_2_star.png': { profit: (b, n) => b * Math.pow(n, 1.11), upgradePrice: (b, n) => n <= 4 ? b * Math.exp(0.45 * n) : b * Math.exp(0.48 * n) },
   'COM_grand_arcanum_3_star.png': { profit: (b, n) => b * Math.pow(n, 1.07), upgradePrice: (b, n) => b * Math.exp(0.52 * n) },
   'COM_startup_hub_3_star.png': { profit: (b, n) => b * Math.pow(n, 1.15), upgradePrice: (b, n) => n <= 5 ? b * Math.exp(0.46 * n) : b * Math.exp(0.49 * n) },
@@ -117,6 +124,19 @@ function upgradeCostTo(info, target) {
   return sum;
 }
 
+// TON City 2.5: суммы зависят от завершённого уровня каждой клетки, а не только типа.
+function reconstructYieldAt(info, level) {
+  const masterplans = info.masterplans_to_get ?? 0, components = info.components_required ?? 0;
+  if (masterplans <= 0) return { masterplans: 0, components };
+  const extra = Math.max(0, level - (info.required_lvl ?? 0));
+  const payout = masterplans + Math.floor(extra / 2);
+  return { masterplans: payout, components: Math.floor(components * payout / masterplans) };
+}
+function renovationComponentsAt(info, level) {
+  const multiplier = info.star_lvl == null ? 1 : info.star_lvl === 1 ? 3 : info.star_lvl === 2 ? 10 : 0;
+  return Math.max(0, level - (info.required_lvl ?? 0)) * multiplier;
+}
+
 // время улучшения с уровня s на s+1, в секундах — сверено с бандлом game.toncity.io
 // (getBaseUpgradeDuration ГОРОДСКОГО здания): длительность растёт вдвое с каждым уровнем от
 // construction_increment (тот же множитель для всех городских зданий), с потолком.
@@ -143,7 +163,7 @@ function upgradeTimeCapSec(nowMs = Date.now()) {
 function upgradeDuration(info, s, nowMs = Date.now()) {
   const inc = info.construction_increment || 0;
   if (!inc) return 0;
-  const cap = upgradeTimeCapSec(nowMs);
+  const cap = Number(info.max_construction_seconds) > 0 ? Number(info.max_construction_seconds) : upgradeTimeCapSec(nowMs);
   const capLevel = Math.floor(Math.log2(cap / inc)) + 2;
   return s > capLevel ? cap : inc * Math.pow(2, s - 2);
 }
@@ -352,4 +372,4 @@ function buildPriceAt(info, k) {
   return Math.round((info.base_price || 0) * Math.pow(info.base_price_factor ?? 1, k));
 }
 
-module.exports = { computeCityStats, boosterWindows, buildingsMap, invalidateBuildingsMap, popAtLevel, profitAtLevel, coverageAtLevel, upgradeCostTo, upgradeStep, upgradeDuration, upgradeTimeCapSec, effectiveUpgradeDuration, buildPriceAt, familyId };
+module.exports = { computeCityStats, boosterWindows, buildingsMap, invalidateBuildingsMap, popAtLevel, profitAtLevel, coverageAtLevel, upgradeCostTo, upgradeStep, upgradeDuration, upgradeTimeCapSec, reconstructYieldAt, renovationComponentsAt, effectiveUpgradeDuration, buildPriceAt, familyId };

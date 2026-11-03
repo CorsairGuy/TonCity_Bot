@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.resolve(__dirname,'../..'),ts=require(path.join(root,'src/web/client/node_modules/typescript'));
+const s=fs.readFileSync(path.join(root,'src/web/client/src/components/League.tsx'),'utf8');
+const code=s.slice(s.indexOf('export type League'),s.indexOf('export function LeagueIcon'));
+const context={exports:{}};vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context);const l=context.exports;
+assert.equal(l.LEAGUES.length,10);assert.equal(l.LEAGUE_RU.anomaly,'Аномальная');assert(l.isLeague('anomaly'));assert(!l.isLeague('unknown'));
+assert.equal(l.mayorLeague(1e8-1),'celestial');assert.equal(l.mayorLeague(1e8),'limitless');assert.equal(l.mayorLeague(1e9-1),'limitless');assert.equal(l.mayorLeague(1e9),'anomaly');assert.equal(l.mayorLeague(null),null);
+assert.equal(l.leagueFrom('anomaly',l.GUILD_UP),1e13);assert.equal(l.GUILD_UP.wooden,1e5);assert.equal(l.leagueFrom('limitless',l.GUILD_UP),1e12);
+for(let i=1;i<l.LEAGUES.length;i++)assert(l.MAYOR_UP[l.LEAGUES[i]]>l.MAYOR_UP[l.LEAGUES[i-1]]);
+console.log('PASS: 10 лиг, пороги города100млн/1млрд, новая шкала гильдий и Аномальная10трлн');

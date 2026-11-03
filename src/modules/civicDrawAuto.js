@@ -15,7 +15,7 @@ const logger=require('../utils/logger');
 const {getConfig}=require('../config');
 const {waitOrWake}=require('../utils/cityWake');
 const accountLoops=require('../utils/accountLoops');
-const {fetchCivicDraw,withClaimLock}=require('./townhall');
+const {fetchCivicDraw,withClaimLock,claimPolicyGrant}=require('./townhall');
 
 const MIN=60000,HOUR=60*MIN,DAY=24*HOUR;
 const MARGIN=10*MIN;      // запас после прогноза: опоздание ничего не стоит, ранний claim — отказ
@@ -25,7 +25,9 @@ const CAP_GUARD=6*HOUR;   // проснуться не позже чем за 6 
 const OFF_POLL=10*MIN;    // при выключенной галочке — только локальная проверка настроек
 const ERR_RETRY=30*MIN;   // игра не ответила / техработы
 
-function enabled(){return getConfig().features?.civicDraw!==false;}
+function drawEnabled(){return getConfig().features?.civicDraw!==false;}
+function grantsEnabled(){return getConfig().features?.policyGrants===true;}
+function enabled(){return drawEnabled()||grantsEnabled();}
 
 // сколько мс до заполнения max_draws по снимку (null — посчитать нельзя)
 function msToCap(row,now){
@@ -40,15 +42,23 @@ function msToCap(row,now){
 function plan(row,misses,now){
   if(!row)return 0;
   let wait;
-  if(row.claimable)wait=0;
-  else if(row.ready_at)wait=Math.max(0,new Date(row.ready_at).getTime()+MARGIN-now);
+  if(!drawEnabled())wait=DAY;
+  else if(row.claimable)wait=0;
+  else if(row.ready_at)wait=Math.max(0,new Date(row.ready_at).getTime()+(row.timer_source==='server'?1000:MARGIN)-now);
   else wait=DAY;            // скорости нет (розыгрыш не открыт) — раз в сутки
   const backoff=misses>0?Math.min(MIN_RETRY*2**(misses-1),MAX_RETRY):0;
   wait=Math.max(wait,backoff);
   // близко к потолку — проверяем раньше прогноза, но после промахов не чаще нарастающей паузы
   // (иначе застрявший на 3/3 аккаунт опрашивался бы каждые 15 минут)
-  const cap=msToCap(row,now);
+  const cap=drawEnabled()?msToCap(row,now):null;
   if(cap!=null)wait=Math.min(wait,Math.max(cap-CAP_GUARD,backoff));
+  if(grantsEnabled()){
+    let grants=[];try{grants=JSON.parse(row.grants||'[]');}catch(_){}
+    for(const g of grants){
+      const due=Number(g.ready)>0?0:g.ready_at?Math.max(0,new Date(g.ready_at).getTime()+1000-now):DAY;
+      wait=Math.min(wait,Math.max(due,backoff));
+    }
+  }
   return Math.min(wait,DAY);
 }
 
@@ -99,12 +109,21 @@ async function runCivicDrawLoop(api,name,accountId){
       }
       const r=await withClaimLock(name,async()=>{
         const live=await fetchCivicDraw(api,name);
-        if(live?.claimable!==true)return{got:0,cd:live};
+        if(!drawEnabled()||live?.claimable!==true)return{got:0,cd:live};
         return claimReady(api,name,live);
       });
+      if(grantsEnabled()){
+        const ids=[...new Set((r.cd?.grants??[]).filter(g=>Number(g.ready)>0).map(g=>g.def_id))];
+        for(const defId of ids){
+          const out=await claimPolicyGrant(api,name,defId);
+          if(out.ok)r.got++;else if(!out.notReady)logger.warn(`[${name}] [policy-grant] ${out.error}`);
+        }
+        if(ids.length)r.cd=await fetchCivicDraw(api,name).catch(()=>r.cd);
+      }
       // розыгрыша у аккаунта нет (не открыт) — снимок не обновился, ждём сутки или свежий снимок
       if(!r.cd&&!r.got){misses=0;await waitOrWake(key,DAY);continue;}
-      if(r.got>0&&r.cd?.claimable!==true)misses=0;
+      const stillReady=(drawEnabled()&&r.cd?.claimable===true)||(grantsEnabled()&&(r.cd?.grants??[]).some(g=>Number(g.ready)>0));
+      if(r.got>0&&!stillReady)misses=0;
       else{
         // проверяли по прогнозу, а забрать нечего (прогноз соврал) или claim отказал —
         // следующая проверка с нарастающей паузой, не долбим игру
