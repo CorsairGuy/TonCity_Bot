@@ -1,4 +1,4 @@
-import { CITY_DISTRICTS, buildingDistrict, districtCoordsFor, districtRoadsFor, districtOf, districtOffset, projectDistrict, type CityDistrict } from '../cityDistricts';
+import { CITY_DISTRICTS, buildingDistrict, canPurchaseCityBuilding, districtCoordsFor, districtRoadsFor, districtOf, districtOffset, projectDistrict, type CityDistrict } from '../cityDistricts';
 import { memo, useState, useEffect, useMemo, useCallback, useRef, startTransition, type DragEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } from '@primer/react';
@@ -822,7 +822,7 @@ export function CityWorld() {
   const [planAdd, setPlanAdd] = useState(false);
   const [planSearch, setPlanSearch] = useState('');
   const [catFilter, setCatFilter] = useState('COM');
-  const purchasable = useMemo(() => catalog.filter(b => buildingDistrict(b) === district && b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)), [catalog, district]);
+  const purchasable = useMemo(() => catalog.filter(b => buildingDistrict(b) === district && canPurchaseCityBuilding(b)), [catalog, district]);
   const buildCats = [...new Set(purchasable.map(b => buildingCat(b.id)))].filter(Boolean).sort((a, b) => ((['COM', 'RES'].indexOf(a) + 1) || 99) - ((['COM', 'RES'].indexOf(b) + 1) || 99));
   const buildCat = buildCats.includes(catFilter) ? catFilter : buildCats[0];
   const buildPicker = mode === 'build' && (() => {

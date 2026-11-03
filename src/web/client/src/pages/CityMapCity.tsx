@@ -1,4 +1,4 @@
-import { buildingDistrict, districtCoordsFor, inDistrict, type CityDistrict } from '../cityDistricts';
+import { buildingDistrict, canPurchaseCityBuilding, districtCoordsFor, inDistrict, type CityDistrict } from '../cityDistricts';
 import { MapPanelWindow } from '../components/MapPanelWindow';
 import { useState, useEffect, useMemo, useCallback, useRef, startTransition, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -1045,7 +1045,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
 
   // палитра построимых зданий (Строительство) — поиск+категории, как в MapEditor.tsx
   const purchasable = useMemo(
-    () => buildingsCatalog.filter(b => buildingDistrict(b) === district && b.is_purchasable && !/_\d+_star\.png$/i.test(b.id)),
+    () => buildingsCatalog.filter(b => buildingDistrict(b) === district && canPurchaseCityBuilding(b)),
     [buildingsCatalog, district],
   );
   const paletteFiltered = purchasable.filter(b => {

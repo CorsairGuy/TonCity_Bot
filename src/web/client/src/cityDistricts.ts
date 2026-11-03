@@ -20,3 +20,10 @@ export const inDistrict = <T extends { x: number }>(rows: T[], district: CityDis
 export function projectDistrict<T extends { x: number; y: number }>(rows: T[], district: CityDistrict, ox = 0, oy = 0): T[] {
   return inDistrict(rows, district).map(row => ({ ...row, x: row.x - districtOffset(district) + ox, y: row.y + oy }));
 }
+
+// Эти здания уже присутствуют в каталоге/атласах 2.5, но покупка в игре ещё закрыта.
+// Снять исключения после подтверждённого открытия; определения нужны для карты и статистики.
+const UNRELEASED_CITY_BUILDINGS = new Set(['COM_atlas_foundry.png', 'COM_genesis_labs.png']);
+export function canPurchaseCityBuilding(b: { id: string; is_purchasable: boolean }): boolean {
+  return b.is_purchasable === true && !UNRELEASED_CITY_BUILDINGS.has(b.id) && !/_\d+_star\.png$/i.test(b.id);
+}
