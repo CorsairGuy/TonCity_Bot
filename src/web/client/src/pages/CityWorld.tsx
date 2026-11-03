@@ -557,22 +557,25 @@ export function CityWorld() {
     const f = familyId(id);
     return (live(r.account)?.buildings ?? r.buildings).filter(b => familyId(b.id) === f).length >= info.limit;
   }, [catMap, live]);
+  const cityBuildPrice = useCallback((r: CityWorldRow, info: BuildingDef) => {
+    const st = live(r.account);
+    const mult = st?.buildMult ?? computePolicyMultiplier(cabinets[r.account], 'build_cost') * (1 - (r.guild?.building_purchases_discount ?? 0));
+    return buildPriceAt(info, (st?.buildings ?? r.buildings).filter(b => familyId(b.id) === familyId(info.id)).length, mult);
+  }, [live, cabinets]);
   // выбранное здание по каждому городу: причина, почему нельзя, цена и сколько монет не хватает.
   // Цена — по множителю открытого города, иначе по политикам и гильдии из снимков БД
   const buildInfo = useMemo(() => {
     const m = new Map<string, { block: string | null; price: number; short: number }>();
     const info = mode === 'build' && buildFamily ? catMap.get(buildFamily) : undefined;
     if (!info) return m;
-    const f = familyId(buildFamily);
     for (const r of cities) {
       const st = live(r.account);
       const block = famLimitHit(r, buildFamily) ? 'уже построено' : st?.buildBlock ?? null;
-      const mult = st?.buildMult ?? computePolicyMultiplier(cabinets[r.account], 'build_cost') * (1 - (r.guild?.building_purchases_discount ?? 0));
-      const price = buildPriceAt(info, (st?.buildings ?? r.buildings).filter(b => familyId(b.id) === f).length, mult);
+      const price = cityBuildPrice(r, info);
       m.set(r.account, { block, price, short: Math.max(0, price - (st?.balance ?? r.balance ?? 0)) });
     }
     return m;
-  }, [mode, buildFamily, catMap, cities, live, famLimitHit, cabinets]);
+  }, [mode, buildFamily, catMap, cities, live, famLimitHit, cityBuildPrice]);
   const buildBlockedIn = useMemo(() => new Set([...buildInfo].filter(([, v]) => v.block).map(([a]) => a)), [buildInfo]);
   // перемещение идёт внутри одного города: пока здание взято, остальные города гаснут и не принимают клики
   const movingCity = mode === 'move' ? cities.find(c => live(c.account)?.moving)?.account ?? null : null;
@@ -834,12 +837,12 @@ export function CityWorld() {
           {buildCats.map(c => <span key={c} className={'map-cat-tab' + (buildCat === c ? ' active' : '')} onClick={() => setCatFilter(c)}>{c}</span>)}
         </div>
         {<MapPanelWindow count={list.length}>{i => { const b = list[i];
-          const f = familyId(b.id);
-          const open = cities.filter(r => !famLimitHit(r, b.id));
-          const price = open.length ? Math.min(...open.map(r => buildPriceAt(b, (live(r.account)?.buildings ?? r.buildings).filter(o => familyId(o.id) === f).length))) : 0;
+          const scope = curRow ? [curRow] : cities;
+          const open = scope.filter(r => !famLimitHit(r, b.id));
+          const price = open.length ? Math.min(...open.map(r => cityBuildPrice(r, b))) : 0;
           return <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={!open.length} onClick={() => setBuildFamily(b.id)}
-            sub={!open.length ? 'Построено везде' : `в ${open.length} ${plural(open.length, 'городе', 'городах', 'городах')}`}
-            trail={open.length ? <Val><CoinValue value={`от ${fmtUp(price)}`} /></Val> : undefined} />;
+            sub={!open.length ? (curRow ? 'Лимит в этом городе' : 'Построено везде') : curRow ? curRow.account : `в ${open.length} ${plural(open.length, 'городе', 'городах', 'городах')}`}
+            trail={open.length ? <Val><CoinValue value={`${curRow ? '' : 'от '}${fmtUp(price)}`} /></Val> : undefined} />;
         }}</MapPanelWindow>}
       </Box>
     );
