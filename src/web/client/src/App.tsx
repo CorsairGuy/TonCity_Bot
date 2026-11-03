@@ -39,6 +39,7 @@ const Mid = lazy(() => import('./pages/Mid').then(m => ({ default: m.Mid })));
 const Builders = lazy(() => import('./pages/Builders').then(m => ({ default: m.Builders })));
 const Loyalty = lazy(() => import('./pages/Loyalty').then(m => ({ default: m.Loyalty })));
 const Guilds = lazy(() => import('./pages/Guilds').then(m => ({ default: m.Guilds })));
+const Championships = lazy(() => import('./pages/Championships').then(m => ({ default: m.Championships })));
 const Quests = lazy(() => import('./pages/Quests').then(m => ({ default: m.Quests })));
 const QuestTiers = lazy(() => import('./pages/QuestTiers').then(m => ({ default: m.QuestTiers })));
 const Auditorium = lazy(() => import('./pages/SpecialBuildings').then(m => ({ default: m.Auditorium })));
@@ -285,6 +286,7 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
         {item('builders',    'Строители',          ToolsIcon)}
         {item('mid',         'МИД',                GlobeIcon)}
         {item('guilds',      'Гильдии',            OrganizationIcon)}
+        {item('championships', 'Чемпионаты',          TrophyIcon)}
 
         {group('missions', 'Сфера миссий', NorthStarIcon,
           <>
@@ -420,6 +422,7 @@ export default function App() {
           <Route path="/builders"        element={<Builders />} />
           <Route path="/loyalty"         element={<Loyalty />} />
           <Route path="/guilds"          element={<Guilds />} />
+          <Route path="/championships"   element={<Championships />} />
           <Route path="/quests"          element={<Quests />} />
           <Route path="/questTiers"      element={<QuestTiers />} />
           <Route path="/capitals"        element={<Capitals />} />

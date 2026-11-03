@@ -102,6 +102,11 @@ export const api = {
     req<{ ok: boolean; word?: string; error?: string; results?: { name: string; ok: boolean; won?: boolean; skipped?: string; error?: string; attempts?: number }[] }>(
       '/api/wordle/guess-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ word }) }),
 
+  // Чемпионаты: чтение и явно выбранные действия от имени аккаунта.
+  championships: (accountId: number) => req<ChampionshipReply>(`/api/championships?accountId=${accountId}`),
+  championshipAction: (accountId: number, action: ChampionshipAction, input: { squadId?: ChampionshipId; memberId?: ChampionshipId; name?: string; toSquadId?: ChampionshipId } = {}) =>
+    req<ChampionshipReply>('/api/championships/action', post({ accountId, action, ...input })),
+
   // journey
   journey: () => req<{ ok: boolean; accounts: JourneyAccount[] }>('/api/journey'),
 
@@ -2268,3 +2273,18 @@ export interface PlayerCity {
   buildings?: MapBuilding[]; unlocked_sections?: string[] | null;
   profit_per_hour?: number | null; happiness?: number | null; income_boost?: number | null;
 }
+
+
+export type ChampionshipId = string | number;
+export type ChampionshipAction = 'create' | 'rename' | 'apply' | 'withdrawApplication' | 'accept' | 'decline' | 'kick' | 'move' | 'leave' | 'leader' | 'disband' | 'submit' | 'recall' | 'approve' | 'reject' | 'withdraw';
+export interface ChampionshipMember { user_id: ChampionshipId; name: string; avatar?: string | null }
+export interface ChampionshipSquad {
+  id: ChampionshipId; name: string; leader_id: ChampionshipId; status: 'forming' | 'submitted' | 'fielded';
+  members: ChampionshipMember[]; applications?: ChampionshipMember[]; applicant_count?: number;
+}
+export interface ChampionshipOverview {
+  config: { season?: number; season_starts_on?: string; min_squad_size: number; max_squad_size: number; name_min_length: number; name_max_length: number } | null;
+  viewer: { user_id: ChampionshipId; squad_id: ChampionshipId | null; applied_squad_ids: ChampionshipId[]; is_guild_admin: boolean } | null;
+  squads: ChampionshipSquad[];
+}
+export interface ChampionshipReply { ok: boolean; data?: ChampionshipOverview | null; error?: string; needsRefresh?: boolean; resynced?: boolean }
