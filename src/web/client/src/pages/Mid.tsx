@@ -357,6 +357,7 @@ function TariffEditModal({ open, enemy, onClose, onConfirm, loading }: {
 // см. комментарий у MidCampaign в api.ts.
 
 interface CampaignStartModalProps {
+  guildId: string;
   open: boolean;
   guild: MidSearchGuild | null;
   config: MidCampaignConfig | null;
@@ -365,9 +366,23 @@ interface CampaignStartModalProps {
   loading: boolean;
 }
 
-function CampaignStartModal({ open, guild, config, onClose, onConfirm, loading }: CampaignStartModalProps) {
+function CampaignStartModal({ guildId, open, guild, config, onClose, onConfirm, loading }: CampaignStartModalProps) {
   const durations = config?.durations?.length ? config.durations : [24, 72];
   const [duration, setDuration] = useState(durations[0]);
+  const [preview, setPreview] = useState<{ size_handicap: number; repeat_handicap: number; recent_attacks?: number } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    setPreview(null); setPreviewError('');
+    if (!open || !guild) return;
+    setPreviewLoading(true);
+    api.midCampaignsPreview(guildId, guild.id).then(r => {
+      if (!alive) return;
+      if (r.ok && r.data) setPreview(r.data); else setPreviewError(r.error ?? 'Не удалось проверить условия кампании');
+    }).finally(() => { if (alive) setPreviewLoading(false); });
+    return () => { alive = false; };
+  }, [open, guildId, guild?.id]);
   // сбрасываем на первую длительность при каждом открытии — у разных гильдий config.durations
   // может отличаться, поэтому не полагаемся на дефолт из предыдущего открытия
   useEffect(() => { if (open) setDuration(durations[0]); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -379,9 +394,16 @@ function CampaignStartModal({ open, guild, config, onClose, onConfirm, loading }
       onClose={onClose}
       width="medium"
       position={{ narrow: 'bottom', regular: 'center' }}
-      footerButtons={[{ content: 'Начать кампанию', buttonType: 'danger', leadingVisual: FlameIcon, loading, onClick: () => onConfirm(duration) }]}
+      footerButtons={[{ content: 'Начать кампанию', buttonType: 'danger', leadingVisual: FlameIcon, loading, disabled: loading || previewLoading || !preview, onClick: () => onConfirm(duration) }]}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {previewLoading && <Spinner size="small" />}
+        {previewError && <Flash variant="danger">{previewError}</Flash>}
+        {preview && <Flash variant={preview.size_handicap * preview.repeat_handicap < 1 ? 'warning' : 'default'}>
+          Сила атаки после штрафов: ×{(preview.size_handicap * preview.repeat_handicap).toFixed(2)}.
+          {preview.size_handicap < 1 && ` За размер цели: ×${preview.size_handicap.toFixed(2)}.`}
+          {preview.repeat_handicap < 1 && ` За повторные атаки: ×${preview.repeat_handicap.toFixed(2)} (${preview.recent_attacks ?? 0}).`}
+        </Flash>}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <GuildAvatar photo={guild.photo} title={guild.title} size={40} />
           <Box>
@@ -809,7 +831,7 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
       )}
 
       <GuildPicker open={pickerOpen} onClose={() => setPickerOpen(false)} guildId={guildId} type="enemies" title="Выбрать цель кампании" onSelect={handlePickerSelect} />
-      <CampaignStartModal open={confirmOpen} guild={selectedGuild} config={campaigns?.config ?? null} onClose={() => setConfirmOpen(false)} onConfirm={handleStart} loading={starting} />
+      <CampaignStartModal guildId={guildId} open={confirmOpen} guild={selectedGuild} config={campaigns?.config ?? null} onClose={() => setConfirmOpen(false)} onConfirm={handleStart} loading={starting} />
     </Box>
   );
 }

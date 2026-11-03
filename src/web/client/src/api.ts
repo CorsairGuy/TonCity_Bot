@@ -389,6 +389,8 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/enemy/remove`, post({ enemy_guild_id: enemyGuildId })),
   midEnemyUpdateTariff: (guildId: string, enemyGuildId: number, tariffLevel: string) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/enemy/update-tariff`, post({ enemy_guild_id: enemyGuildId, tariff_level: tariffLevel })),
+  midCampaignsPreview: (guildId: string, targetGuildId: number) =>
+    req<{ ok: boolean; data?: { size_handicap: number; repeat_handicap: number; recent_attacks?: number }; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/preview?target_guild_id=${targetGuildId}`),
   midCampaignsStart: (guildId: string, targetGuildId: number, durationHours: number) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/start`, post({ target_guild_id: targetGuildId, duration_hours: durationHours })),
   midCampaignsDeploy: (guildId: string, campaignId: number) =>

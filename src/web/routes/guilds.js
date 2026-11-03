@@ -165,6 +165,16 @@ module.exports=function(app,ctx){
   // Кампании Гильдий (guild-campaigns) — замена удалённого scouting (06.07.2026).
   // target_guild_id ищем через уже существующий /search?type=enemies (та же ручка,
   // которой пользуется диалог старта кампании в самой игре — реверс chunks/foreign_ministry-*.js).
+  app.get('/api/mid-live/:guildId/campaigns/preview',async(req,res)=>{
+    try{
+      const target=Number(req.query.target_guild_id);
+      if(!Number.isSafeInteger(target)||target<=0)return res.status(400).json({ok:false,error:'Выберите целевую гильдию'});
+      const api=await midApi(req.params.guildId);
+      const data=await api.get('/guild-campaigns/preview',{target_guild_id:target});
+      if(!data||!Number.isFinite(data.size_handicap)||!Number.isFinite(data.repeat_handicap))return res.status(502).json({ok:false,error:'Игра не вернула коэффициенты кампании'});
+      res.json({ok:true,data});
+    }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
+  });
   app.post('/api/mid-live/:guildId/campaigns/start',async(req,res)=>{
     try{
       const api=await midApi(req.params.guildId);
