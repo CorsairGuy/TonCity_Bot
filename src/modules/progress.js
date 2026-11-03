@@ -7,6 +7,7 @@ const {sleep,fmt,withRetry}=require('../utils/helpers');
 const {isCityPaused}=require('../utils/botState');
 const {waitOrWake}=require('../utils/cityWake');
 const cityLive=require('../utils/cityLive');
+const cityMutation=require('../utils/cityMutation');
 const {buildingsMap:cityBuildingsMap,upgradeStep,upgradeDuration,effectiveUpgradeDuration,computeCityStats,reconstructYieldAt}=require('../web/cityStats');
 const {logAction,updateAction}=require('./cityActionLog');
 const{syncCityResources}=require('../utils/cityResources');
@@ -387,6 +388,7 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
     const info=buildingsMap.get(b.id);
 
     if(!info){skipped.push(`(${q.x},${q.y}) ${b.id} нет в каталоге зданий`);continue;}
+    if(b.id.startsWith('SPE_')||info.category==='special'){skipped.push(`(${q.x},${q.y}) ${b.id} специальное здание не улучшается`);continue;}
 
     const price=Math.round(upgradeStep(info,lvl)*policyMult*(1-discount));
 
@@ -414,7 +416,7 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
     const lvl=Number(b.level||0);
     if(lvl>=targetLevel)continue;
     const info=buildingsMap.get(b.id);
-    if(!info)continue;
+    if(!info||b.id.startsWith('SPE_')||info.category==='special')continue;
     candidates.push({key,b,info,lvl});
   }
   candidates.sort((x,y)=>upgradeDuration(x.info,x.lvl)-upgradeDuration(y.info,y.lvl)||x.lvl-y.lvl||Number(x.b.y)-Number(y.b.y)||Number(x.b.x)-Number(y.b.x));
@@ -718,6 +720,7 @@ async function runProgress(api,name,opts={}){
       // время, цикл просто не видел и продолжал работать по плану. Сохранение через панель будит
       // цикл (cityWake), но будить его без перечитывания было бессмысленно: он просыпался со
       // старым списком в памяти. Отсюда жалоба «ручная очередь игнорируется».
+      const mapRevision=cityMutation.revision(name);
       try{
         const fresh=await loadStrategy(name);
         personalTargets=fresh.targets;
@@ -746,6 +749,7 @@ async function runProgress(api,name,opts={}){
       const effectiveTargets=resolveEffectiveTargets(current,personalTargets,globalPlan);
       const{picked,consumedQueueKeys,skipped}=pickStrategyTargets(current,queue,effectiveTargets,buildingsMap,discount,upgradeCostMultiplier,free,state.coins);
 
+      if(cityMutation.revision(name)!==mapRevision)continue;
       // почему очередь пропустила записи — видно в логе, а не только в поведении
 
       if(skipped&&skipped.length)logger.info(`[${name}] [progress] очередь пропустила: ${skipped.join('; ')}`);
@@ -753,7 +757,8 @@ async function runProgress(api,name,opts={}){
       // последовательных апгрейдов) — consumedQueueKeys содержит ключ клетки РОВНО столько раз,
       // сколько её реально запустили в этом проходе (обычно 1); persistQueue убирает строго по
       // ОДНОЙ записи на каждый потреблённый ключ, а не все записи с таким ключом разом.
-      if(consumedQueueKeys.length)await persistQueue(consumedQueueKeys);
+      // Убираем запись очереди только после отправленного апгрейда, под блокировкой города.
+      // Отмена пачки из-за перемещения не должна потерять ещё не выполненную очередь.
       if(!picked.length){
         const stillBusy=current.filter(b=>b.end&&new Date(b.end).getTime()>Date.now());
         if(stillBusy.length){
@@ -780,11 +785,19 @@ async function runProgress(api,name,opts={}){
       const pending=[];
       logger.info(`[${name}] [progress] запускаю пачку: ${picked.length} апгрейд(ов) на ${free} свободных строителей`);
       for(const b of picked){
+        if(cityMutation.revision(name)!==mapRevision)break;
         const nextLvl=(Number(b.level)||1)+1;
         const ok=await runProgressAction(name,`upgrade ${b.id} at (${b.x},${b.y}) to lvl ${nextLvl}`,async()=>{
-          await sleep(500);
-          const r=await api.post('/progress/',[{type:'upgrade',id:b.id,x:b.x,y:b.y}]);
-          if(r?.coins!==undefined)logger.info(`[${name}] [progress] upgraded ${b.id} | LVL ${b.level} -> ${nextLvl}`);
+          await cityMutation.run(name,async()=>{
+            if(cityMutation.revision(name)!==mapRevision)throw new Error('Координаты изменились при перемещении; пересчитываю пачку');
+            await sleep(500);
+            const r=await api.post('/progress/',[{type:'upgrade',id:b.id,x:b.x,y:b.y}]);
+            if(r?.coins!==undefined){
+              logger.info(`[${name}] [progress] upgraded ${b.id} | LVL ${b.level} -> ${nextLvl}`);
+              const key=`${Number(b.x)},${Number(b.y)}`;
+              if(consumedQueueKeys.includes(key))await persistQueue([key]);
+            }
+          });
         });
         if(ok){
           launched++;
@@ -798,6 +811,7 @@ async function runProgress(api,name,opts={}){
           if(row)pending.push({row,x:Number(b.x),y:Number(b.y),startedAt:Date.now()});
         }
       }
+      if(!launched&&cityMutation.revision(name)!==mapRevision)continue;
       // одно обновление после всей пачки — дальше while сам пересчитает свободных строителей и,
       // если они ещё есть и цели остались, сразу запустит следующую пачку без ожидания
       if(launched){

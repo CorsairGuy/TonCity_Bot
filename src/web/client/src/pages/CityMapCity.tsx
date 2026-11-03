@@ -293,7 +293,7 @@ export function cityCellSets(display: MapBuilding[], catMap: Map<string, Buildin
   for (const b of display) {
     const k = `${b.x}_${b.y}`, info = catMap.get(b.id), lvl = Number(b.level) || 0, busy = isUnderway(b);
     out.occupied.add(k);
-    if (info?.category !== 'special') out.upgradeable.add(k);
+    if (!b.id.startsWith('SPE_') && info?.category !== 'special') out.upgradeable.add(k);
     if (info?.is_reconstructible && info.required_lvl != null) {
       out.reconstructPlannable.add(k);
       if (lvl >= info.required_lvl && !busy) out.reconstructable.add(k);
@@ -742,14 +742,14 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       // защита от спец-зданий на уровне самой мутации — не только через validSet (кисть их и так не
       // подсвечивает, но если по какой-то причине validSet их пропустил, сюда они всё равно не попадут)
       const b = displayBuildings.find(o => o.x === gx && o.y === gy);
-      if (b && buildingParamMap.get(b.id)?.category === 'special') return;
+      if (b && (b.id.startsWith('SPE_') || buildingParamMap.get(b.id)?.category === 'special')) return;
       // цель привязана к КОНКРЕТНОЙ клетке, не к семье — иначе клик по одному зданию задавал бы
       // цель сразу всем экземплярам той же семьи на карте
       setTargets(prev => [...prev.filter(t => !(t.x === gx && t.y === gy)), { x: gx, y: gy, target_level: lvl }]);
       markPlanRemoved([`${gx},${gy}`], false); // новая цель на помеченной клетке снимает пометку
     } else if (mode === 'queue') {
       const b = displayBuildings.find(o => o.x === gx && o.y === gy);
-      if (b && buildingParamMap.get(b.id)?.category === 'special') return;
+      if (b && (b.id.startsWith('SPE_') || buildingParamMap.get(b.id)?.category === 'special')) return;
       // одно и то же здание можно поставить в очередь несколько раз подряд — несколько
       // последовательных апгрейдов (21→22, потом снова оно же 22→23 и т.д.); бот сам не выдаст
       // второй апгрейд той же клетке, пока она не освободится от предыдущего (см. progress.js
@@ -983,7 +983,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     refreshMap(); loadResources();
     // перемещение переносит координату цели улучшения вместе со зданием (см. cityStrategy.js) —
     // подтягиваем свежий список целей, чтобы бейдж "цур→цель" не остался на старой клетке
-    api.cityStrategy(account).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setBuildPlan(t.buildPlan ?? []); } });
+    api.cityStrategy(account).then(t => { if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setManualQueue(t.queue ?? []); setSavedManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); setBuildPlan(t.buildPlan ?? []); } });
     return { ok, fail, deferred, error };
   };
   const removeDeferred = async (x: number, y: number) => {
