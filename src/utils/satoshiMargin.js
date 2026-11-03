@@ -14,7 +14,7 @@ async function readMargin(api,positionId,amount=0){
   if(!Array.isArray(positions?.open))throw new Error('Игра не вернула открытые позиции');
   const position=positions.open.find(p=>String(p.id)===String(positionId));
   if(!position)throw new Error('Открытая позиция этого аккаунта не найдена');
-  return{position,...previewMargin(position,progress?.crystals,amount)};
+  return{position,...previewMargin(position,progress?.progress?.data?.crystals,amount)};
 }
 // Сохраняем сумму TP/SL, заданную в процентах: увеличение маржи не должно
 // незаметно увеличивать допустимый денежный убыток. Ценовые уровни не меняются.

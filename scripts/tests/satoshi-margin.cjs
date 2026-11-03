@@ -11,7 +11,7 @@ assert.deepEqual(helpers.preservedMarginTriggers({margin:100,tp_pnl_pct:20,sl_pn
 function fixture({ambiguous=false,missing=false}={}){
  const routes=new Map(),posts=[],syncs=[];let balance=500;
  const pos={...base},row={...base,account:'A',tp_pnl_pct:20,sl_pnl_pct:10,async update(p){Object.assign(this,p);}};
- const api={async get(url){if(url==='/progress/')return{crystals:balance};if(url==='/satoshi-tower/positions')return{open:missing?[]:[{...pos}]};throw Error(url);},async post(url,body){posts.push({url,body});pos.margin+=body.amount;balance-=body.amount;if(ambiguous)throw Error('connection lost');return{position:{...pos},new_balance:balance};}};
+ const api={async get(url){if(url==='/progress/')return{progress:{data:{crystals:balance}}};if(url==='/satoshi-tower/positions')return{open:missing?[]:[{...pos}]};throw Error(url);},async post(url,body){posts.push({url,body});pos.margin+=body.amount;balance-=body.amount;if(ambiguous)throw Error('connection lost');return{position:{...pos},new_balance:balance};}};
  const db={Account:{async findByPk(id){return id===1?{id:1,name:'A',special_buildings:'satoshi'}:null;}},SatoshiPosition:{async findByPk(){return row;}}};
  const inFlight=new Map(),ops={statusOf:keys=>Object.fromEntries(keys.map(k=>[k,inFlight.has(k)])),run(key,fn){const p=Promise.resolve().then(fn);inFlight.set(key,p);return p.finally(()=>inFlight.delete(key));}};
  const context={module:{exports:{}},exports:{},setTimeout,clearTimeout,require:name=>{

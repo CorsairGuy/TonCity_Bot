@@ -50,8 +50,8 @@ function GuildFeesModal({ accountId, accountName, onClose }: { accountId: number
           <Button variant="primary" loading={busy} disabled={!data.payable || busy} onClick={pay}>Оплатить остаток</Button>
         </>}
         {data.fees.upcoming && <Text sx={{ color: 'fg.muted' }}>Следующий период: {fmt(data.fees.upcoming.terms?.amount ?? 0)} {data.fees.upcoming.terms?.currency === 'crystals' ? 'алмазов' : 'монет'}</Text>}
-        {!!data.fees.members?.length && <Table.Container><DataTable data={data.fees.members.map((m, i) => ({ ...m, rowId: i }))} columns={[
-          { header: 'Участник', field: 'rowId', rowHeader: true, renderCell: m => [m.first_name, m.last_name].filter(Boolean).join(' ') || `#${m.user_id ?? m.rowId}` },
+        {!!data.fees.members?.length && <Table.Container><DataTable data={data.fees.members.map((m, i) => ({ ...m, id: m.user_id ?? i }))} columns={[
+          { header: 'Участник', field: 'id', rowHeader: true, renderCell: m => [m.first_name, m.last_name].filter(Boolean).join(' ') || `#${m.user_id ?? m.id}` },
           { header: 'Внесено', field: 'deposited', renderCell: m => `${fmt(m.deposited)} / ${fmt(m.required)}` },
           { header: 'Статус', field: 'status', renderCell: m => FEE_STATUS[m.status] ?? m.status },
         ]} /></Table.Container>}
