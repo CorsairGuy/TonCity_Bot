@@ -1438,5 +1438,302 @@
       "w": 753,
       "h": 523
     }
+  },
+  "d1/RES_worldtree.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1517
+    }
+  },
+  "RES_worldtree.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 1517
+    }
+  },
+  "d1/RES_bough_towers.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 834
+    }
+  },
+  "RES_bough_towers.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 834
+    }
+  },
+  "d1/COM_amber_vault.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 770
+    }
+  },
+  "COM_amber_vault.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 770
+    }
+  },
+  "d1/SER_heartwood.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 770,
+      "w": 753,
+      "h": 727
+    }
+  },
+  "SER_heartwood.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 770,
+      "w": 753,
+      "h": 727
+    }
+  },
+  "d1/COM_eden_consortium.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 834,
+      "w": 753,
+      "h": 679
+    }
+  },
+  "COM_eden_consortium.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 834,
+      "w": 753,
+      "h": 679
+    }
+  },
+  "d1/COM_bloom_market.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 1497,
+      "w": 753,
+      "h": 600
+    }
+  },
+  "COM_bloom_market.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 1506,
+      "y": 1497,
+      "w": 753,
+      "h": 600
+    }
+  },
+  "d1/D1_construction_tall.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 1513,
+      "w": 753,
+      "h": 551
+    }
+  },
+  "d1/D1_grove_gold_2.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 0,
+      "y": 1517,
+      "w": 753,
+      "h": 534
+    }
+  },
+  "d1/D1_gate_x_closed.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 0,
+      "y": 2051,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "d1/D1_construction.png": {
+    "atlas": "tiles/d1/d1_0_8bb44e4a6eed70de83c740b766404ca6.png",
+    "frame": {
+      "x": 753,
+      "y": 2064,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "d1/D1_grove_oak_3.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 514
+    }
+  },
+  "d1/RES_rootweave.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 505
+    }
+  },
+  "RES_rootweave.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 0,
+      "w": 753,
+      "h": 505
+    }
+  },
+  "d1/D1_grove_gold_1.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 0,
+      "w": 753,
+      "h": 500
+    }
+  },
+  "d1/D1_grove_rocks_1.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 500,
+      "w": 753,
+      "h": 499
+    }
+  },
+  "d1/D1_grove_oak_1.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 505,
+      "w": 753,
+      "h": 496
+    }
+  },
+  "d1/D1_grove_rocks_3.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 514,
+      "w": 753,
+      "h": 495
+    }
+  },
+  "d1/D1_grove_rocks_2.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 999,
+      "w": 753,
+      "h": 493
+    }
+  },
+  "d1/D1_grove_gold_3.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 1001,
+      "w": 753,
+      "h": 487
+    }
+  },
+  "d1/D1_grove_oak_2.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 1009,
+      "w": 753,
+      "h": 484
+    }
+  },
+  "d1/D1_gate_x_open.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 1488,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "d1/D1_gate_y_closed.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 1492,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "d1/D1_gate_y_open.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 1493,
+      "w": 753,
+      "h": 448
+    }
+  },
+  "d1/D1_empty.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 753,
+      "y": 1936,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "d1/D1_locked_amber.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 1506,
+      "y": 1940,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "d1/D1_locked_bramble.png": {
+    "atlas": "tiles/d1/d1_1_5b28ff39f3bc6829e2ddff1ea5db8f4f.png",
+    "frame": {
+      "x": 0,
+      "y": 1941,
+      "w": 753,
+      "h": 435
+    }
+  },
+  "d1/D1_sap_font.png": {
+    "atlas": "tiles/d1/d1_2_d91296489c4eaff71ba4582971fe831b.png",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "w": 753,
+      "h": 429
+    }
   }
 }

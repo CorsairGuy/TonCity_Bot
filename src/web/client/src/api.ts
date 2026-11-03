@@ -265,7 +265,7 @@ export const api = {
   sections: () => req<{ ok: boolean; sections: MapSection[] }>('/api/sections'),
   // запас компонентов/мастерпланов (вкладки "Реконструкция"/"Реновация") — из БД (Inventory), без живого запроса
   cityResources: (account: string) =>
-    req<{ ok: boolean; components: number; masterplans: number; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/resources`),
+    req<{ ok: boolean; components: number; masterplans: number; keys?: number; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}/resources`),
   // гильдийская скидка на постройку зданий (building_purchases_discount из /guilds/benefits) —
   // отдельная от скидки политик, см. cityStrategy.js
   cityGuildBenefits: (account: string) =>
@@ -311,8 +311,8 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/city-actions/${encodeURIComponent(account)}/renovate`, post({ x, y })),
   // разблокировка закрытой секции карты — единственное действие с ОТДЕЛЬНЫМ игровым эндпоинтом
   // (/progress/unlock-section, не общий /progress/ массив), см. web/routes/cityStrategy.js
-  cityActionUnlockSection: (account: string, section_id: string) =>
-    req<{ ok: boolean; unlockedSections?: string[]; error?: string }>(`/api/city-actions/${encodeURIComponent(account)}/unlock-section`, post({ section_id })),
+  cityActionUnlockSection: (account: string, section_id: string, confirmed_keys?: number) =>
+    req<{ ok: boolean; unlockedSections?: string[]; error?: string }>(`/api/city-actions/${encodeURIComponent(account)}/unlock-section`, post({ section_id, confirmed_keys })),
 
   // Действия по столице (страница "Карта города" → тип столица) — та же архитектура, что и у
   // города, минус Реконструкция/Реновация/Ускорители, плюс Снос; guildTitle вместо account, см.
@@ -1218,7 +1218,9 @@ export interface MapSection {
   id: string;
   coordinates: { x: number; y: number }[];
   adjacentSections: string[];
-  unlockCost: { coins?: number; crystals?: number };
+  unlockCost: { coins?: number; crystals?: number; keys?: number };
+  district?: 'main' | 'd1';
+  minPopulation?: number;
   defaultUnlocked: boolean;
 }
 
@@ -1333,7 +1335,7 @@ export interface ForecastMods { reducedUpgradeTimes: number; constructionTimeMul
 export interface ForecastDiag { samples: number; median: number | null; spread: [number, number] | null }
 export interface BuildingDef {
   id: string;
-  district?: string | null;
+  district?: 'main' | 'd1' | null;
   max_construction_seconds?: number | null;
   category: string;
   service_category: string | null;

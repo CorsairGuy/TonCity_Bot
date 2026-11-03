@@ -10,7 +10,7 @@ const path=nodePath.join(root,'src/web/client/src/pages/CityWorld.tsx');
 const src=fs.readFileSync(path,'utf8');
 const results=[];
 function block(start,end){const a=src.indexOf(start);assert(a>=0,start);const b=src.indexOf(end,a);assert(b>a,end);return src.slice(a,b);}
-function ctx(extra){return vm.createContext({console,Set,Map,JSON,Promise,setTimeout,clearTimeout,...extra});}
+function ctx(extra){return vm.createContext({console,Set,Map,JSON,Promise,setTimeout,clearTimeout,district:'main',...extra});}
 function run(s,c){return vm.runInContext(esbuild.transformSync(s,{loader:'ts',target:'es2022'}).code,c);}
 function fn(s,name,c){return run(`(()=>{${s}; return ${name};})()`,c);}
 function plain(x){return JSON.parse(JSON.stringify(x));}

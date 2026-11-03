@@ -799,5 +799,236 @@
       "coins": 1000000000
     },
     "defaultUnlocked": false
+  },
+  {
+    "id": "d1_core",
+    "coordinates": [
+      {
+        "x": 1004,
+        "y": 3
+      },
+      {
+        "x": 1006,
+        "y": 3
+      },
+      {
+        "x": 1003,
+        "y": 4
+      },
+      {
+        "x": 1004,
+        "y": 4
+      },
+      {
+        "x": 1006,
+        "y": 4
+      },
+      {
+        "x": 1007,
+        "y": 4
+      },
+      {
+        "x": 1003,
+        "y": 6
+      },
+      {
+        "x": 1004,
+        "y": 6
+      },
+      {
+        "x": 1006,
+        "y": 6
+      },
+      {
+        "x": 1007,
+        "y": 6
+      },
+      {
+        "x": 1004,
+        "y": 7
+      },
+      {
+        "x": 1006,
+        "y": 7
+      }
+    ],
+    "adjacentSections": [],
+    "unlockCost": {
+      "coins": 10000000000000
+    },
+    "defaultUnlocked": false,
+    "district": "d1",
+    "minPopulation": 100000000
+  },
+  {
+    "id": "d1_wing_a",
+    "coordinates": [
+      {
+        "x": 1004,
+        "y": 0
+      },
+      {
+        "x": 1006,
+        "y": 0
+      },
+      {
+        "x": 1004,
+        "y": 1
+      },
+      {
+        "x": 1006,
+        "y": 1
+      }
+    ],
+    "adjacentSections": [
+      "d1_core"
+    ],
+    "unlockCost": {
+      "keys": 10
+    },
+    "defaultUnlocked": false,
+    "district": "d1",
+    "minPopulation": 125000000,
+    "lockedAsset": "D1_locked_bramble.png",
+    "gate": {
+      "coords": {
+        "x": 1005,
+        "y": 2
+      },
+      "closedAsset": "D1_gate_y_closed.png",
+      "openAsset": "D1_gate_y_open.png"
+    }
+  },
+  {
+    "id": "d1_islet_x",
+    "coordinates": [
+      {
+        "x": 1012,
+        "y": 5
+      },
+      {
+        "x": 1010,
+        "y": 6
+      },
+      {
+        "x": 1011,
+        "y": 6
+      }
+    ],
+    "adjacentSections": [
+      "d1_core"
+    ],
+    "unlockCost": {
+      "crystals": 10000
+    },
+    "defaultUnlocked": false,
+    "district": "d1",
+    "minPopulation": 125000000,
+    "lockedAsset": "D1_locked_amber.png"
+  },
+  {
+    "id": "d1_wing_c",
+    "coordinates": [
+      {
+        "x": 1000,
+        "y": 4
+      },
+      {
+        "x": 1001,
+        "y": 4
+      },
+      {
+        "x": 1000,
+        "y": 6
+      },
+      {
+        "x": 1001,
+        "y": 6
+      }
+    ],
+    "adjacentSections": [
+      "d1_core"
+    ],
+    "unlockCost": {
+      "keys": 20
+    },
+    "defaultUnlocked": false,
+    "district": "d1",
+    "minPopulation": 150000000,
+    "lockedAsset": "D1_locked_bramble.png",
+    "gate": {
+      "coords": {
+        "x": 1002,
+        "y": 5
+      },
+      "closedAsset": "D1_gate_x_closed.png",
+      "openAsset": "D1_gate_x_open.png"
+    }
+  },
+  {
+    "id": "d1_islet_y",
+    "coordinates": [
+      {
+        "x": 1011,
+        "y": 1
+      },
+      {
+        "x": 1010,
+        "y": 2
+      },
+      {
+        "x": 1012,
+        "y": 2
+      }
+    ],
+    "adjacentSections": [
+      "d1_islet_x"
+    ],
+    "unlockCost": {
+      "crystals": 20000
+    },
+    "defaultUnlocked": false,
+    "district": "d1",
+    "minPopulation": 175000000,
+    "lockedAsset": "D1_locked_amber.png"
+  },
+  {
+    "id": "d1_wing_b",
+    "coordinates": [
+      {
+        "x": 1004,
+        "y": 9
+      },
+      {
+        "x": 1006,
+        "y": 9
+      },
+      {
+        "x": 1004,
+        "y": 10
+      },
+      {
+        "x": 1006,
+        "y": 10
+      }
+    ],
+    "adjacentSections": [
+      "d1_core"
+    ],
+    "unlockCost": {
+      "keys": 30
+    },
+    "defaultUnlocked": false,
+    "district": "d1",
+    "minPopulation": 200000000,
+    "lockedAsset": "D1_locked_bramble.png",
+    "gate": {
+      "coords": {
+        "x": 1005,
+        "y": 8
+      },
+      "closedAsset": "D1_gate_y_closed.png",
+      "openAsset": "D1_gate_y_open.png"
+    }
   }
 ]

@@ -112,9 +112,9 @@ module.exports=function(app,ctx){
   app.get('/api/city-strategy/:account/resources',async(req,res)=>{
     try{
       const{Inventory}=require('../../db/index');
-      const rows=await Inventory.findAll({where:{account:req.params.account,name:['12','13']}});
+      const rows=await Inventory.findAll({where:{account:req.params.account,name:['12','13','43']}});
       const byName=Object.fromEntries(rows.map(r=>[r.name,Number(r.marketable||0)+Number(r.locked||0)]));
-      res.json({ok:true,components:byName['13']||0,masterplans:byName['12']||0});
+      res.json({ok:true,components:byName['13']||0,masterplans:byName['12']||0,keys:byName['43']||0});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
@@ -630,16 +630,25 @@ module.exports=function(app,ctx){
   // Проверку "хватает ли денег"/"смежна ли с открытой зоной" бот НЕ делает — вернёт сама игра.
   app.post('/api/city-actions/:account/unlock-section',async(req,res)=>{
     try{
-      const{section_id}=req.body||{};
+      const{section_id,confirmed_keys}=req.body||{};
       if(!section_id)return res.status(400).json({ok:false,error:'section_id обязателен'});
-      const acc=await findAccountByName(req.params.account);
-      const api=await makeApiForAccount(acc.id,{noLock:true});
-      const r=await api.post('/progress/unlock-section',{section_id});
-      if(!r?.success)return res.status(400).json({ok:false,error:r?.message||'Не удалось разблокировать секцию'});
-      await resyncSnapshot(api,acc.name,r.unlocked_sections);
-      await logAction(acc.name,'unlock_section',{detail:JSON.stringify({section_id,coins_spent:r.coins_spent,crystals_spent:r.crystals_spent})});
-      require('../../utils/cityWake').wake(acc.name);
-      res.json({ok:true,unlockedSections:r.unlocked_sections});
+      const sections=JSON.parse(require('fs').readFileSync(require('path').join(process.cwd(),'config','city_sections.json'),'utf8'));
+      const section=sections.find(s=>s.id===section_id);
+      if(!section)return res.status(400).json({ok:false,error:'Неизвестная секция карты'});
+      if(section.unlockCost?.keys&&confirmed_keys!==section.unlockCost.keys)return res.status(400).json({ok:false,error:'Подтвердите точное количество ключей для секции'});
+      const result=await opRegistry.run(`cityUnlock:${req.params.account}:${section_id}`,async()=>{
+        const acc=await findAccountByName(req.params.account);
+        const api=await makeApiForAccount(acc.id,{noLock:true});
+        const r=await api.post('/progress/unlock-section',{section_id});
+        if(!r?.success)throw Object.assign(new Error(r?.message||'Не удалось разблокировать секцию'),{status:400});
+        await resyncSnapshot(api,acc.name,r.unlocked_sections);
+        // После успешной мутации ошибка обновления склада не должна маскировать успех и провоцировать повтор.
+        if(r.keys_spent)await require('../../modules/inventory').runInventory(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [unlock] склад: ${e.message}`));
+        await logAction(acc.name,'unlock_section',{detail:JSON.stringify({section_id,coins_spent:r.coins_spent,crystals_spent:r.crystals_spent,keys_spent:r.keys_spent})});
+        require('../../utils/cityWake').wake(acc.name);
+        return{ok:true,unlockedSections:r.unlocked_sections};
+      });
+      res.json(result);
     }catch(e){res.status(e.status||500).json({ok:false,error:e?.response?.data?.error||e.message});}
   });
 };

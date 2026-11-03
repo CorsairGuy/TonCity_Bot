@@ -1,0 +1,98 @@
+{
+  "3_0": {
+    "asset": "d1/D1_grove_gold_1.png"
+  },
+  "1_1": {
+    "asset": "d1/D1_grove_oak_3.png"
+  },
+  "2_1": {
+    "asset": "d1/D1_grove_rocks_1.png"
+  },
+  "3_1": {
+    "asset": "d1/D1_grove_rocks_2.png"
+  },
+  "8_1": {
+    "asset": "d1/D1_grove_rocks_3.png"
+  },
+  "1_2": {
+    "asset": "d1/D1_grove_oak_1.png"
+  },
+  "5_2": {
+    "asset": "d1/D1_gate_y_closed.png"
+  },
+  "8_2": {
+    "asset": "d1/D1_grove_oak_2.png"
+  },
+  "0_3": {
+    "asset": "d1/D1_grove_gold_2.png"
+  },
+  "1_3": {
+    "asset": "d1/D1_grove_gold_3.png"
+  },
+  "3_3": {
+    "asset": "d1/D1_grove_gold_1.png"
+  },
+  "7_3": {
+    "asset": "d1/D1_grove_rocks_3.png"
+  },
+  "8_3": {
+    "asset": "d1/D1_grove_gold_3.png"
+  },
+  "2_4": {
+    "asset": "d1/D1_grove_rocks_3.png"
+  },
+  "2_5": {
+    "asset": "d1/D1_gate_x_closed.png"
+  },
+  "5_5": {
+    "asset": "d1/D1_sap_font.png"
+  },
+  "2_6": {
+    "asset": "d1/D1_grove_rocks_3.png"
+  },
+  "8_6": {
+    "asset": "d1/D1_grove_rocks_3.png"
+  },
+  "2_7": {
+    "asset": "d1/D1_grove_oak_2.png"
+  },
+  "8_7": {
+    "asset": "d1/D1_grove_gold_3.png"
+  },
+  "1_8": {
+    "asset": "d1/D1_grove_gold_2.png"
+  },
+  "2_8": {
+    "asset": "d1/D1_grove_oak_3.png"
+  },
+  "3_8": {
+    "asset": "d1/D1_grove_rocks_1.png"
+  },
+  "5_8": {
+    "asset": "d1/D1_gate_y_closed.png"
+  },
+  "7_8": {
+    "asset": "d1/D1_grove_oak_2.png"
+  },
+  "8_8": {
+    "asset": "d1/D1_grove_rocks_2.png"
+  },
+  "1_9": {
+    "asset": "d1/D1_grove_rocks_2.png"
+  },
+  "2_9": {
+    "asset": "d1/D1_grove_gold_1.png"
+  },
+  "3_9": {
+    "asset": "d1/D1_grove_oak_1.png"
+  },
+  "7_9": {
+    "asset": "d1/D1_grove_rocks_3.png"
+  },
+  "8_9": {
+    "asset": "d1/D1_grove_oak_3.png"
+  },
+  "3_10": {
+    "asset": "d1/D1_grove_oak_2.png"
+  }
+}
