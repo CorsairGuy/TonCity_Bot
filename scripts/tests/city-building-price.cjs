@@ -14,7 +14,7 @@ const fn=vm.runInNewContext(esbuild.transformSync(slice(src,'  const cityBuildPr
 assert.equal(fn(A,info),400);assert.equal(fn(B,info),100);
 // Исполняем выбор области и цены из настоящего списка строительства.
 const picker=slice(src,'          const scope =','          return <BuildItem');
-function price(curRow){return vm.runInNewContext(esbuild.transformSync(picker,{loader:'ts'}).code+';({price,count:open.length})',{curRow,cities:[A,B],b:info,cityBuildPrice:fn,famLimitHit:r=>r.account==='A'&&liveState.buildings.length>=4,Math});}
+function price(curRow){return vm.runInNewContext(esbuild.transformSync(picker,{loader:'ts'}).code+';({price,count:open.length})',{curRow,cities:[A,B],b:info,cityBuildPrice:fn,cityBuildCriteria:()=>null,isCriteriaUnmet:()=>false,criteriaReason:()=>'',famLimitHit:r=>r.account==='A'&&liveState.buildings.length>=4,Math});}
 assert.equal(price(A).price,400);assert.equal(price(undefined).price,100);
 liveState.buildings.push({id:info.id});assert.equal(price(A).count,0);assert.equal(price(undefined).count,1);
 delete liveState.buildMult;A.guild={building_purchases_discount:0.25};assert.equal(fn(A,info),1200);

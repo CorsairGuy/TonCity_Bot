@@ -1193,6 +1193,7 @@ export interface CapitalRow {
 }
 
 export interface CityWorldRow extends CityRow {
+  buildCriteria?: unknown;
   balance: number; profit: number; profit_final: number; population: number; population_final: number; happiness: number;
   crystals: number; staked_coins: number; staked_crystals: number;
   queue: CityStrategyQueueItem[];

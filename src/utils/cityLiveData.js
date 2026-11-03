@@ -16,6 +16,13 @@ async function loadBuildCriteria(name){
   if(!rows.length||rows[0].criteria==null)return null;
   try{return JSON.parse(rows[0].criteria);}catch{return null;}
 }
+// Общая карта получает условия всех городов одним запросом к БД, без запросов в игру.
+async function loadAllBuildCriteria(){
+  const[rows]=await seq.query('SELECT account,criteria FROM city_build_criteria');
+  const result=new Map();
+  for(const row of rows){try{result.set(row.account,typeof row.criteria==='string'?JSON.parse(row.criteria):row.criteria);}catch{}}
+  return result;
+}
 // строка гильдии уже есть (её создают квесты гильдии) — обновляем только бонусы
 async function syncGuildBenefits(api,name){
   const d=await api.get('/guilds/benefits');
@@ -28,4 +35,4 @@ async function loadGuildBenefits(name){
   return b&&typeof b==='object'?(b.benefits??b):null;
 }
 
-module.exports={syncBuildCriteria,loadBuildCriteria,syncGuildBenefits,loadGuildBenefits};
+module.exports={loadAllBuildCriteria,syncBuildCriteria,loadBuildCriteria,syncGuildBenefits,loadGuildBenefits};

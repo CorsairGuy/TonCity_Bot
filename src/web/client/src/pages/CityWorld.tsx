@@ -5,7 +5,7 @@ import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } fro
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, DotFillIcon, PlusIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
 import { api, type CityBoosterRow, type CityActiveBooster, type BuildingDef, type CityActionLogRow, type CityWorldRow, type ForecastEvent, type GlobalUpgradeRule, type MapSection, type PolicyCabinet } from '../api';
 import { CityActionsCanvas, REGION_FADE, type CityActionMode, type MapCamera, type MapView, type WorldLayout, type CellFill, type RegionFill } from '../components/CityActionsCanvas';
-import { CityMapCity, CityHead, cityStatsFor, computePolicyMultiplier, buildingName, buildingCat, buildPriceAt, familyId, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
+import { CityMapCity, CityHead, cityStatsFor, computePolicyMultiplier, buildingName, buildingCat, buildPriceAt, familyId, isCriteriaUnmet, criteriaReason, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
@@ -557,6 +557,7 @@ export function CityWorld() {
     const f = familyId(id);
     return (live(r.account)?.buildings ?? r.buildings).filter(b => familyId(b.id) === f).length >= info.limit;
   }, [catMap, live]);
+  const cityBuildCriteria = useCallback((r: CityWorldRow) => live(r.account)?.buildCriteria ?? r.buildCriteria, [live]);
   const cityBuildPrice = useCallback((r: CityWorldRow, info: BuildingDef) => {
     const st = live(r.account);
     const mult = st?.buildMult ?? computePolicyMultiplier(cabinets[r.account], 'build_cost') * (1 - (r.guild?.building_purchases_discount ?? 0));
@@ -570,12 +571,12 @@ export function CityWorld() {
     if (!info) return m;
     for (const r of cities) {
       const st = live(r.account);
-      const block = famLimitHit(r, buildFamily) ? 'уже построено' : st?.buildBlock ?? null;
+      const block = famLimitHit(r, buildFamily) ? 'уже построено' : isCriteriaUnmet(cityBuildCriteria(r), buildFamily) ? criteriaReason(cityBuildCriteria(r), buildFamily) : st?.buildBlock ?? null;
       const price = cityBuildPrice(r, info);
       m.set(r.account, { block, price, short: Math.max(0, price - (st?.balance ?? r.balance ?? 0)) });
     }
     return m;
-  }, [mode, buildFamily, catMap, cities, live, famLimitHit, cityBuildPrice]);
+  }, [mode, buildFamily, catMap, cities, live, famLimitHit, cityBuildPrice, cityBuildCriteria]);
   const buildBlockedIn = useMemo(() => new Set([...buildInfo].filter(([, v]) => v.block).map(([a]) => a)), [buildInfo]);
   // перемещение идёт внутри одного города: пока здание взято, остальные города гаснут и не принимают клики
   const movingCity = mode === 'move' ? cities.find(c => live(c.account)?.moving)?.account ?? null : null;
@@ -838,10 +839,13 @@ export function CityWorld() {
         </div>
         {<MapPanelWindow count={list.length}>{i => { const b = list[i];
           const scope = curRow ? [curRow] : cities;
-          const open = scope.filter(r => !famLimitHit(r, b.id));
+          const underLimit = scope.filter(r => !famLimitHit(r, b.id));
+          const open = underLimit.filter(r => !isCriteriaUnmet(cityBuildCriteria(r), b.id));
+          const reason = !underLimit.length ? (curRow ? 'Лимит в этом городе' : 'Построено везде')
+            : curRow ? criteriaReason(cityBuildCriteria(curRow), b.id) : 'Условия покупки не выполнены';
           const price = open.length ? Math.min(...open.map(r => cityBuildPrice(r, b))) : 0;
           return <BuildItem key={b.id} id={b.id} name={buildingName(b)} active={buildFamily === b.id} unavailable={!open.length} onClick={() => setBuildFamily(b.id)}
-            sub={!open.length ? (curRow ? 'Лимит в этом городе' : 'Построено везде') : curRow ? curRow.account : `в ${open.length} ${plural(open.length, 'городе', 'городах', 'городах')}`}
+            sub={!open.length ? reason : curRow ? curRow.account : `в ${open.length} ${plural(open.length, 'городе', 'городах', 'городах')}`}
             trail={open.length ? <Val><CoinValue value={`${curRow ? '' : 'от '}${fmtUp(price)}`} /></Val> : undefined} />;
         }}</MapPanelWindow>}
       </Box>
