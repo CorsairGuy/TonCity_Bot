@@ -23,7 +23,8 @@ permissions:
 
 concurrency:
   group: docker-image-${{ github.ref }}
-  cancel-in-progress: false
+  # Новая версия заменяет устаревшую сборку той же ветки, не ожидая её публикации.
+  cancel-in-progress: true
 
 jobs:
   build:

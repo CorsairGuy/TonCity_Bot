@@ -8,13 +8,19 @@ COPY . .
 # Сборка веб-панели → src/web/dist/
 RUN cd src/web/client && npm run build
 
+# Зависимости бэкенда — чистый JS (без нативных модулей и install-скриптов).
+# Устанавливаем один раз на сборщике: Node под QEMU/ARM64 может зависнуть с SIGILL.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS backend-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
 FROM node:22-alpine
 WORKDIR /app
 RUN apk add --no-cache tzdata
 
-# Зависимости бэкенда (только чистый JS, под эмуляцией ставятся быстро)
-COPY package.json package-lock.json ./
-RUN npm ci
+# Готовое дерево JS-зависимостей одинаково для всех целевых архитектур.
+COPY --from=backend-deps /app/node_modules ./node_modules
 
 COPY . .
 COPY --from=web /app/src/web/dist ./src/web/dist
