@@ -16,7 +16,7 @@ class BroadcastTransport extends Transport{
 
 module.exports=createLogger({
   level:cfg.logLevel,
-  format:format.combine(format.timestamp({format:'YYYY-MM-DD HH:mm:ss'}),format.errors({stack:true}),
+  format:format.combine(format.timestamp(),format.errors({stack:true}),
     format.printf(({timestamp,level,message,stack})=>`${timestamp} [${level.toUpperCase()}] ${stack||message}`)),
   transports:[
     new transports.Console({format:format.combine(format.colorize(),format.timestamp({format:'HH:mm:ss'}),

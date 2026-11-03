@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Button, Select, Text, UnderlineNav } from '@primer/react';
 import { api } from '../api';
+import { localLogLine } from '../logTime';
 
 const MAX_LINES = 2000; // ограничение памяти в долго открытой вкладке
 const BOTTOM_THRESHOLD = 40; // px — насколько близко к низу считается "у низа"
 
-function colorLine(l: string) {
+function colorLine(raw: string) {
+  const l = localLogLine(raw);
   const lw = l.toLowerCase();
   const isErr = lw.includes('error');
   const isWarn = lw.includes('warn');
-  const m = l.match(/^(\d{2}:\d{2}:\d{2})\s+(\[\w+\])\s*([\s\S]*)$/);
+  const m = l.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+(\[\w+\])\s*([\s\S]*)$/);
   if (!m) return <span className={`log-line${isErr ? ' error' : isWarn ? ' warn' : ''}`}>{l}</span>;
   const [, ts, tag, msg] = m;
   const tagKey = tag.replace(/[\[\]]/g, '').toLowerCase();
