@@ -388,7 +388,7 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
     const info=buildingsMap.get(b.id);
 
     if(!info){skipped.push(`(${q.x},${q.y}) ${b.id} нет в каталоге зданий`);continue;}
-    if(info.category==='special'){skipped.push(`(${q.x},${q.y}) ${b.id} специальное здание не улучшается`);continue;}
+    if(b.id.startsWith('SPE_')||info.category==='special'){skipped.push(`(${q.x},${q.y}) ${b.id} специальное здание не улучшается`);continue;}
 
     const price=Math.round(upgradeStep(info,lvl)*policyMult*(1-discount));
 
@@ -416,7 +416,7 @@ function pickStrategyTargets(current,queue,targets,buildingsMap,discount,policyM
     const lvl=Number(b.level||0);
     if(lvl>=targetLevel)continue;
     const info=buildingsMap.get(b.id);
-    if(!info||info.category==='special')continue;
+    if(!info||b.id.startsWith('SPE_')||info.category==='special')continue;
     candidates.push({key,b,info,lvl});
   }
   candidates.sort((x,y)=>upgradeDuration(x.info,x.lvl)-upgradeDuration(y.info,y.lvl)||x.lvl-y.lvl||Number(x.b.y)-Number(y.b.y)||Number(x.b.x)-Number(y.b.x));

@@ -37,11 +37,14 @@ const plans=plansCtx.module.exports;
  const progress=read('src/modules/progress.js'),a=progress.indexOf('function pickStrategyTargets('),b=progress.indexOf('\nfunction ',a+1);
  const pick=vm.runInNewContext(progress.slice(a,b)+'\n;pickStrategyTargets',{fmt:String,upgradeStep:()=>1,upgradeDuration:()=>1});
  const buildings=[{id:'SPE_federal_reserve.png',x:7,y:12,level:1},{id:'SPE_fortune_pavilion.png',x:7,y:13,level:1},{id:'RES_test.png',x:1,y:1,level:1}];
+ buildings.push({id:'SPE_future_unknown.png',x:8,y:8,level:1});
  const bankIds=['COM_bank.png','COM_bank_1_star.png','COM_bank_2_star.png','COM_bank_3_star.png'];
  buildings.push(...bankIds.map((id,i)=>({id,x:2,y:i,level:1})));
  const definitions=JSON.parse(read('config/buildings.txt'));
  const catalog=new Map(definitions.map(b=>[b.id,b]));
  catalog.set('RES_test.png',{category:'residential'});
+ // Новый SPE_ должен блокироваться даже при неверной категории каталога.
+ catalog.set('SPE_future_unknown.png',{category:'commercial'});
  const result=pick(buildings,buildings,buildings.map(b=>({...b,target_level:20})),catalog,0,1,10,100);
  assert.deepEqual(Array.from(result.picked,b=>b.id).sort(),['RES_test.png',...bankIds].sort());
  const targetsOnly=pick(buildings,[],buildings.map(b=>({...b,target_level:20})),catalog,0,1,10,100);
