@@ -1,3 +1,4 @@
+import { SatoshiMarginDialog } from '../components/SatoshiMarginDialog';
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import {
   Box, Button, Flash, Heading, Spinner, Text, Select, ButtonGroup, TextInput, Checkbox, Label,
@@ -670,6 +671,7 @@ export function SatoshiTower() {
   const [pendingRows, setPendingRows] = useState<SatoshiPendingOrder[]>([]);
   const [closing, setClosing] = useState<Set<number>>(new Set());
   const [cancelling, setCancelling] = useState<Set<number>>(new Set());
+  const [marginModal, setMarginModal] = useState<SatoshiOpenPosition | null>(null);
   const [tpSlModal, setTpSlModal] = useState<SatoshiOpenPosition | null>(null);
   const [newPosModal, setNewPosModal] = useState(false);
   const [tablesRefreshing, setTablesRefreshing] = useResumableRefresh('refresh:satoshi', () => { loadOpen(true); loadProfitSummary(); refreshHistory(); });
@@ -893,6 +895,7 @@ export function SatoshiTower() {
       header: 'Действия', field: 'id', sortBy: 'basic', align: 'end',
       renderCell: row => (
         <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+          <Button leadingVisual={PlusIcon} disabled={!row.account_id || closing.has(row.id) || row.notional - row.margin < 1} onClick={() => setMarginModal(row)}>Маржа</Button>
           <Button leadingVisual={GearIcon} onClick={() => setTpSlModal(row)}>TP/SL</Button>
           <Button variant="danger" leadingVisual={XCircleIcon} loading={closing.has(row.id)} disabled={closing.has(row.id) || !row.account_id} onClick={() => closePosition(row)}>Закрыть</Button>
         </Box>
@@ -1080,6 +1083,7 @@ export function SatoshiTower() {
       <Heading as="h3" id="satoshi-closed-table" sx={{ fontSize: 2, mb: 2 }}>Закрытые позиции</Heading>
       <ClosedPositionsTable page={historyPage} onPageChange={setHistoryPage} refreshSignal={historyRefreshSignal} />
 
+      {marginModal && <SatoshiMarginDialog position={marginModal} onClose={() => setMarginModal(null)} onChanged={() => { loadOpen(true); loadAccountBalance(marginModal.account); }} />}
       {tpSlModal && <TpSlModal position={tpSlModal} onClose={() => setTpSlModal(null)} onSaved={() => { setTpSlModal(null); loadOpen(true); }} />}
       {newPosModal && <NewPositionModal config={config} accounts={accounts} price={exPrice.price} openCountByAccount={openCountByAccount} maxOpen={maxOpen} maxLevByAccount={maxLevByAccount} onRefreshBalances={refreshBalances} balanceRefreshing={balanceRefreshing} onClose={() => setNewPosModal(false)} onOpened={() => { setNewPosModal(false); loadOpen(true); }} />}
     </Box>

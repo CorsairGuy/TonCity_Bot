@@ -303,6 +303,52 @@ module.exports=function(app,ctx){
     }
   });
 
+  // Увеличение маржи — отдельная явная операция, один POST без слепого повтора.
+  for(const preview of [true,false])app.post(`/api/satoshi/:accountId/${preview?'margin-preview':'margin'}`,async(req,res)=>{
+    const accountId=Number(req.params.accountId),positionId=Number(req.body?.position_id),amount=Number(req.body?.amount??0);
+    if(!Number.isSafeInteger(accountId)||accountId<=0||!Number.isSafeInteger(positionId)||positionId<=0||!Number.isSafeInteger(amount)||amount<0||(!preview&&amount===0))return res.status(400).json({ok:false,error:'Укажите корректную позицию и целое положительное число кристаллов'});
+    const key=`satoshiMargin:${accountId}:${positionId}`;
+    if(opRegistry.statusOf([key])[key])return res.status(409).json({ok:false,error:'Операция с маржой этой позиции уже выполняется'});
+    try{
+      const result=await opRegistry.run(key,async()=>{
+        const{Account,SatoshiPosition}=require('../../db/index');
+        const acc=await Account.findByPk(accountId,{attributes:['id','name','special_buildings']});
+        if(!acc)throw new Error('Аккаунт не найден');
+        if(!String(acc.special_buildings||'').split(',').includes('satoshi'))throw new Error('У аккаунта нет Башни Сатоши');
+        const api=await makeApiForAccount(acc.id,{noLock:true});
+        await require('../../modules/session').ensureSession(api,acc);
+        const{readMargin,preservedMarginTriggers}=require('../../utils/satoshiMargin');
+        const data=await readMargin(api,positionId,amount);
+        if(preview)return data;
+        const row=await SatoshiPosition.findByPk(positionId);
+        if(row&&row.account!==acc.name)throw new Error('Позиция принадлежит другому аккаунту');
+        let response,postError;
+        try{response=await api.post('/satoshi-tower/positions/margin',{position_id:positionId,amount});}
+        catch(e){postError=e;}
+        // Даже после обрыва запроса сначала читаем результат: повторный POST мог бы
+        // повторно потратить кристаллы. Поля TP/SL сохраняют исходные денежные цели.
+        let after,refreshWarning;
+        try{
+          after=await readMargin(api,positionId);
+          if(row)await row.update({...preservedMarginTriggers(row,after.position.margin),margin:after.position.margin,notional:after.position.notional,leverage:after.position.leverage??after.position.notional/after.position.margin,liquidation_price:after.position.liquidation_price});
+          const satoshi=require('../../modules/satoshi');
+          await satoshi.applyBalance(acc.id,after.balance);
+        }catch(e){refreshWarning=e.message;}
+        await require('../../modules/satoshi').runSatoshi(api,acc.name);
+        if(postError){
+          const error=new Error(`${postError.message}. Повтор не выполнен; ${refreshWarning?'не удалось обновить состояние: '+refreshWarning:'состояние позиции перечитано'}`);
+          error.refreshed=!!after;throw error;
+        }
+        if(!after&&response?.position){
+          if(row)await row.update({...preservedMarginTriggers(row,response.position.margin),margin:response.position.margin,notional:response.position.notional,leverage:response.position.leverage??response.position.notional/response.position.margin,liquidation_price:response.position.liquidation_price});
+          await require('../../modules/satoshi').applyBalance(acc.id,response.new_balance);
+        }
+        return{result:response,position:after?.position??response?.position,refreshWarning};
+      });
+      res.json({ok:true,...result});
+    }catch(e){res.status(400).json({ok:false,error:e.message});}
+  });
+
   // Редактирование TP/SL уже открытой позиции — по-прежнему только в нашей БД: у игры эндпоинта на
   // правку нет, её TP/SL зафиксирован в момент открытия.
   //

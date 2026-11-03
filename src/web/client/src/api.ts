@@ -620,6 +620,10 @@ export const api = {
     req<{ ok: boolean; result?: unknown; error?: string }>(`/api/satoshi/${accountId}/open`, post({ side, leverage, margin, ...tpSl })),
   satoshiClose: (accountId: number, positionId: number) =>
     req<{ ok: boolean; result?: unknown; error?: string }>(`/api/satoshi/${accountId}/close`, post({ position_id: positionId })),
+  satoshiMarginPreview: (accountId: number, positionId: number) =>
+    req<{ ok: boolean; position?: SatoshiOpenPosition; balance?: number; maxAmount?: number; error?: string }>(`/api/satoshi/${accountId}/margin-preview`, post({ position_id: positionId })),
+  satoshiAddMargin: (accountId: number, positionId: number, amount: number) =>
+    req<{ ok: boolean; position?: SatoshiOpenPosition; refreshWarning?: string; error?: string }>(`/api/satoshi/${accountId}/margin`, post({ position_id: positionId, amount })),
   satoshiUpdateTpSl: (positionId: number, tpSl: SatoshiTpSl) =>
     req<{ ok: boolean; error?: string }>(`/api/satoshi/positions/${positionId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tpSl) }),
 
