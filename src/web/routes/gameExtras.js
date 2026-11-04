@@ -42,7 +42,7 @@ module.exports=function(app,ctx){
     return Number(s.guild_id);
   }
   async function readCache(accountId,kind,ref){
-    const[rows]=await db().seq.query('SELECT data,updated_at FROM game_extra_cache WHERE account_id=? AND kind=? AND ref=? LIMIT 1',{replacements:[accountId,kind,ref]});
+    const rows=await db().seq.query('SELECT data,updated_at FROM game_extra_cache WHERE account_id=? AND kind=? AND ref=? LIMIT 1',{replacements:[accountId,kind,ref],type:require('sequelize').QueryTypes.SELECT}); // без type драйвер mariadb падает на delete meta
     if(!rows.length)return null;
     let data=null;try{data=JSON.parse(rows[0].data);}catch{}
     return{data,updated_at:rows[0].updated_at};
@@ -69,7 +69,7 @@ module.exports=function(app,ctx){
   app.get('/api/extras/:kind/all',async(req,res)=>{
     try{
       if(!READ[req.params.kind])return res.status(404).json({ok:false,error:'Неизвестный раздел'});
-      const[rows]=await db().seq.query('SELECT account_id,data,updated_at FROM game_extra_cache WHERE kind=? AND ref=?',{replacements:[req.params.kind,String(req.query.ref??'')]});
+      const rows=await db().seq.query('SELECT account_id,data,updated_at FROM game_extra_cache WHERE kind=? AND ref=?',{replacements:[req.params.kind,String(req.query.ref??'')],type:require('sequelize').QueryTypes.SELECT}); // без type драйвер mariadb падает на delete meta
       res.json({ok:true,rows:rows.map(r=>{let d=null;try{d=JSON.parse(r.data);}catch{}return{account_id:r.account_id,data:d,updated_at:r.updated_at};})});
     }catch(e){fail(res,e);}
   });

@@ -28,7 +28,7 @@ module.exports=function(app,ctx){
     saveSettings({...cur,ui:{...ui,notify:{...state(),...patch}}});
   }
   async function cacheRows(kind){
-    const[rows]=await db().seq.query('SELECT account_id,data,updated_at FROM game_extra_cache WHERE kind=? AND ref=?',{replacements:[kind,'']});
+    const rows=await db().seq.query('SELECT account_id,data,updated_at FROM game_extra_cache WHERE kind=? AND ref=?',{replacements:[kind,''],type:require('sequelize').QueryTypes.SELECT}); // без type драйвер mariadb падает на delete meta
     return new Map(rows.map(r=>[Number(r.account_id),{data:parse(r.data),updated_at:r.updated_at}]));
   }
   async function writeCache(accountId,kind,data){
