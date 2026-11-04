@@ -42,8 +42,9 @@ const Guilds = lazy(() => import('./pages/Guilds').then(m => ({ default: m.Guild
 const Championships = lazy(() => import('./pages/Championships').then(m => ({ default: m.Championships })));
 const Quests = lazy(() => import('./pages/Quests').then(m => ({ default: m.Quests })));
 const QuestTiers = lazy(() => import('./pages/QuestTiers').then(m => ({ default: m.QuestTiers })));
-const Auditorium = lazy(() => import('./pages/SpecialBuildings').then(m => ({ default: m.Auditorium })));
-const Factory = lazy(() => import('./pages/SpecialBuildings').then(m => ({ default: m.Factory })));
+const Auditorium = lazy(() => import('./pages/Auditorium').then(m => ({ default: m.Auditorium })));
+const Notifications = lazy(() => import('./pages/Notifications').then(m => ({ default: m.Notifications })));
+const Factory = lazy(() => import('./pages/Factory').then(m => ({ default: m.Factory })));
 const Capitals = lazy(() => import('./pages/Capitals').then(m => ({ default: m.Capitals })));
 const CityWorld = lazy(() => import('./pages/CityWorld').then(m => ({ default: m.CityWorld })));
 const CityMap = lazy(() => import('./pages/CityMap').then(m => ({ default: m.CityMap })));
@@ -69,6 +70,7 @@ const AnniversaryMidway = lazy(() => import('./pages/AnniversaryMidway').then(m 
 const ShopTickets = lazy(() => import('./pages/ShopTickets').then(m => ({ default: m.ShopTickets })));
 const GreatestMayors = lazy(() => import('./pages/GreatestMayors').then(m => ({ default: m.GreatestMayors })));
 const PlayerCity = lazy(() => import('./pages/PlayerCity').then(m => ({ default: m.PlayerCity })));
+const MyRanks = lazy(() => import('./pages/MyRanks').then(m => ({ default: m.MyRanks })));
 const Leagues = lazy(() => import('./pages/Leagues').then(m => ({ default: m.Leagues })));
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })));
@@ -76,7 +78,7 @@ const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })))
 import {
   PersonIcon, PackageIcon, DatabaseIcon, GraphIcon, StarIcon, SyncIcon,
   LightBulbIcon, CommentIcon, RocketIcon, TrophyIcon, TagIcon, ToolsIcon,
-  GlobeIcon, OrganizationIcon, HomeIcon, LocationIcon, PeopleIcon, CpuIcon,
+  GlobeIcon, OrganizationIcon, HomeIcon, LocationIcon, PeopleIcon, CpuIcon, BellIcon,
   PlayIcon,
   HeartIcon, CalendarIcon, MegaphoneIcon, ZapIcon, GiftIcon, FileIcon,
   GearIcon, ChecklistIcon, LawIcon, BookmarkIcon,
@@ -129,7 +131,7 @@ const PAGE_GROUP: Record<string, string> = {
   'anniversary-offer': 'anniversary', 'anniversary-carnival': 'anniversary',
   'anniversary-road': 'anniversary', 'anniversary-vault': 'anniversary', 'shop-tickets': 'anniversary',
   'anniversary-midway': 'anniversary',
-  'greatest-mayors': 'rating', leagues: 'rating',
+  'greatest-mayors': 'rating', leagues: 'rating', 'my-ranks': 'rating',
 };
 
 // ── sidebar nav component ─────────────────────────────────────────────────────
@@ -302,11 +304,13 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
           <>
             {item('greatest-mayors', 'Величайшие мэры', TrophyIcon)}
             {item('leagues',         'Лиги',            StackIcon)}
+            {item('my-ranks',        'Мои аккаунты',    PersonIcon)}
           </>
         )}
 
         {item('auditorium',  'Аудиториум',         PeopleIcon)}
         {item('techfactory', 'Фабрика',            CpuIcon)}
+        {item('notifications', 'Уведомления',      BellIcon)}
 
         {group('townhall', 'Мэрия', HomeIcon,
           <>
@@ -427,6 +431,7 @@ export default function App() {
           <Route path="/questTiers"      element={<QuestTiers />} />
           <Route path="/capitals"        element={<Capitals />} />
           <Route path="/greatest-mayors" element={<GreatestMayors />} />
+          <Route path="/my-ranks"        element={<MyRanks />} />
           <Route path="/leagues"         element={<Leagues />} />
           <Route path="/player-city"     element={<PlayerCity />} />
           <Route path="/city"            element={<CityWorld />} />
@@ -456,6 +461,7 @@ export default function App() {
           <Route path="/logs"            element={<Logs />} />
           <Route path="/auditorium"      element={<Auditorium />} />
           <Route path="/techfactory"     element={<Factory />} />
+          <Route path="/notifications"   element={<Notifications />} />
           <Route path="*"                element={<Navigate to="/accounts" replace />} />
         </Routes>
         </Suspense>

@@ -63,15 +63,48 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  // сводка для сайдбара: все аккаунты с фабрикой — текущая переработка (имя станка из каталога),
+  // длина очереди, Почёт. Только БД, без запросов в игру.
+  app.get('/api/tech-factory/summary',async(req,res)=>{
+    try{
+      const{Account,TechFactoryStatus,TechFactoryQueue}=require('../../db/index');
+      const[accs,rows,queue]=await Promise.all([
+        Account.findAll({order:[['id','ASC']]}),
+        TechFactoryStatus.findAll({where:{has_factory:true}}),
+        TechFactoryQueue.findAll({order:[['pos','ASC']]}),
+      ]);
+      const byName=new Map(rows.map(r=>[r.account,r]));
+      const qBy=new Map();for(const q of queue){if(!qBy.has(q.account))qBy.set(q.account,[]);qBy.get(q.account).push({id:q.id,machine_id:q.machine_id,level:q.level});}
+      const out=[];
+      for(const a of accs){
+        const r=byName.get(a.name);if(!a.access_token||!r)continue;
+        let job=null,names={};
+        try{
+          const cats=JSON.parse(r.categories||'[]');
+          for(const c of cats)for(const m of c.machines||[])names[m.id]=m.name&&typeof m.name==='object'?(m.name.ru||m.name.en):m.name;
+          const j=r.job?JSON.parse(r.job):null;
+          if(j)job={...j,machine_name:names[j.machine_id]||j.machine_id};
+        }catch{}
+        out.push({id:a.id,name:a.name,renown_balance:r.renown_balance,in_guild:!!r.is_member,job,
+          queue:(qBy.get(a.name)||[]).map(q=>({...q,machine_name:names[q.machine_id]||q.machine_id})),updated_at:r.updated_at});
+      }
+      res.json({ok:true,accounts:out});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   // снимок из БД — без обращения к игре
   app.get('/api/tech-factory/:accountId/overview',async(req,res)=>{
     try{
       const acc=await findAccount(req.params.accountId);
-      const{TechFactoryStatus,TechFactoryQueue}=require('../../db/index');
-      const[row,queue]=await Promise.all([
+      const{TechFactoryStatus,TechFactoryQueue,Inventory}=require('../../db/index');
+      const[row,queue,inv]=await Promise.all([
         TechFactoryStatus.findOne({where:{account:acc.name}}),
         TechFactoryQueue.findAll({where:{account:acc.name},order:[['pos','ASC']]}),
+        Inventory.findAll({where:{account:acc.name},attributes:['name','marketable','locked']}),
       ]);
+      // склад из снимка инвентаря (name = id предмета): «есть/нужно» у сырья на карточке станка
+      const inventory={};
+      for(const r of inv)if(/^\d+$/.test(r.name))inventory[r.name]=(r.marketable||0)+(r.locked||0);
       if(!row){
         return res.json({ok:true,renown_balance:null,categories:[],job:null,in_guild:false,has_factory:false,
           membership_eligible:false,eligible_members:null,economy_unlocked:false,
@@ -81,6 +114,7 @@ module.exports=function(app,ctx){
       res.json({
         ok:true,
         renown_balance:row.renown_balance,
+        inventory,
         categories:normalizeTechFactoryCategories(row.categories?JSON.parse(row.categories):[]),
         job:row.job?JSON.parse(row.job):null,
         in_guild:!!row.is_member,
@@ -199,6 +233,27 @@ module.exports=function(app,ctx){
         return f===true||(f==null&&legacyNames.has(a.name));
       });
       res.json({ok:true,accounts:result.map(a=>({id:a.id,name:a.name}))});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
+  // сводка для сайдбара аудиториума: баланс, Почёт за всё время, достигнутый зал, сколько товаров
+  // можно купить сейчас (purchasable из снимка). Только БД.
+  app.get('/api/timeless-auditorium/summary',async(req,res)=>{
+    try{
+      const{Account,AuditoriumStatus}=require('../../db/index');
+      const[accs,rows]=await Promise.all([Account.findAll({order:[['id','ASC']]}),AuditoriumStatus.findAll()]);
+      const byName=new Map(rows.map(r=>[r.account,r]));
+      const out=[];
+      for(const a of accs){
+        const r=byName.get(a.name);if(!a.access_token||!r||r.has_auditorium===false)continue;
+        let cat=null;try{cat=r.catalog?JSON.parse(r.catalog):null;}catch{}
+        const skus=(cat?.sections||[]).flatMap(s=>s.skus||[]);
+        const reached=(cat?.tiers||[]).filter(t=>t.reached);
+        out.push({id:a.id,name:a.name,unlocked:!!r.unlocked,balance:cat?.balance??null,lifetime:cat?.lifetime_earned??null,
+          tier:reached.length?reached[reached.length-1].tier:null,tier_index:reached.length,
+          affordable:skus.filter(k=>k.purchasable&&(cat.balance??0)>=k.renown).length,total:skus.length,updated_at:r.updated_at});
+      }
+      res.json({ok:true,accounts:out});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 

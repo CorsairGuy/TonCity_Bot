@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Button, Flash, Heading, Label, Spinner, Text, TextInput, Avatar,
-  ActionList, ActionMenu, TabNav, CounterLabel,
+  ActionList, ActionMenu, TabNav, CounterLabel, Checkbox, FormControl,
 } from '@primer/react';
 import {
   SyncIcon, PeopleIcon, ShieldIcon, XIcon, SearchIcon,
@@ -10,7 +10,7 @@ import {
 import {
   api,
   type MidLiveData, type MidAlliance, type MidEnemy,
-  type MidCampaign, type MidCampaignConfig, type MidSearchGuild, type MidAllianceRequest,
+  type MidCampaign, type MidCampaignConfig, type MidAllyCall, type MidNotifyTarget, type MidSearchGuild, type MidAllianceRequest,
 } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { fmt } from '../utils';
@@ -687,6 +687,108 @@ function EnemySection({ guildId, enemies, onRefresh, onFlash }: EnemySectionProp
   );
 }
 
+// Почему нельзя вызваться добровольцем (volunteer_blocked_by из бандла 2.5)
+const VOLUNTEER_BLOCK: Record<string, string> = {
+  deployed: 'вы уже в другой кампании',
+  membership: 'слишком недавно в гильдии',
+  caps_full: 'у союзника нет мест',
+  ally_caps_full: 'места для союзников заняты',
+  cooldown: 'перерыв после прошлой кампании',
+};
+
+// Оповещение своих участников о кампании: игра отдаёт список с отметками «уже оповещён»/«уже в бою»
+function NotifyDialog({ guildId, campaign, onClose, onFlash }: { guildId: string; campaign: MidCampaign; onClose: () => void; onFlash: (m: string, ok: boolean) => void }) {
+  const [list, setList] = useState<MidNotifyTarget[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const [sending, setSending] = useState(false);
+  useEffect(() => {
+    api.midCampaignsNotifyTargets(guildId, campaign.id).then(r => {
+      if (!r.ok) { setErr(r.error ?? 'Ошибка'); return; }
+      const m = r.data?.members ?? [];
+      setList(m);
+      setSel(new Set(m.filter(x => !x.notified && !x.deployed).map(x => x.user_id)));
+    });
+  }, [guildId, campaign.id]);
+  const send = async () => {
+    setSending(true);
+    const r = await api.midCampaignsNotify(guildId, campaign.id, [...sel]);
+    setSending(false);
+    if (!r.ok) { setErr(r.error ?? 'Ошибка'); return; }
+    onFlash(`Оповещено: ${r.data?.sent ?? sel.size}`, true);
+    onClose();
+  };
+  return (
+    <Dialog title="Оповестить участников" onClose={onClose} width="medium" position={{ narrow: 'bottom', regular: 'center' }}
+      footerButtons={[
+        { buttonType: 'default', content: 'Отмена', onClick: onClose },
+        { buttonType: 'primary', content: sending ? 'Отправка…' : `Оповестить (${sel.size})`, onClick: send, disabled: sending || !sel.size },
+      ]}>
+      {err && <Flash variant="danger" sx={{ mb: 2 }}>{err}</Flash>}
+      {!list ? (!err && <Spinner size="small" />) : !list.length ? <Text sx={{ color: 'fg.muted' }}>Некого оповещать</Text> : (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+            <Button size="small" onClick={() => setSel(new Set(list.filter(x => !x.deployed).map(x => x.user_id)))}>Выбрать всех</Button>
+            <Button size="small" onClick={() => setSel(new Set())}>Снять</Button>
+          </Box>
+          {list.map(m => (
+            <FormControl key={m.user_id} disabled={!!m.deployed}>
+              <Checkbox checked={sel.has(m.user_id)} onChange={e => setSel(s => { const n = new Set(s); if (e.target.checked) n.add(m.user_id); else n.delete(m.user_id); return n; })} />
+              <FormControl.Label>
+                {m.name ?? `#${m.user_id}`}
+                {m.deployed ? <Label variant="success" sx={{ ml: 2, fontSize: 0 }}>в бою</Label> : m.notified ? <Label sx={{ ml: 2, fontSize: 0 }}>уже оповещён</Label> : null}
+              </FormControl.Label>
+            </FormControl>
+          ))}
+        </Box>
+      )}
+    </Dialog>
+  );
+}
+
+// Просьба союзника о помощи: участник вызывается в подкрепление, офицеры нашей гильдии решают по заявкам своих же участников
+function AllyCallCard({ guildId, call, isAdmin, onRefresh, onFlash }: { guildId: string; call: MidAllyCall; isAdmin: boolean; onRefresh: () => void; onFlash: (m: string, ok: boolean) => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const c = call.campaign;
+  const run = async (key: string, p: Promise<{ ok: boolean; error?: string }>, ok: string) => {
+    setBusy(key);
+    const r = await p;
+    setBusy(null);
+    if (r.ok) { onFlash(ok, true); onRefresh(); } else onFlash(r.error ?? 'Ошибка', false);
+  };
+  const pending = (call.volunteers ?? []).filter(v => v.status === 'pending');
+  const blocked = call.volunteer_blocked_by ? VOLUNTEER_BLOCK[call.volunteer_blocked_by] ?? call.volunteer_blocked_by : null;
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'border.muted', borderRadius: 2, p: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Text sx={{ fontSize: 1, fontWeight: 'semibold', display: 'block' }}>{c.defender?.guild_title ?? 'Союзник'} против {c.attacker?.guild_title ?? '—'}</Text>
+          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>
+            {c.ends_at ? `осталось ${timeLeft(c.ends_at)}` : ''}
+            {call.my_status === 'approved' ? ' · вас приняли' : call.my_status === 'pending' ? ' · заявка ждёт решения' : call.my_status === 'rejected' ? ' · заявку отклонили' : ''}
+            {blocked && !call.my_status ? ` · нельзя: ${blocked}` : ''}
+          </Text>
+        </Box>
+        {call.my_status === 'pending' || call.my_status === 'approved'
+          ? <Button leadingVisual={XIcon} loading={busy === 'w'} onClick={() => run('w', api.midCampaignsVolunteer(guildId, c.id, true), 'Заявка отозвана')}>Отозвать</Button>
+          : <Button variant="primary" leadingVisual={RocketIcon} loading={busy === 'v'} disabled={call.can_volunteer === false} onClick={() => run('v', api.midCampaignsVolunteer(guildId, c.id), 'Заявка отправлена')}>Вызваться помочь</Button>}
+      </Box>
+      {(call.is_admin ?? isAdmin) && pending.length > 0 && (
+        <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'border.muted', display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Text sx={{ fontSize: 0, color: 'fg.muted', fontWeight: 'bold' }}>Заявки добровольцев</Text>
+          {pending.map(v => (
+            <Box key={v.user_id} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Text sx={{ fontSize: 1, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name ?? `#${v.user_id}`}</Text>
+              <Button size="small" variant="primary" leadingVisual={CheckIcon} loading={busy === `a${v.user_id}`} onClick={() => run(`a${v.user_id}`, api.midCampaignsDecide(guildId, c.id, v.user_id, true), 'Доброволец принят')}>Принять</Button>
+              <Button size="small" variant="danger" leadingVisual={XIcon} loading={busy === `r${v.user_id}`} onClick={() => run(`r${v.user_id}`, api.midCampaignsDecide(guildId, c.id, v.user_id, false), 'Заявка отклонена')}>Отклонить</Button>
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 interface CampaignsSectionProps {
   guildId: string;
   campaigns: MidLiveData['campaigns'];
@@ -701,6 +803,7 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
   const [starting, setStarting] = useState(false);
   const [deploying, setDeploying] = useState<number | null>(null);
   const [calling, setCalling] = useState<number | null>(null);
+  const [notifyFor, setNotifyFor] = useState<MidCampaign | null>(null);
 
   const handlePickerSelect = (guild: MidSearchGuild) => {
     setSelectedGuild(guild);
@@ -799,11 +902,28 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
                       Призвать союзников
                     </Button>
                   )}
+                  {campaigns?.is_admin && (
+                    <Button leadingVisual={PeopleIcon} onClick={() => setNotifyFor(c)}>Оповестить участников</Button>
+                  )}
                 </Box>
               </Box>
             );
           })}
       </Box>
+
+      {(campaigns?.ally_calls?.length ?? 0) > 0 && (
+        <>
+          <Box sx={{ px: 3, py: 1, borderTop: '1px solid', borderColor: 'border.muted' }}>
+            <Text sx={{ fontSize: 0, color: 'fg.muted', fontWeight: 'bold' }}>Союзники просят помощи</Text>
+          </Box>
+          <Box sx={{ p: 3, pt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {campaigns!.ally_calls!.map(call => (
+              <AllyCallCard key={call.campaign.id} guildId={guildId} call={call} isAdmin={!!campaigns!.is_admin} onRefresh={onRefresh} onFlash={onFlash} />
+            ))}
+          </Box>
+        </>
+      )}
+      {notifyFor && <NotifyDialog guildId={guildId} campaign={notifyFor} onClose={() => setNotifyFor(null)} onFlash={onFlash} />}
 
       {recent.length > 0 && (
         <>

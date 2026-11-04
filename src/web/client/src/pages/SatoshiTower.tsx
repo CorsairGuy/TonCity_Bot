@@ -1,4 +1,5 @@
 import { SatoshiMarginDialog } from '../components/SatoshiMarginDialog';
+import { GameLogModal } from '../components/GameLogModal';
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import {
   Box, Button, Flash, Heading, Spinner, Text, Select, ButtonGroup, TextInput, Checkbox, Label,
@@ -659,6 +660,7 @@ export function SatoshiTower() {
 
   const [config, setConfig] = useState<SatoshiConfig | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [gameLog, setGameLog] = useState(false);
   const [maxLevByAccount, setMaxLevByAccount] = useState<Record<number, number>>({}); // per-account макс. плечо (политика)
 
   const [openRows, setOpenRows] = useState<SatoshiOpenPosition[]>([]);
@@ -1080,7 +1082,11 @@ export function SatoshiTower() {
         )}
       </Table.Container>
 
-      <Heading as="h3" id="satoshi-closed-table" sx={{ fontSize: 2, mb: 2 }}>Закрытые позиции</Heading>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+        <Heading as="h3" id="satoshi-closed-table" sx={{ fontSize: 2 }}>Закрытые позиции</Heading>
+        <Button size="small" onClick={() => setGameLog(true)}>История в игре</Button>
+      </Box>
+      {gameLog && <GameLogModal kind="satoshi-history" title="История позиций в игре" onClose={() => setGameLog(false)} />}
       <ClosedPositionsTable page={historyPage} onPageChange={setHistoryPage} refreshSignal={historyRefreshSignal} />
 
       {marginModal && <SatoshiMarginDialog position={marginModal} onClose={() => setMarginModal(null)} onChanged={() => { loadOpen(true); loadAccountBalance(marginModal.account); }} />}
