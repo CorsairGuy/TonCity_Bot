@@ -319,7 +319,7 @@ html[data-theme="dark"] .version-changes { background: rgb(110 118 129 / 20%); }
 .map-bitem .map-bitem-cat { font-size: 10px; opacity: .45; flex-shrink: 0; width: 20px; text-align: center; }
 
 /* category tabs — 1:1 Primer SegmentedControl, full width */
-#map-cat-tabs {
+#map-cat-tabs, .map-cat-tabs {
   background: #eaeef2;
   border-radius: var(--radius-sm);
   height: 32px;
@@ -534,7 +534,7 @@ html[data-theme="dark"] .ic-shard_eternal,html[data-theme="dark"] .ic-mystery_et
 }
 
 /* карта и редактор */
-html[data-theme="dark"] #map-cat-tabs { background: #161b22; border-color: #30363d; }
+html[data-theme="dark"] #map-cat-tabs, html[data-theme="dark"] .map-cat-tabs { background: #161b22; border-color: #30363d; }
 html[data-theme="dark"] .map-cat-tab.active::before { background: #21262d; border-color: #30363d; }
 html[data-theme="dark"] .map-cat-tab { --sep-color: #30363d; }
 

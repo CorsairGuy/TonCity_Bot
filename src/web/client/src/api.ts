@@ -165,6 +165,13 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/queue/${queueId}`, { method: 'DELETE' }),
   techFactoryQueueReorder: (accountId: number, ids: number[]) =>
     req<{ ok: boolean; error?: string }>(`/api/tech-factory/${accountId}/queue/reorder`, post({ ids })),
+  techFactorySummary: () => req<{ ok: boolean; error?: string; accounts: TechFactorySummaryRow[] }>('/api/tech-factory/summary'),
+  notifications: () => req<{ ok: boolean; error?: string; guilds: NotifyGuild[]; items: NotifyItem[] }>('/api/notifications'),
+  notificationsRead: (source: string) => req<{ ok: boolean; error?: string; errors?: string[] }>('/api/notifications/read', post({ source })),
+  notificationDismiss: (id: string) => req<{ ok: boolean; error?: string }>('/api/notifications/dismiss', post({ id })),
+  notificationSnooze: (id: string) => req<{ ok: boolean; error?: string }>('/api/notifications/snooze', post({ id })),
+  notificationsRefresh: (guildId?: number) => req<{ ok: boolean; error?: string; errors?: string[] }>('/api/notifications/refresh', post({ guild_id: guildId })),
+  auditoriumSummary: () => req<{ ok: boolean; error?: string; accounts: AuditoriumSummaryRow[] }>('/api/timeless-auditorium/summary'),
   auditoriumAccounts: () => req<{ ok: boolean; accounts: BuildingAccount[] }>('/api/timeless-auditorium/accounts'),
   auditoriumStatus: (accountId: number) =>
     req<{ ok: boolean; error?: string } & Partial<AuditoriumStatus>>(`/api/timeless-auditorium/${accountId}/status`),
@@ -929,6 +936,28 @@ export interface TechFactoryJob {
   finishes_at: string;
   ready: boolean;
   output: TechFactoryItemStack;
+}
+export interface TechFactorySummaryRow {
+  id: number; name: string; renown_balance: number | null; in_guild: boolean; updated_at: string | null;
+  job: (TechFactoryJob & { machine_name: string }) | null;
+  queue: (TechFactoryQueueItem & { machine_name: string })[];
+}
+// страница «Уведомления» (routes/notifications.js): рассылки гильдий из игры + события бота
+export type NotifySrc = 'guild' | 'accounts' | 'update' | 'maintenance' | 'market';
+export interface NotifyGuild {
+  guild_id: number; title: string; accounts: { id: number; name: string; role: string | null }[];
+  updated_at: string | null; unread: number; sender_id: number | null; can_send: boolean;
+}
+export interface NotifyItem {
+  id: string; src: NotifySrc; title: string; text: string; at: string | null; unread: boolean;
+  kind: 'guild' | 'alert' | 'success' | 'attention' | 'info';
+  act: { label: string; href: string } | null;
+  guild_id?: number; guild?: string; notification_id?: number; author?: string | null;
+  account?: string; account_id?: number; item_id?: number;
+}
+export interface AuditoriumSummaryRow {
+  id: number; name: string; unlocked: boolean; balance: number | null; lifetime: number | null;
+  tier: string | null; tier_index: number; affordable: number; total: number; updated_at: string | null;
 }
 export interface TechFactoryQueueItem {
   id: number;

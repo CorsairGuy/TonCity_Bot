@@ -42,8 +42,9 @@ const Guilds = lazy(() => import('./pages/Guilds').then(m => ({ default: m.Guild
 const Championships = lazy(() => import('./pages/Championships').then(m => ({ default: m.Championships })));
 const Quests = lazy(() => import('./pages/Quests').then(m => ({ default: m.Quests })));
 const QuestTiers = lazy(() => import('./pages/QuestTiers').then(m => ({ default: m.QuestTiers })));
-const Auditorium = lazy(() => import('./pages/SpecialBuildings').then(m => ({ default: m.Auditorium })));
-const Factory = lazy(() => import('./pages/SpecialBuildings').then(m => ({ default: m.Factory })));
+const Auditorium = lazy(() => import('./pages/Auditorium').then(m => ({ default: m.Auditorium })));
+const Notifications = lazy(() => import('./pages/Notifications').then(m => ({ default: m.Notifications })));
+const Factory = lazy(() => import('./pages/Factory').then(m => ({ default: m.Factory })));
 const Capitals = lazy(() => import('./pages/Capitals').then(m => ({ default: m.Capitals })));
 const CityWorld = lazy(() => import('./pages/CityWorld').then(m => ({ default: m.CityWorld })));
 const CityMap = lazy(() => import('./pages/CityMap').then(m => ({ default: m.CityMap })));
@@ -77,7 +78,7 @@ const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })))
 import {
   PersonIcon, PackageIcon, DatabaseIcon, GraphIcon, StarIcon, SyncIcon,
   LightBulbIcon, CommentIcon, RocketIcon, TrophyIcon, TagIcon, ToolsIcon,
-  GlobeIcon, OrganizationIcon, HomeIcon, LocationIcon, PeopleIcon, CpuIcon,
+  GlobeIcon, OrganizationIcon, HomeIcon, LocationIcon, PeopleIcon, CpuIcon, BellIcon,
   PlayIcon,
   HeartIcon, CalendarIcon, MegaphoneIcon, ZapIcon, GiftIcon, FileIcon,
   GearIcon, ChecklistIcon, LawIcon, BookmarkIcon,
@@ -309,6 +310,7 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         {item('auditorium',  'Аудиториум',         PeopleIcon)}
         {item('techfactory', 'Фабрика',            CpuIcon)}
+        {item('notifications', 'Уведомления',      BellIcon)}
 
         {group('townhall', 'Мэрия', HomeIcon,
           <>
@@ -459,6 +461,7 @@ export default function App() {
           <Route path="/logs"            element={<Logs />} />
           <Route path="/auditorium"      element={<Auditorium />} />
           <Route path="/techfactory"     element={<Factory />} />
+          <Route path="/notifications"   element={<Notifications />} />
           <Route path="*"                element={<Navigate to="/accounts" replace />} />
         </Routes>
         </Suspense>
