@@ -1,4 +1,4 @@
-import { skyColor } from './mapSky';
+import { loadSky, paintSky, skyAvg, type SkyIsland } from './mapSky';
 import { D1_ISLAND_SPRITES, MAIN_ISLAND_SPRITES, d1IslandRects, mainIslandRects, islandClipRect } from '../cityIsland';
 import { upgradeDuration } from '../cityStats';
 import type { CityDistrict } from '../cityDistricts';
@@ -448,8 +448,9 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     // dirty — такие куски, они перерисовываются, только пока карту не тянут; lampGlows — пятна света
     // фонарей на земле; nightHold — карта ждёт ночной набор и пока не рисует новые куски
     nightOn: false,
-    // цвет неба за картой (mapSky.ts) — по часу режима суток и острову
-    sky: skyColor(hourFor('day')),
+    // небо за картой (mapSky.ts): средний цвет — фон до загрузки облаков и пелена; острова — их тени
+    sky: skyAvg(null),
+    skyIslands: [] as SkyIsland[],
     dayNight: 'day' as DayNightMode,
     ph: null as Phase | null,
     lit: new Map<string, number>(),
@@ -850,6 +851,15 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     let parts: Part[];
     const changed: { c: number; old: Part['box']; box: Part['box'] }[] = [];
     const regions = s.regions;
+    // острова, чьи тени лежат на облаках: мировой прямоугольник всей картинки острова
+    s.skyIslands = s.type !== 'city' ? [] : (s.cityAt && regions.length ? regions.map(rg => [rg.gx, rg.gy]) : [[0, 0]]).map(([gx, gy]) => {
+      const o = isoToScreen(gx - s.x0, gy - s.y0), kind = s.district === 'd1' ? 'd1' as const : 'main' as const;
+      const b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity, kind };
+      for (const r of (kind === 'd1' ? d1IslandRects : mainIslandRects)(o.x, o.y, TW, TH)) {
+        if (r.x0 < b.x0) b.x0 = r.x0; if (r.y0 < b.y0) b.y0 = r.y0; if (r.x1 > b.x1) b.x1 = r.x1; if (r.y1 > b.y1) b.y1 = r.y1;
+      }
+      return b;
+    });
     if (s.cityAt && regions.length) {
       // подпись города: постройки, подписи бейджей и затенение — что меняет его элементы
       const dim = DIM_INAPPLICABLE_MODES.has(s.mode);
@@ -1102,9 +1112,9 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     if (updateLit(hour, true)) requestRedraw();
   }
 
-  // небо за картой: час режима суток («всегда день/ночь» — их фиксированный час) и палитра острова
+  // средний цвет неба под текущую ступень суток
   function updateSky(): boolean {
-    const s = state.current, c = skyColor(hourFor(s.dayNight), s.district);
+    const s = state.current, c = skyAvg(s.ph);
     if (c === s.sky) return false;
     s.sky = c; return true;
   }
@@ -1170,9 +1180,6 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       layerFor(r).appendChild(el);
     }
     const ctx = el.getContext('2d', { alpha: false })!;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = s.sky;
-    ctx.fillRect(0, 0, CHUNK, CHUNK);
     // 'low' = обычная билинейная выборка: нужный mip-уровень уже выбран (сжатие не больше 2:1), а
     // 'high' заставляет GPU строить свои mip-цепочки для каждого спрайта при каждой отрисовке куска
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'low';
@@ -1180,6 +1187,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     // запас 2 мировых px: обводка тайла и сглаживание краёв спрайта выходят за bbox на полпикселя
     const wx0 = cx * cw - 2, wy0 = cy * cw - 2, wx1 = (cx + 1) * cw + 2, wy1 = (cy + 1) * cw + 2;
     ctx.setTransform(r, 0, 0, r, -cx * CHUNK, -cy * CHUNK);
+    paintSky(ctx, wx0, wy0, wx1, wy1, s.skyIslands, s.ph);
     s.dirty.delete(`${r}:${cx}:${cy}`);
     // дальний зум карты всех городов: каждый город — готовой картинкой; какой ещё нет, кусок дорисуется позже
     if (isCoarse(r)) {
@@ -1237,9 +1245,9 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     // на это время они копятся
     const allowDirty = !s.dragging && !s.inertia && s.pinchDist == null && !s.zoomTimer;
     const isDirty = (key: string) => allowDirty && s.dirty.size > 0 && s.dirty.has(key);
-    // видимая область в мировых координатах, обрезанная по содержимому карты
-    const vx0 = Math.max(-s.ox / s.scale, s.world.x0), vy0 = Math.max(-s.oy / s.scale, s.world.y0);
-    const vx1 = Math.min((W - s.ox) / s.scale, s.world.x1), vy1 = Math.min((H - s.oy) / s.scale, s.world.y1);
+    // видимая область в мировых координатах — вся, без обрезки по карте: за краем карты тоже небо с облаками
+    const vx0 = -s.ox / s.scale, vy0 = -s.oy / s.scale;
+    const vx1 = (W - s.ox) / s.scale, vy1 = (H - s.oy) / s.scale;
     if (vx1 <= vx0 || vy1 <= vy0) { s.loading = false; return false; }
     const cw = CHUNK / r;
     const range = (ring: number) => ({
@@ -1739,12 +1747,8 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     };
   }, [dayNight, type]);
 
-  // другой остров — другая палитра неба
-  useEffect(() => {
-    const s = state.current;
-    if (!updateSky()) return;
-    applyGround(); s.listDirty = true; s.fullList = true; invalidateLayer();
-  }, [district]);
+  // облака неба грузятся один раз на страницу; пришли — куски перерисовываются уже с ними
+  useEffect(() => { let alive = true; loadSky(() => { if (alive) invalidateLayer(); }); return () => { alive = false; }; }, []);
 
   useEffect(() => {
     const c = fpsRef.current;
