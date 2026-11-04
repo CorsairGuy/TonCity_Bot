@@ -95,6 +95,7 @@ function startWebServer(port){
   require('./routes/midway')(app,ctx);      // Карнавальная аллея: балаганы по дням, «Четыре в ряд» на билеты (19-24.08)
   require('./routes/gameExtras')(app,ctx);  // новые ручки 2.5: метрики, место, казна/Почёт, история, достижения, уведомления гильдии
   require('./routes/marketOffers')(app,ctx); // переговорные предложения рынка (входящие/исходящие)
+  require('./routes/probe')(app,ctx); // проверка живых ответов игры (только GET)
   require('./routes/notifications')(app,ctx); // страница «Уведомления»: рассылки гильдий + события бота
   require('./routes/leaderboard')(app,ctx); // рейтинги игры: «Величайшие мэры» и лиги мэров/гильдий
   require('./routes/refresh')(app,ctx);     // ручной прогон модулей /api/refresh/:module

@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useAppTheme } from '../components/AppThemeProvider';
 import { UpdatesCard } from '../components/UpdatesCard';
+import { ProbeCard } from '../components/ProbeCard';
 import { useAsk } from '../hooks/useAsk';
 
 export function Settings() {
@@ -158,6 +159,7 @@ export function Settings() {
       </Box>
 
       <UpdatesCard />
+      <ProbeCard />
 
       <Box sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, mb: 3, overflow: 'hidden' }}>
         <Box sx={{ px: 3, py: 2, bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.default' }}>

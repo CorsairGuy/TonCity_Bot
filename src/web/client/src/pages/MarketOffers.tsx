@@ -101,7 +101,7 @@ export function MarketOffers() {
                 <Card key={`s${o.account_id}:${o.id}`} o={o}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 1 }}><Text sx={{ color: 'fg.muted' }}>ваше предложение</Text><Price v={o.amount} cur={o.currency} /></Box>
                   <Button block size="small" variant="danger" leadingVisual={s ? ClockIcon : XIcon} loading={busy === `revoke:${o.id}`} disabled={!!busy || s > 0} onClick={() => act(o, 'revoke')}>
-                    {s > 0 ? `Отозвать можно через ${s} с` : 'Отозвать'}
+                    {s > 0 ? `Отозвать можно через ${s >= 3600 ? `${Math.floor(s / 3600)} ч ${Math.floor(s % 3600 / 60)} мин` : s >= 60 ? `${Math.floor(s / 60)} мин ${s % 60} с` : `${s} с`}` : 'Отозвать'}
                   </Button>
                 </Card>
               );
