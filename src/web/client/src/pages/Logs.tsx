@@ -99,7 +99,6 @@ export function Logs() {
         <Button onClick={load}>↻ Обновить</Button>
       </Box>
 
-
       <div ref={bodyRef} onScroll={handleScroll} style={{
         flex: 1, padding: '12px 16px',
         fontFamily: '"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace',
