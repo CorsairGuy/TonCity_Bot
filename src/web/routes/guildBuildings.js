@@ -96,11 +96,15 @@ module.exports=function(app,ctx){
   app.get('/api/tech-factory/:accountId/overview',async(req,res)=>{
     try{
       const acc=await findAccount(req.params.accountId);
-      const{TechFactoryStatus,TechFactoryQueue}=require('../../db/index');
-      const[row,queue]=await Promise.all([
+      const{TechFactoryStatus,TechFactoryQueue,Inventory}=require('../../db/index');
+      const[row,queue,inv]=await Promise.all([
         TechFactoryStatus.findOne({where:{account:acc.name}}),
         TechFactoryQueue.findAll({where:{account:acc.name},order:[['pos','ASC']]}),
+        Inventory.findAll({where:{account:acc.name},attributes:['name','marketable','locked']}),
       ]);
+      // склад из снимка инвентаря (name = id предмета): «есть/нужно» у сырья на карточке станка
+      const inventory={};
+      for(const r of inv)if(/^\d+$/.test(r.name))inventory[r.name]=(r.marketable||0)+(r.locked||0);
       if(!row){
         return res.json({ok:true,renown_balance:null,categories:[],job:null,in_guild:false,has_factory:false,
           membership_eligible:false,eligible_members:null,economy_unlocked:false,
@@ -110,6 +114,7 @@ module.exports=function(app,ctx){
       res.json({
         ok:true,
         renown_balance:row.renown_balance,
+        inventory,
         categories:normalizeTechFactoryCategories(row.categories?JSON.parse(row.categories):[]),
         job:row.job?JSON.parse(row.job):null,
         in_guild:!!row.is_member,

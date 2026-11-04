@@ -969,6 +969,7 @@ export interface TechFactoryQueueItem {
 // can_upgrade были неверной догадкой; реальные поля — in_guild/can_spend_guild_crystals и т.д.)
 export interface TechFactoryOverview {
   renown_balance: number | null;
+  inventory?: Record<string, number>; // склад из снимка инвентаря: id предмета → количество
   categories: TechFactoryCategory[];
   job: TechFactoryJob | null;
   in_guild: boolean;

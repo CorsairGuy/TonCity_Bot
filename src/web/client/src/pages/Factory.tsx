@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { Box, Button, Flash, IconButton, Label, Select, Text, TextInput, ActionMenu, ActionList } from '@primer/react';
-import { SyncIcon, XIcon, PlusIcon, LockIcon, UnlockIcon, ClockIcon, PeopleIcon, StopIcon } from '@primer/octicons-react';
+import { Box, Button, Flash, Heading, IconButton, Label, Select, Text, TextInput, ActionMenu, ActionList, UnderlineNav } from '@primer/react';
+import { SyncIcon, XIcon, PlusIcon, LockIcon, UnlockIcon, ClockIcon, PeopleIcon, StopIcon, TriangleUpIcon } from '@primer/octicons-react';
 import {
   api, type TechFactoryOverview, type TechFactoryCategory, type TechFactoryMachine, type TechFactoryTier,
   type TechFactorySummaryRow, type LocText,
 } from '../api';
-import { ITEMS_BY_ID, fmt } from '../utils';
+import { ITEMS_BY_ID, fmt, fmtInt } from '../utils';
 import { RenownValue } from '../components/Icons';
-import { PageHeader } from '../components/PageHeader';
 import { LoadError } from '../components/LoadError';
 import { SidePage, CatTabs, SELECTED_RING } from '../components/SidePage';
 import { PanelShell, Row, Summary, Tile, SumLine, Val, ItemCard, Empty, fillOf, FILL_DONE, SWAP } from './cityMapPanels';
@@ -108,8 +107,8 @@ function QueueList({ data, accountId, onChanged, onFlash }: { data: TechFactoryO
 }
 
 // ── карточка станка ─────────────────────────────────────────────────────────────
-function MachineCard({ m, data, accountId, accounts, onChanged, onFlash }: {
-  m: TechFactoryMachine; data: TechFactoryOverview; accountId: number; accounts: TechFactorySummaryRow[];
+function MachineCard({ m, cat, data, accountId, accounts, onChanged, onFlash }: {
+  m: TechFactoryMachine; cat: string; data: TechFactoryOverview; accountId: number; accounts: TechFactorySummaryRow[];
   onChanged: () => void; onFlash: (msg: string, ok: boolean) => void;
 }) {
   const unlocked = m.tiers.filter(t => t.unlocked);
@@ -120,6 +119,11 @@ function MachineCard({ m, data, accountId, accounts, onChanged, onFlash }: {
   if (!tier) return null;
   const idle = !data.job;
   const limited = tier.unlocked && !tier.limit_available;
+  // есть/нужно по снимку склада; нет снимка склада — не гасим кнопку, проверит игра
+  const inv = data.inventory;
+  const haveOf = (id: number) => inv ? inv[String(id)] ?? 0 : null;
+  const short = !!inv && tier.inputs.some(x => (haveOf(x.item_id) ?? 0) < x.quantity);
+  const nextLocked = m.tiers.find(t => !t.unlocked);
   const run = async (key: string, p: Promise<{ ok: boolean; error?: string }>, ok: string) => {
     setBusy(key);
     const r = await p;
@@ -140,15 +144,16 @@ function MachineCard({ m, data, accountId, accounts, onChanged, onFlash }: {
   };
   const canAffordUnlock = tier.upgrade_crystals != null && data.guild_crystal_balance != null && data.guild_crystal_balance >= tier.upgrade_crystals;
   return (
-    <Box sx={{ p: 2, borderRadius: '12px', border: '1px solid', borderColor: 'border.default', display: 'flex', flexDirection: 'column', gap: 2, opacity: limited ? 0.7 : 1 }}>
+    <Box sx={{ p: 2, borderRadius: '12px', border: '1px solid', borderColor: 'border.default', bg: 'canvas.default', display: 'flex', flexDirection: 'column', gap: 2, opacity: limited ? 0.65 : 1 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Box sx={{ width: 36, height: 36, borderRadius: '8px', bg: unlocked.some(t => t.limit_available) ? 'success.emphasis' : 'neutral.emphasis', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+        <Box sx={{ width: 36, height: 36, borderRadius: 2, bg: limited ? 'done.emphasis' : 'success.emphasis', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <span className={`mdi ${(m.icon_key || 'mdi-cog').replace(/^mdi-?/, 'mdi-')}`} style={{ fontSize: 22, color: '#fff' }} />
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Text sx={{ fontWeight: 'semibold', display: 'block' }}>{loc(m.name)}</Text>
-          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>ур. {m.level} из {m.max_level}</Text>
+          <Text sx={{ fontSize: 0, color: 'fg.muted' }}>ур. {m.level} из {m.max_level}{cat ? ` · ${cat}` : ''}</Text>
         </Box>
+        {nextLocked && <IconButton size="small" variant="invisible" icon={TriangleUpIcon} aria-label="Улучшить станок" onClick={() => setLevel(nextLocked.level)} />}
       </Box>
       <CatTabs tabs={m.tiers.map(t => t.unlocked ? ROMAN[t.level - 1] : <LockIcon size={12} />)} value={m.tiers.indexOf(tier)} onChange={i => setLevel(m.tiers[i].level)} />
       {!tier.unlocked ? (
@@ -159,7 +164,7 @@ function MachineCard({ m, data, accountId, accounts, onChanged, onFlash }: {
         </Box>
       ) : <>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, py: 2, px: 2, bg: 'canvas.subtle', borderRadius: '12px', flexWrap: 'wrap' }}>
-          <Box sx={{ display: 'flex', gap: 2 }}>{tier.inputs.map((x, i) => <Item key={i} id={x.item_id} q={x.quantity} />)}</Box>
+          <Box sx={{ display: 'flex', gap: 2 }}>{tier.inputs.map((x, i) => { const h = haveOf(x.item_id); return <Item key={i} id={x.item_id} q={h == null ? x.quantity : `${h}/${x.quantity}`} short={h != null && h < x.quantity} />; })}</Box>
           <Text sx={{ color: 'fg.muted' }}>→</Text>
           <Item id={tier.output.item_id} q={tier.output.quantity} />
           <Box sx={{ ml: 1 }}>
@@ -168,12 +173,14 @@ function MachineCard({ m, data, accountId, accounts, onChanged, onFlash }: {
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button sx={{ flex: 1 }} variant="primary" leadingVisual={PlusIcon} loading={busy === 'go'} disabled={limited || !!busy} onClick={start}>
-            {idle ? 'Запустить' : 'В очередь'}
-          </Button>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Button block variant="primary" leadingVisual={PlusIcon} loading={busy === 'go'} disabled={limited || short || !!busy} onClick={start}>
+              {short ? 'Не хватает сырья' : idle ? 'Запустить' : 'В очередь'}
+            </Button>
+          </Box>
           {accounts.length > 1 && (
             <ActionMenu>
-              <ActionMenu.Anchor><IconButton icon={PeopleIcon} aria-label="Тот же рецепт другим аккаунтам" disabled={!!busy} /></ActionMenu.Anchor>
+              <ActionMenu.Anchor><IconButton sx={{ flexShrink: 0 }} icon={PeopleIcon} aria-label="Тот же рецепт другим аккаунтам" disabled={!!busy} /></ActionMenu.Anchor>
               <ActionMenu.Overlay width="medium">
                 <ActionList selectionVariant="multiple">
                   <ActionList.Group title="Тот же рецепт в очередь">
@@ -274,17 +281,18 @@ export function Factory() {
   const queued = all.reduce((s, a) => s + a.queue.length, 0);
   const list = all.filter(a => (filter === 0 || (filter === 1 ? !!a.job : !a.job)) && a.name.toLowerCase().includes(q.toLowerCase()));
   const acc = all.find(a => a.id === sel) ?? null;
+  // когда освободятся все: конец текущей + длительность очереди (у сводки нет длительностей — только конец текущей)
+  const allDone = Math.max(0, ...all.filter(a => a.job && !a.job.ready).map(a => new Date(a.job!.finishes_at).getTime()));
 
   const side = (
     <PanelShell mode="view" title="Аккаунты" busy={rows == null}
-      hint="Выберите аккаунт — слева откроются его очередь и витрина станков. Заливка карточки — ход текущей переработки. Готовое бот забирает сам и запускает следующее из очереди."
-      footer={<Button block leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>Обновить с игры</Button>}>
+      hint="Выберите аккаунт — слева откроется его витрина станков и очередь. Готовое бот забирает сам.">
       <Summary tone="accent">
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Tile size={2} value={working} label="работают" color="accent.fg" />
           <Tile size={2} value={all.length - working} label="простаивают" color={all.length - working ? 'attention.fg' : undefined} />
         </Box>
-        <SumLine left={`в очередях ${queued}`} right={`аккаунтов ${all.length}`} />
+        <SumLine left={`в очередях ${queued}`} right={allDone ? `до ${hhmm(allDone)}` : `аккаунтов ${all.length}`} />
       </Summary>
       <TextInput placeholder="Поиск" value={q} onChange={e => setQ(e.target.value)} block />
       <CatTabs tabs={['Все', 'Работают', 'Свободны']} value={filter} onChange={setFilter} />
@@ -305,27 +313,44 @@ export function Factory() {
   const shownCats = cat === 0 ? cats : [cats[cat - 1]].filter(Boolean);
   const main = (
     <>
-      <PageHeader title="Фабрика" sub={acc ? <>{acc.name} · <RenownValue value={fmt(data?.renown_balance ?? acc.renown_balance)} /></> : undefined} />
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+        <Box>
+          <Heading as="h2" sx={{ fontSize: 3 }}>Фабрика</Heading>
+          {acc && <Text sx={{ color: 'fg.muted', fontSize: 1 }}>{acc.name} · <RenownValue value={fmtInt(data?.renown_balance ?? acc.renown_balance ?? 0)} /></Text>}
+        </Box>
+        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>Обновить</Button>
+      </Box>
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
       {!acc ? <Text sx={{ color: 'fg.muted' }}>Выберите аккаунт справа</Text>
         : !data ? <Text sx={{ color: 'fg.muted' }}>Загрузка…</Text>
-        : !data.updated_at ? <Text sx={{ color: 'fg.muted' }}>Снимка ещё нет — нажмите «Обновить с игры»</Text>
+        : !data.updated_at ? <Text sx={{ color: 'fg.muted' }}>Снимка ещё нет — нажмите «Обновить»</Text>
         : <>
           {!data.in_guild && <Flash variant="warning" sx={{ mb: 3 }}>Аккаунт не в гильдии (или меньше суток в ней) — переработки недоступны</Flash>}
           <QueueList data={data} accountId={acc.id} onChanged={changed} onFlash={showFlash} />
           {cats.length > 0 && (
-            <Box sx={{ mb: 3, maxWidth: 640 }}>
-              <CatTabs tabs={['Все', ...cats.map(c => <>{!c.unlocked && <LockIcon size={12} />} {loc(c.name) || c.code}</>)]} value={cat} onChange={setCat} />
-            </Box>
+            <UnderlineNav aria-label="Категории" sx={{ mb: 3 }}>
+              {[null, ...cats].map((c, i) => (
+                <UnderlineNav.Item key={c?.id ?? 'all'} href="#" aria-current={i === cat ? 'page' : undefined}
+                  onSelect={e => { e.preventDefault(); setCat(i); }}
+                  counter={c == null ? cats.reduce((n, x) => n + (x.unlocked ? x.machines?.length ?? 0 : 0), 0) : c.unlocked ? c.machines?.length ?? 0 : undefined}
+                  icon={c && !c.unlocked ? LockIcon : undefined}>
+                  {c == null ? 'Все' : loc(c.name) || c.code}
+                </UnderlineNav.Item>
+              ))}
+            </UnderlineNav>
           )}
-          {shownCats.map(c => c.unlocked ? (
-            <Box key={c.id} sx={{ mb: 3 }}>
-              {cat === 0 && <Text sx={{ display: 'block', fontSize: 0, fontWeight: 'semibold', color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.04em', mb: 2, px: 1 }}>{loc(c.name) || c.code}</Text>}
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 3 }}>
-                {(c.machines ?? []).map(m => <MachineCard key={`${acc.id}:${m.id}`} m={m} data={data} accountId={acc.id} accounts={all} onChanged={changed} onFlash={showFlash} />)}
-              </Box>
-            </Box>
-          ) : <Box key={c.id} sx={{ mb: 3, maxWidth: 640 }}><LockedCategory c={c} accountId={acc.id} onChanged={changed} onFlash={showFlash} /></Box>)}
+          {(() => {
+            const open = shownCats.filter(c => c.unlocked);
+            const machines = open.flatMap(c => (c.machines ?? []).map(m => ({ m, c })));
+            return <>
+              {machines.length > 0 && (
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 3, mb: 3 }}>
+                  {machines.map(({ m, c }) => <MachineCard key={`${acc.id}:${m.id}`} m={m} cat={loc(c.name) || c.code} data={data} accountId={acc.id} accounts={all} onChanged={changed} onFlash={showFlash} />)}
+                </Box>
+              )}
+              {cat !== 0 && shownCats.filter(c => !c.unlocked).map(c => <Box key={c.id} sx={{ mb: 3, maxWidth: 640 }}><LockedCategory c={c} accountId={acc.id} onChanged={changed} onFlash={showFlash} /></Box>)}
+            </>;
+          })()}
           <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>Снимок от {new Date(data.updated_at).toLocaleString('ru')}</Text>
         </>}
     </>
