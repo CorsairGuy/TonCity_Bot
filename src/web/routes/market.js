@@ -855,9 +855,11 @@ module.exports=function(app,ctx){
   // потом принимает/отклоняет через /market/negotiation/accept|reject). Общее для всех трёх —
   // опциональный policy_instance_id (конкретная карта политики, если известна — см. ownedPolicyCards).
   const CREATE_ENDPOINT={direct:'/market/direct',auction:'/market/auction',negotiation:'/market/negotiation'};
-  function listingBody(marketType,{market_id,price,currency,anonymous,listing_days,policy_instance_id}){
+  function listingBody(marketType,{market_id,price,currency,anonymous,listing_days,policy_instance_id,quantity}){
     const base={market_id:Number(market_id),currency,anonymous_sale:!!anonymous};
+    // политика — поштучно по policy_instance_id, остальное — одним лотом на quantity штук (2.5, market_profile-*.js)
     if(policy_instance_id!=null)base.policy_instance_id=policy_instance_id;
+    else if(Number(quantity)>1)base.quantity=Math.floor(Number(quantity));
     if(marketType==='direct')return{...base,price:Number(price),listing_days:listingDays(listing_days)};
     if(marketType==='auction')return{...base,starting_bid:Number(price),listing_days:listingDays(listing_days)};
     if(marketType==='negotiation')return base;
@@ -920,6 +922,20 @@ module.exports=function(app,ctx){
           const free=Math.min(slotFree,owned,remaining);
           if(free<=0){results.push({name:acc.name,listed:0,skip:owned<=0?'нет предмета':'лимит исчерпан'});continue;}
           let cnt=0,err='';
+          if(!isPolicyCard){
+            // обычный предмет: один лот на всё количество (не больше max_quantity правила)
+            const q=Math.max(1,Math.min(owned,remaining,li.max_quantity??owned)); // один лот = один слот
+            if(!firstReq)await sleep(1000);
+            firstReq=false;
+            try{
+              await api.post(CREATE_ENDPOINT[marketType],listingBody(marketType,{market_id,price,currency,anonymous,listing_days,quantity:q}));
+              cnt=q;listed+=q;remaining-=q;
+              await inventoryAdjust(acc.name,item_id,-q);
+            }catch(e){err=e.message;}
+            results.push({name:acc.name,listed:cnt,...(err?{error:err}:{})});
+            if(err)break;
+            continue;
+          }
           for(let k=0;k<free;k++){
             if(!firstReq)await sleep(1000);
             firstReq=false;
