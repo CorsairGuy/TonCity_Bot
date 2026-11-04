@@ -171,6 +171,9 @@ export const api = {
   notificationDismiss: (id: string) => req<{ ok: boolean; error?: string }>('/api/notifications/dismiss', post({ id })),
   notificationSnooze: (id: string) => req<{ ok: boolean; error?: string }>('/api/notifications/snooze', post({ id })),
   notificationsRefresh: (guildId?: number) => req<{ ok: boolean; error?: string; errors?: string[] }>('/api/notifications/refresh', post({ guild_id: guildId })),
+  negotiationOffers: () => req<{ ok: boolean; error?: string; accounts: { id: number; name: string; loaded: boolean }[]; received: NegotiationOffer[]; sent: NegotiationOffer[]; updated_at: string | null }>('/api/market/offers'),
+  negotiationOffersRefresh: () => req<{ ok: boolean; error?: string; errors?: string[] }>('/api/market/offers/refresh', post({})),
+  negotiationOfferAction: (action: 'accept' | 'reject' | 'revoke', accountId: number, offerId: number) => req<{ ok: boolean; error?: string }>(`/api/market/offers/${action}`, post({ account_id: accountId, offer_id: offerId })),
   auditoriumSummary: () => req<{ ok: boolean; error?: string; accounts: AuditoriumSummaryRow[] }>('/api/timeless-auditorium/summary'),
   auditoriumAccounts: () => req<{ ok: boolean; accounts: BuildingAccount[] }>('/api/timeless-auditorium/accounts'),
   auditoriumStatus: (accountId: number) =>
@@ -954,6 +957,12 @@ export interface NotifyItem {
   act: { label: string; href: string } | null;
   guild_id?: number; guild?: string; notification_id?: number; author?: string | null;
   account?: string; account_id?: number; item_id?: number;
+}
+// переговорное предложение рынка (GET /market/user/negotiation-offers, market_profile-*.js, 2.5)
+export interface NegotiationOffer {
+  id: number; listing_id: number; account_id: number; account: string;
+  amount: number; currency: string; seller_proceeds?: number | null; buyer_name?: string | null;
+  item_id?: number | null; item_rarity?: string | null; policy?: unknown; revocable_at?: string | null;
 }
 export interface AuditoriumSummaryRow {
   id: number; name: string; unlocked: boolean; balance: number | null; lifetime: number | null;

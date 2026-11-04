@@ -44,6 +44,7 @@ const Quests = lazy(() => import('./pages/Quests').then(m => ({ default: m.Quest
 const QuestTiers = lazy(() => import('./pages/QuestTiers').then(m => ({ default: m.QuestTiers })));
 const Auditorium = lazy(() => import('./pages/Auditorium').then(m => ({ default: m.Auditorium })));
 const Notifications = lazy(() => import('./pages/Notifications').then(m => ({ default: m.Notifications })));
+const MarketOffers = lazy(() => import('./pages/MarketOffers').then(m => ({ default: m.MarketOffers })));
 const Factory = lazy(() => import('./pages/Factory').then(m => ({ default: m.Factory })));
 const Capitals = lazy(() => import('./pages/Capitals').then(m => ({ default: m.Capitals })));
 const CityWorld = lazy(() => import('./pages/CityWorld').then(m => ({ default: m.CityWorld })));
@@ -78,7 +79,7 @@ const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })))
 import {
   PersonIcon, PackageIcon, DatabaseIcon, GraphIcon, StarIcon, SyncIcon,
   LightBulbIcon, CommentIcon, RocketIcon, TrophyIcon, TagIcon, ToolsIcon,
-  GlobeIcon, OrganizationIcon, HomeIcon, LocationIcon, PeopleIcon, CpuIcon, BellIcon,
+  GlobeIcon, OrganizationIcon, HomeIcon, LocationIcon, PeopleIcon, CpuIcon, BellIcon, CommentDiscussionIcon,
   PlayIcon,
   HeartIcon, CalendarIcon, MegaphoneIcon, ZapIcon, GiftIcon, FileIcon,
   GearIcon, ChecklistIcon, LawIcon, BookmarkIcon,
@@ -126,7 +127,7 @@ const PAGE_GROUP: Record<string, string> = {
   'daily': 'tasks', 'daily-ads': 'tasks',
   'th-distribution': 'townhall', 'th-policy': 'townhall', 'th-diversity': 'townhall', 'civic-draw': 'townhall',
   'shop-boosters': 'shop', 'shop-packs': 'shop', 'shop-policies': 'shop',
-  'market-stats': 'market', 'market-listings': 'market', 'market-purchases': 'market', 'market-sales': 'market', 'market-lots': 'market',
+  'market-stats': 'market', 'market-listings': 'market', 'market-purchases': 'market', 'market-sales': 'market', 'market-lots': 'market', 'market-offers': 'market',
   loyalty: 'missions', quests: 'missions', questTiers: 'missions',
   'anniversary-offer': 'anniversary', 'anniversary-carnival': 'anniversary',
   'anniversary-road': 'anniversary', 'anniversary-vault': 'anniversary', 'shop-tickets': 'anniversary',
@@ -336,6 +337,7 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
             {item('market-stats',     'Статистика', GraphIcon)}
             {item('market-purchases', 'Покупки',    PackageIcon)}
             {item('market-sales',     'Продажи',    DiamondIcon)}
+            {item('market-offers',    'Предложения', CommentDiscussionIcon)}
           </>
         )}
 
@@ -446,6 +448,7 @@ export default function App() {
           <Route path="/market-listings" element={<MarketListings />} />
           <Route path="/market-purchases" element={<MarketPurchases />} />
           <Route path="/market-sales"    element={<MarketSales />} />
+          <Route path="/market-offers"   element={<MarketOffers />} />
           <Route path="/satoshi"         element={<SatoshiTower />} />
           <Route path="/th-distribution" element={<ThDistribution />} />
           <Route path="/th-policy"       element={<ThPolicy />} />
