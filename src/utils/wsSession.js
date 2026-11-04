@@ -214,6 +214,8 @@ async function _connect(s) {
         logger.warn(`[ws:${s.name}] auth_result: fail ${JSON.stringify(msg).slice(0, 120)}`);
         try { ws.terminate(); } catch (_) {}
       }
+    } else if (msg && typeof msg.type === 'string' && msg.type.startsWith('guild_chat_') && s.onGuildChat) {
+      try { s.onGuildChat(msg); } catch (e) { logger.warn(`[ws:${s.name}] onGuildChat: ${e.message}`); }
     } else if (msg && msg.type === 'gram_price' && s.onGramPrice) {
       try { s.onGramPrice({ price: msg.price, change_percent: msg.change_percent, timestamp: msg.timestamp }); }
       catch (e) { logger.warn(`[ws:${s.name}] onGramPrice: ${e.message}`); }
@@ -320,6 +322,22 @@ function subscribeGramFeed(accountId, cb) {
   }
 }
 
+// Чат гильдии (2.5, chunks/chat-*.js): на авторизованном WS аккаунта подписка
+// {type:'guild_chat_subscribe',data:'<gid>'}; приходят guild_chat_message {message},
+// guild_chat_deleted {message_id}, guild_chat_mute {user_id,name,mute}. gid=null — отписка.
+function subscribeGuildChat(accountId, gid, cb) {
+  const s = _get(accountId);
+  const open = s.authed && s.ws && s.ws.readyState === WebSocket.OPEN;
+  if (open && s.chatGuild != null && String(s.chatGuild) !== String(gid)) {
+    try { s.ws.send(JSON.stringify({ type: 'guild_chat_unsubscribe', data: String(s.chatGuild) })); } catch (_) {}
+  }
+  s.chatGuild = gid == null ? null : gid;
+  s.onGuildChat = gid == null ? null : cb;
+  if (open && gid != null) {
+    try { s.ws.send(JSON.stringify({ type: 'guild_chat_subscribe', data: String(gid) })); } catch (_) {}
+  }
+}
+
 function setName(accountId, name) { const s = _get(accountId); s.name = name || String(accountId); }
 
 // Сервер ответил "Invalid request signature" по REST, хотя локально WS считается authed —
@@ -351,4 +369,4 @@ function close(accountId) {
 
 function closeAll() { for (const id of [...sessions.keys()]) close(id); }
 
-module.exports = { ensureReady, isReady, getStatus, notifyRefreshed, forceReconnect, setName, close, closeAll, WS_URL, subscribeGramFeed };
+module.exports = { ensureReady, isReady, getStatus, notifyRefreshed, forceReconnect, setName, close, closeAll, WS_URL, subscribeGramFeed, subscribeGuildChat };

@@ -43,6 +43,7 @@ const Championships = lazy(() => import('./pages/Championships').then(m => ({ de
 const Quests = lazy(() => import('./pages/Quests').then(m => ({ default: m.Quests })));
 const QuestTiers = lazy(() => import('./pages/QuestTiers').then(m => ({ default: m.QuestTiers })));
 const Auditorium = lazy(() => import('./pages/Auditorium').then(m => ({ default: m.Auditorium })));
+const GuildChat = lazy(() => import('./pages/GuildChat').then(m => ({ default: m.GuildChat })));
 const Notifications = lazy(() => import('./pages/Notifications').then(m => ({ default: m.Notifications })));
 const MarketOffers = lazy(() => import('./pages/MarketOffers').then(m => ({ default: m.MarketOffers })));
 const Factory = lazy(() => import('./pages/Factory').then(m => ({ default: m.Factory })));
@@ -311,7 +312,7 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         {item('auditorium',  'Аудиториум',         PeopleIcon)}
         {item('techfactory', 'Фабрика',            CpuIcon)}
-        {item('notifications', 'Уведомления',      BellIcon)}
+        {item('guild-chat',    'Чаты',             CommentDiscussionIcon)}
 
         {group('townhall', 'Мэрия', HomeIcon,
           <>
@@ -465,6 +466,7 @@ export default function App() {
           <Route path="/auditorium"      element={<Auditorium />} />
           <Route path="/techfactory"     element={<Factory />} />
           <Route path="/notifications"   element={<Notifications />} />
+          <Route path="/guild-chat"      element={<GuildChat />} />
           <Route path="*"                element={<Navigate to="/accounts" replace />} />
         </Routes>
         </Suspense>

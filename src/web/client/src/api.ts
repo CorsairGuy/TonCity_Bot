@@ -171,6 +171,15 @@ export const api = {
   notificationDismiss: (id: string) => req<{ ok: boolean; error?: string }>('/api/notifications/dismiss', post({ id })),
   notificationSnooze: (id: string) => req<{ ok: boolean; error?: string }>('/api/notifications/snooze', post({ id })),
   notificationsRefresh: (guildId?: number) => req<{ ok: boolean; error?: string; errors?: string[] }>('/api/notifications/refresh', post({ guild_id: guildId })),
+  guildChats: () => req<{ ok: boolean; error?: string; guilds: GuildChatListItem[] }>('/api/guild-chat'),
+  guildChat: (gid: number) => req<GuildChatFeed>(`/api/guild-chat/${gid}`),
+  guildChatRefresh: (gid: number) => req<{ ok: boolean; error?: string; errors?: string[] }>(`/api/guild-chat/${gid}/refresh`, post({})),
+  guildChatOlder: (gid: number) => req<{ ok: boolean; error?: string; added?: number; has_more?: boolean }>(`/api/guild-chat/${gid}/older`, post({})),
+  guildChatSend: (gid: number, accountId: number, text: string) => req<{ ok: boolean; error?: string; message?: GuildChatMessage | null }>(`/api/guild-chat/${gid}/send`, post({ account_id: accountId, text })),
+  guildChatRead: (gid: number) => req<{ ok: boolean; error?: string }>(`/api/guild-chat/${gid}/read`, post({})),
+  guildChatDelete: (gid: number, accountId: number, messageId: number) => req<{ ok: boolean; error?: string }>(`/api/guild-chat/${gid}/delete`, post({ account_id: accountId, message_id: messageId })),
+  guildChatMute: (gid: number, accountId: number, userId: number, duration: '1h' | '1d' | '7d' | '30d') => req<{ ok: boolean; error?: string }>(`/api/guild-chat/${gid}/mute`, post({ account_id: accountId, user_id: userId, duration })),
+  guildChatUnmute: (gid: number, accountId: number, userId: number) => req<{ ok: boolean; error?: string }>(`/api/guild-chat/${gid}/unmute`, post({ account_id: accountId, user_id: userId })),
   negotiationOffers: () => req<{ ok: boolean; error?: string; accounts: { id: number; name: string; loaded: boolean }[]; received: NegotiationOffer[]; sent: NegotiationOffer[]; frozen?: string[]; updated_at: string | null }>('/api/market/offers'),
   negotiationOffersRefresh: () => req<{ ok: boolean; error?: string; errors?: string[] }>('/api/market/offers/refresh', post({})),
   negotiationOfferAction: (action: 'accept' | 'reject' | 'revoke', accountId: number, offerId: number) => req<{ ok: boolean; error?: string }>(`/api/market/offers/${action}`, post({ account_id: accountId, offer_id: offerId })),
@@ -958,6 +967,21 @@ export interface NotifyItem {
   act: { label: string; href: string } | null;
   guild_id?: number; guild?: string; notification_id?: number; author?: string | null;
   account?: string; account_id?: number; item_id?: number;
+}
+// чат гильдии (routes/guildChat.js, GET /guilds/{gid}/chat/messages, chunks/chat-*.js, 2.5)
+export interface GuildChatMessage { id: number; user_id: number; name?: string | null; role?: string | null; text: string; created_at: string }
+export interface GuildChatMute { until?: string | null; ends_in_seconds?: number | null }
+export interface GuildChatViewer {
+  user_id: number; role?: string | null; can_moderate?: boolean; mute?: GuildChatMute | null;
+  mutes?: { user_id: number; name?: string | null; mute: GuildChatMute }[];
+}
+export interface GuildChatListItem {
+  guild_id: number; title: string; accounts: { id: number; name: string; role: string | null }[];
+  last: GuildChatMessage | null; unread: number; updated_at: string | null;
+}
+export interface GuildChatFeed {
+  ok: boolean; error?: string; guild: { guild_id: number; title: string; accounts: { id: number; name: string; role: string | null }[] };
+  messages: GuildChatMessage[]; has_more: boolean; viewers: Record<string, GuildChatViewer>; last_read: number; updated_at: string | null;
 }
 // переговорное предложение рынка (GET /market/user/negotiation-offers, market_profile-*.js, 2.5)
 export interface NegotiationOffer {
