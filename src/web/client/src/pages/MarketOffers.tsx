@@ -7,6 +7,7 @@ import { CrystalValue } from '../components/Icons';
 import { PageHeader } from '../components/PageHeader';
 import { LoadError } from '../components/LoadError';
 import { Caption, ItemCard } from './cityMapPanels';
+import { PolicyIcon } from '../components/PolicyIcon';
 import { useItemCatalog, itemName } from '../hooks/useItemCatalog';
 import { useFlash } from '../hooks/useFlash';
 import { useAsk } from '../hooks/useAsk';
@@ -20,11 +21,11 @@ const RARITY: Record<string, string> = { epic: 'Эпическая', legendary: 
 function Card({ o, children }: { o: NegotiationOffer; children: React.ReactNode }) {
   const catalog = useItemCatalog(o.item_id && !ITEMS_BY_ID[o.item_id] ? [o.item_id] : undefined);
   const tag = (o.item_id && (ITEMS_BY_ID[o.item_id]?.tag || catalog.get(o.item_id)?.tag)) || '';
-  const name = o.policy ? `Политика · ${RARITY[o.item_rarity ?? ''] ?? o.item_rarity ?? ''}` : o.item_id ? itemName(o.item_id, catalog) : 'Предмет';
+  const name = o.policy ? (o.policy.name?.ru || o.policy.name?.en || `Политика · ${RARITY[o.item_rarity ?? ''] ?? o.item_rarity ?? ''}`) : o.item_id ? itemName(o.item_id, catalog) : 'Предмет';
   return (
     <Box sx={{ p: 2, borderRadius: '12px', bg: 'canvas.subtle', display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-        <ItemCard tag={tag} src={tag ? undefined : null} />
+        {o.policy ? <PolicyIcon rarity={o.item_rarity || 'common'} iconKey={o.policy.icon_key} size={36} iconSize={22} radius={8} style={{ flexShrink: 0 }} /> : <ItemCard tag={tag} src={tag ? undefined : null} />}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Text sx={{ fontWeight: 'semibold', fontSize: 1, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</Text>
           <Label size="small" variant="secondary">{o.account}</Label>

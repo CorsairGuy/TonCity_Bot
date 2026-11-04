@@ -970,7 +970,7 @@ export interface ProbeResult {
 export interface NegotiationOffer {
   id: number; listing_id: number; account_id: number; account: string;
   amount: number; currency: string; seller_proceeds?: number | null; buyer_name?: string | null;
-  item_id?: number | null; item_rarity?: string | null; policy?: unknown; revocable_at?: string | null;
+  item_id?: number | null; item_rarity?: string | null; policy?: MarketPolicyInfo | null; revocable_at?: string | null;
 }
 export interface AuditoriumSummaryRow {
   id: number; name: string; unlocked: boolean; balance: number | null; lifetime: number | null;

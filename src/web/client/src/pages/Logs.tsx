@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Button, Select, Text, UnderlineNav } from '@primer/react';
 import { api } from '../api';
 import { localLogLine } from '../logTime';
+import { ProbeCard } from '../components/ProbeCard';
 
 const MAX_LINES = 2000; // ограничение памяти в долго открытой вкладке
 const BOTTOM_THRESHOLD = 40; // px — насколько близко к низу считается "у низа"
@@ -27,7 +28,7 @@ function colorLine(raw: string) {
 
 export function Logs() {
   const [logs, setLogs] = useState<string[]>([]);
-  const [filter, setFilter] = useState<'all' | 'error' | 'warn'>('all');
+  const [filter, setFilter] = useState<'all' | 'error' | 'warn' | 'probe'>('all');
   const [lines, setLines] = useState(200);
   const bodyRef = useRef<HTMLDivElement>(null);
   // был ли пользователь у самого низа ПЕРЕД очередным обновлением — только тогда авто-скроллим
@@ -65,7 +66,7 @@ export function Logs() {
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD;
   };
 
-  const filtered = filter === 'all' ? logs : logs.filter(l => l.toLowerCase().includes(filter));
+  const filtered = filter === 'all' || filter === 'probe' ? logs : logs.filter(l => l.toLowerCase().includes(filter));
   const counts = {
     all: logs.length,
     error: logs.filter(l => l.toLowerCase().includes('error')).length,
@@ -88,8 +89,11 @@ export function Logs() {
                 {f === 'all' ? 'Все' : f === 'error' ? 'Ошибки' : 'Предупреждения'}
               </UnderlineNav.Item>
             ))}
+            <UnderlineNav.Item href="#" aria-current={filter === 'probe' ? 'page' : undefined}
+              onSelect={e => { e.preventDefault(); setFilter('probe'); }}>Проверка игры</UnderlineNav.Item>
           </UnderlineNav>
         </Box>
+        {filter !== 'probe' && <>
         <Select value={String(lines)} onChange={e => setLines(Number(e.target.value))} sx={{ fontSize: 0 }}>
           <Select.Option value="100">100 строк</Select.Option>
           <Select.Option value="200">200 строк</Select.Option>
@@ -97,7 +101,10 @@ export function Logs() {
           <Select.Option value="1000">1000 строк</Select.Option>
         </Select>
         <Button onClick={load}>↻ Обновить</Button>
+        </>}
       </Box>
+
+      {filter === 'probe' ? <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 0, p: 3 }}><ProbeCard /></Box> :
 
       <div ref={bodyRef} onScroll={handleScroll} style={{
         flex: 1, padding: '12px 16px',
@@ -109,7 +116,7 @@ export function Logs() {
           ? <Text sx={{ color: 'fg.subtle' }}>Нет записей</Text>
           : filtered.map((l, i) => <span key={i}>{colorLine(l)}{'\n'}</span>)
         }
-      </div>
+      </div>}
     </Box>
   );
 }
