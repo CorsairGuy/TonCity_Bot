@@ -169,13 +169,13 @@ function MachineCard({ m, cat, data, accountId, accounts, onChanged, onFlash }: 
           <Item id={tier.output.item_id} q={tier.output.quantity} />
           <Box sx={{ ml: 1, minWidth: 0, whiteSpace: 'nowrap' }}>
             <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}><ClockIcon size={12} /> {dur(tier.duration_seconds)}{tier.fee_crystals > 0 ? ` · 💎${tier.fee_crystals}` : ''}</Text>
-            <Text sx={{ fontSize: 0, color: limited ? 'danger.fg' : 'fg.muted' }}>{limited ? 'лимит исчерпан' : limitText(tier)}</Text>
+            <Text sx={{ fontSize: 0, color: limited ? 'danger.fg' : 'fg.muted' }}>{limitText(tier)}</Text>
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 2, mt: 'auto' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Button block variant="primary" leadingVisual={PlusIcon} loading={busy === 'go'} disabled={limited || short || !!busy} onClick={start}>
-              {short ? 'Не хватает сырья' : idle ? 'Запустить' : 'В очередь'}
+            <Button block variant="primary" leadingVisual={limited ? ClockIcon : PlusIcon} loading={busy === 'go'} disabled={limited || short || !!busy} onClick={start}>
+              {limited ? 'Лимит исчерпан' : short ? 'Не хватает сырья' : idle ? 'Запустить' : 'В очередь'}
             </Button>
           </Box>
           {accounts.length > 1 && (
