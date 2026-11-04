@@ -800,6 +800,7 @@ export interface AppConfig {
   logLevel: string;
   ui?: { navOpenGroups?: string[]; mapDayNight?: 'auto' | 'day' | 'night'; theme?: 'light' | 'dark' | null; cityOrder?: string[] };
   update?: { auto?: boolean };
+  guildFees?: { auto?: boolean; reserve?: { coins?: number; crystals?: number } };
   telegram?: {
     botToken?: string;
     maintenanceChatId?: string; maintenanceThreadId?: string;

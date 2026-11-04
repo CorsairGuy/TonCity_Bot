@@ -29,6 +29,9 @@ const DEFAULTS={
   // BOT_TAG в .env — его меняет обновлятель; здесь только «ставить новое само» для плавающих каналов
   // (ветка, stable). Закреплённая версия не обновляется никогда.
   update:{auto:true},
+  // автооплата гильдейских взносов (modules/guildFeesAuto.js): трата валюты — по умолчанию выключена;
+  // reserve — сколько монет/кристаллов должно остаться на балансе после оплаты
+  guildFees:{auto:false,reserve:{coins:0,crystals:0}},
   logLevel:'info',
   growthModePopulation:2500000,
   staking:{amount:0,currency:'coins',duration:30},sellItems:[],promoCodes:[],
@@ -75,6 +78,7 @@ function getConfig(){
     growthModePopulation:s.growthModePopulation??2500000,
     features:s.features,
     questAutomation:s.questAutomation,
+    guildFees:s.guildFees,
       stakingConfig,sellItems,
     promoCodes:Array.isArray(s.promoCodes)?s.promoCodes.filter(Boolean):[],
     tgBotToken:process.env.TG_BOT_TOKEN||'',

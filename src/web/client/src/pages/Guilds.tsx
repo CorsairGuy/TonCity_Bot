@@ -10,6 +10,34 @@ import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { PageHeader } from '../components/PageHeader';
 import { useAsk } from '../hooks/useAsk';
 
+// автооплата взносов всех аккаунтов (modules/guildFeesAuto.js) — отдельная настройка, по умолчанию выключена
+function GuildFeesAuto() {
+  const [cfg, setCfg] = useState<{ auto: boolean; coins: string; crystals: string } | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const ask = useAsk();
+  useEffect(() => { api.config().then(r => { if (r.ok) { const g = r.settings.guildFees ?? {}; setCfg({ auto: !!g.auto, coins: String(g.reserve?.coins ?? 0), crystals: String(g.reserve?.crystals ?? 0) }); } }); }, []);
+  if (!cfg) return null;
+  const save = async (next: typeof cfg) => {
+    const r = await api.saveConfig({ guildFees: { auto: next.auto, reserve: { coins: Math.max(0, Number(next.coins) || 0), crystals: Math.max(0, Number(next.crystals) || 0) } } });
+    setSaved(r.ok ? 'Сохранено' : 'Не удалось сохранить');
+  };
+  const toggle = async () => {
+    if (!cfg.auto && !await ask('Включить автооплату взносов?', 'Бот раз в 3 часа будет сам оплачивать остаток взноса на всех аккаунтах, если после оплаты на балансе останется не меньше резерва.', { ok: 'Включить' })) return;
+    const next = { ...cfg, auto: !cfg.auto }; setCfg(next); void save(next);
+  };
+  return <Box sx={{ borderTop: '1px solid', borderColor: 'border.default', pt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box as="label" sx={{ display: 'flex', gap: 2, alignItems: 'center', fontWeight: 'semibold' }}>
+      <Checkbox checked={cfg.auto} onChange={toggle} /> Автооплата взносов на всех аккаунтах
+    </Box>
+    <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Оставлять на балансе после оплаты не меньше:</Text>
+    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+      <TextInput sx={{ width: 160 }} trailingVisual="монет" inputMode="numeric" value={cfg.coins} onChange={e => setCfg({ ...cfg, coins: e.target.value.replace(/\D/g, '') })} onBlur={() => save(cfg)} />
+      <TextInput sx={{ width: 160 }} trailingVisual="алмазов" inputMode="numeric" value={cfg.crystals} onChange={e => setCfg({ ...cfg, crystals: e.target.value.replace(/\D/g, '') })} onBlur={() => save(cfg)} />
+      {saved && <Text sx={{ color: 'fg.muted', fontSize: 0 }}>{saved}</Text>}
+    </Box>
+  </Box>;
+}
+
 const FEE_STATUS: Record<string, string> = { due: 'нужно оплатить', paid: 'оплачен', exempt: 'освобождён', next_period: 'со следующего периода' };
 function GuildFeesModal({ accountId, accountName, onClose }: { accountId: number; accountName: string; onClose: () => void }) {
   const [data, setData] = useState<GuildFeesState | null>(null);
@@ -58,6 +86,7 @@ function GuildFeesModal({ accountId, accountName, onClose }: { accountId: number
         ]} /></Table.Container>}
       </>}
       <Button disabled={loading || busy} onClick={load}>Обновить взнос</Button>
+      <GuildFeesAuto />
     </Box>
   </Dialog>;
 }
