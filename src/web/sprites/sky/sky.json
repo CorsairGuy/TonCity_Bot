@@ -1,0 +1,96 @@
+{
+ "tile": "tile.webp",
+ "tileWorld": 32768,
+ "masks": [
+  "mask-0.webp",
+  "mask-1.webp",
+  "mask-2.webp",
+  "mask-3.webp"
+ ],
+ "maskWorld": 32768,
+ "layers": [
+  {
+   "dx": 634,
+   "dy": 914,
+   "color": [
+    60,
+    104,
+    128
+   ],
+   "alpha": 0.675
+  },
+  {
+   "dx": 1833,
+   "dy": 2640,
+   "color": [
+    60,
+    104,
+    128
+   ],
+   "alpha": 0.675
+  },
+  {
+   "dx": 3349,
+   "dy": 4822,
+   "color": [
+    60,
+    104,
+    128
+   ],
+   "alpha": 0.675
+  },
+  {
+   "dx": 5111,
+   "dy": 7360,
+   "color": [
+    0,
+    0,
+    0
+   ],
+   "alpha": 0.495
+  }
+ ],
+ "shadows": {
+  "main": [
+   {
+    "file": "shadow-main-0.png",
+    "pad": 160
+   },
+   {
+    "file": "shadow-main-1.png",
+    "pad": 360
+   },
+   {
+    "file": "shadow-main-2.png",
+    "pad": 616
+   },
+   {
+    "file": "shadow-main-3.png",
+    "pad": 912
+   }
+  ],
+  "d1": [
+   {
+    "file": "shadow-d1-0.png",
+    "pad": 160
+   },
+   {
+    "file": "shadow-d1-1.png",
+    "pad": 360
+   },
+   {
+    "file": "shadow-d1-2.png",
+    "pad": 616
+   },
+   {
+    "file": "shadow-d1-3.png",
+    "pad": 912
+   }
+  ]
+ },
+ "avg": [
+  135,
+  181,
+  198
+ ]
+}

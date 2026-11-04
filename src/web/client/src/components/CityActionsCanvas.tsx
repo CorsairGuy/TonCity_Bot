@@ -1,3 +1,4 @@
+import { loadSky, paintSky, skyAvg, type SkyIsland } from './mapSky';
 import { D1_ISLAND_SPRITES, MAIN_ISLAND_SPRITES, d1IslandRects, mainIslandRects, islandClipRect } from '../cityIsland';
 import { upgradeDuration } from '../cityStats';
 import type { CityDistrict } from '../cityDistricts';
@@ -48,6 +49,9 @@ let spriteMapCache: Record<string, { pngUrl: string; frame: { x: number; y: numb
 const TW = 90;
 const TH = Math.round(TW * 434 / 753); // 52
 const MIN_SCALE = 0.3, MAX_SCALE = 2;
+// инерция пана из игры (pixi-viewport decelerate, параметры по умолчанию): доля скорости, остающаяся
+// через 16 мс, и скорость (px/мс), ниже которой карта останавливается
+const INERTIA_FRICTION = 0.98, INERTIA_MIN = 0.01;
 
 // Отрисовка рассчитана на 60 кадров/с при быстром свайпе на любом устройстве: неподвижная часть
 // карты (земля, дороги, здания, бейджи уровней) рисуется кусками CHUNK×CHUNK device-px, и каждый
@@ -68,7 +72,6 @@ const MAX_VISIBLE_CHUNKS_PER_FRAME = 3;
 const MAX_RING_CHUNKS_PER_FRAME = 1;
 const ZOOM_SETTLE_MS = 180;
 // фон карты: куски непрозрачные (alpha:false) — композитору не нужно смешивать их с подложкой
-const MAP_BG = '#d8d8d8';
 // упрощение на дальнем зуме (ширина клетки на экране, device-px): мельче BADGE_PX — без бейджей
 // уровней, пятен света фонарей и отсвета окон; мельче COARSE_PX — каждый город одной готовой картинкой
 // (карта всех городов, см. Props.world)
@@ -445,6 +448,9 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     // dirty — такие куски, они перерисовываются, только пока карту не тянут; lampGlows — пятна света
     // фонарей на земле; nightHold — карта ждёт ночной набор и пока не рисует новые куски
     nightOn: false,
+    // небо за картой (mapSky.ts): средний цвет — фон до загрузки облаков и пелена; острова — их тени
+    sky: skyAvg(null),
+    skyIslands: [] as SkyIsland[],
     dayNight: 'day' as DayNightMode,
     ph: null as Phase | null,
     lit: new Map<string, number>(),
@@ -478,6 +484,10 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     coarseImg: new Map<number, { el: HTMLCanvasElement; ver: number }>(),
     coarseDirty: new Set<number>(),
     camKey: -1,
+    // инерция пана как в игре (плагин decelerate из pixi-viewport): pan — последние положения карты
+    // при протяжке, inertia — скорость в px/мс после отпускания и время с отпускания
+    pan: [] as { x: number; y: number; t: number }[],
+    inertia: null as { vx: number; vy: number; since: number; last: number } | null,
     anim: null as { from: { cx: number; cy: number; tile: number }; to: { cx: number; cy: number; tile: number }; t0: number } | null,
     lastView: '',
     lastCenter: null as { cx: number; cy: number; tile: number } | null,
@@ -603,6 +613,42 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     const m = 120;
     s.ox = Math.min(s.ox, W - m); s.ox = Math.max(s.ox, m - mapW);
     s.oy = Math.min(s.oy, H - m); s.oy = Math.max(s.oy, m - mapH);
+  }
+
+  // Инерция — точная копия decelerate из pixi-viewport, которым карта игры двигается с параметрами
+  // по умолчанию (friction 0.98 за кадр в 16 мс, minSpeed 0.01 px/мс): скорость берётся по самой старой
+  // точке протяжки за последние 100 мс, затем гаснет по экспоненте; путь за кадр — интеграл скорости,
+  // поэтому от частоты кадров не зависит
+  function panSample() {
+    const s = state.current;
+    s.pan.push({ x: s.ox, y: s.oy, t: performance.now() });
+    if (s.pan.length > 60) s.pan.splice(0, 30);
+  }
+  function startInertia() {
+    const s = state.current, now = performance.now();
+    const p = s.pan.find(q => q.t >= now - 100);
+    s.pan = [];
+    if (!p || now - p.t <= 0) return;
+    const vx = (s.ox - p.x) / (now - p.t), vy = (s.oy - p.y) / (now - p.t);
+    if (Math.abs(vx) < INERTIA_MIN && Math.abs(vy) < INERTIA_MIN) return;
+    s.inertia = { vx, vy, since: 0, last: now };
+    requestRedraw();
+  }
+  function stepInertia() {
+    const s = state.current, it = s.inertia; if (!it) return;
+    const now = performance.now(), dt = Math.min(now - it.last, 100);
+    it.last = now;
+    const f = INERTIA_FRICTION, ln = Math.log(f), k = Math.pow(f, (it.since + dt) / 16) - Math.pow(f, it.since / 16);
+    const ox = s.ox + it.vx * 16 / ln * k, oy = s.oy + it.vy * 16 / ln * k;
+    s.ox = ox; s.oy = oy;
+    clampPan();
+    // упёрлись в край — по этой оси дальше не катимся
+    if (s.ox !== ox) it.vx = 0;
+    if (s.oy !== oy) it.vy = 0;
+    it.vx *= Math.pow(f, dt / 16); it.vy *= Math.pow(f, dt / 16);
+    it.since += dt;
+    if (Math.abs(it.vx) < INERTIA_MIN && Math.abs(it.vy) < INERTIA_MIN) s.inertia = null;
+    else requestRedraw();
   }
 
   // ширина спрайта под максимальный зум этого экрана: на MAX_SCALE пиксель спрайта = пиксель экрана
@@ -805,6 +851,15 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     let parts: Part[];
     const changed: { c: number; old: Part['box']; box: Part['box'] }[] = [];
     const regions = s.regions;
+    // острова, чьи тени лежат на облаках: мировой прямоугольник всей картинки острова
+    s.skyIslands = s.type !== 'city' ? [] : (s.cityAt && regions.length ? regions.map(rg => [rg.gx, rg.gy]) : [[0, 0]]).map(([gx, gy]) => {
+      const o = isoToScreen(gx - s.x0, gy - s.y0), kind = s.district === 'd1' ? 'd1' as const : 'main' as const;
+      const b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity, kind };
+      for (const r of (kind === 'd1' ? d1IslandRects : mainIslandRects)(o.x, o.y, TW, TH)) {
+        if (r.x0 < b.x0) b.x0 = r.x0; if (r.y0 < b.y0) b.y0 = r.y0; if (r.x1 > b.x1) b.x1 = r.x1; if (r.y1 > b.y1) b.y1 = r.y1;
+      }
+      return b;
+    });
     if (s.cityAt && regions.length) {
       // подпись города: постройки, подписи бейджей и затенение — что меняет его элементы
       const dim = DIM_INAPPLICABLE_MODES.has(s.mode);
@@ -1045,6 +1100,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
   function nightTick() {
     const s = state.current;
     if (!s.nightOn) return;
+    if (updateSky()) { applyGround(); s.listDirty = true; s.fullList = true; invalidateLayer(); }
     const hour = hourFor(s.dayNight), ph = phaseAt(stepOf(hour));
     setPhase(ph);
     // ночной набор ещё не готов — новые куски не рисуем (на экране остаются прежние), пока не будет
@@ -1056,8 +1112,15 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     if (updateLit(hour, true)) requestRedraw();
   }
 
+  // средний цвет неба под текущую ступень суток
+  function updateSky(): boolean {
+    const s = state.current, c = skyAvg(s.ph);
+    if (c === s.sky) return false;
+    s.sky = c; return true;
+  }
   function applyGround() {
-    const bg = state.current.ph?.ground ?? MAP_BG;
+    updateSky();
+    const bg = state.current.sky;
     if (wrapRef.current) wrapRef.current.style.background = bg;
     if (focusVeilRef.current) focusVeilRef.current.style.background = bg;
   }
@@ -1117,9 +1180,6 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       layerFor(r).appendChild(el);
     }
     const ctx = el.getContext('2d', { alpha: false })!;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = s.ph ? s.ph.ground : MAP_BG;
-    ctx.fillRect(0, 0, CHUNK, CHUNK);
     // 'low' = обычная билинейная выборка: нужный mip-уровень уже выбран (сжатие не больше 2:1), а
     // 'high' заставляет GPU строить свои mip-цепочки для каждого спрайта при каждой отрисовке куска
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'low';
@@ -1127,6 +1187,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     // запас 2 мировых px: обводка тайла и сглаживание краёв спрайта выходят за bbox на полпикселя
     const wx0 = cx * cw - 2, wy0 = cy * cw - 2, wx1 = (cx + 1) * cw + 2, wy1 = (cy + 1) * cw + 2;
     ctx.setTransform(r, 0, 0, r, -cx * CHUNK, -cy * CHUNK);
+    paintSky(ctx, wx0, wy0, wx1, wy1, s.skyIslands, s.ph);
     s.dirty.delete(`${r}:${cx}:${cy}`);
     // дальний зум карты всех городов: каждый город — готовой картинкой; какой ещё нет, кусок дорисуется позже
     if (isCoarse(r)) {
@@ -1182,11 +1243,11 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     if (s.loading && !s.loadReady) return false;
     // куски, где зажглись или погасли окна, перерисовываются, только пока карту не тянут и не зумят:
     // на это время они копятся
-    const allowDirty = !s.dragging && s.pinchDist == null && !s.zoomTimer;
+    const allowDirty = !s.dragging && !s.inertia && s.pinchDist == null && !s.zoomTimer;
     const isDirty = (key: string) => allowDirty && s.dirty.size > 0 && s.dirty.has(key);
-    // видимая область в мировых координатах, обрезанная по содержимому карты
-    const vx0 = Math.max(-s.ox / s.scale, s.world.x0), vy0 = Math.max(-s.oy / s.scale, s.world.y0);
-    const vx1 = Math.min((W - s.ox) / s.scale, s.world.x1), vy1 = Math.min((H - s.oy) / s.scale, s.world.y1);
+    // видимая область в мировых координатах — вся, без обрезки по карте: за краем карты тоже небо с облаками
+    const vx0 = -s.ox / s.scale, vy0 = -s.oy / s.scale;
+    const vx1 = (W - s.ox) / s.scale, vy1 = (H - s.oy) / s.scale;
     if (vx1 <= vx0 || vy1 <= vy0) { s.loading = false; return false; }
     const cw = CHUNK / r;
     const range = (ring: number) => ({
@@ -1425,6 +1486,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       else centerOnBuildings();
       s.needsCenter = false;
     }
+    if (s.inertia) stepInertia();
     if (s.anim) {
       const p = Math.min(1, (performance.now() - s.anim.t0) / 320), e = 1 - Math.pow(1 - p, 3), f = s.anim.from, t = s.anim.to;
       lookAt(f.cx + (t.cx - f.cx) * e, f.cy + (t.cy - f.cy) * e, f.tile * Math.pow(t.tile / f.tile, e), W, H);
@@ -1488,7 +1550,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
 
     // проход 1.5 — заливки карты всех городов: города целиком, затем клетки
     for (const p of s.regionPaths) {
-      if (p.fill === REGION_FADE) { ctx.globalAlpha = 0.62; ctx.fillStyle = s.ph ? s.ph.ground : MAP_BG; ctx.fill(p.path); ctx.globalAlpha = 1; }
+      if (p.fill === REGION_FADE) { ctx.globalAlpha = 0.62; ctx.fillStyle = s.sky; ctx.fill(p.path); ctx.globalAlpha = 1; }
       else { ctx.fillStyle = p.fill; ctx.fill(p.path); }
     }
     for (const p of s.fillPaths) {
@@ -1685,6 +1747,9 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     };
   }, [dayNight, type]);
 
+  // облака неба грузятся один раз на страницу; пришли — куски перерисовываются уже с ними
+  useEffect(() => { let alive = true; loadSky(() => { if (alive) invalidateLayer(); }); return () => { alive = false; }; }, []);
+
   useEffect(() => {
     const c = fpsRef.current;
     if (!c) return undefined;
@@ -1820,6 +1885,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     requestRedraw();
 
     const cancelCamera = () => {
+      s.inertia = null; s.pan = [];
       const cam = camRef.current;
       // Отменяем и наезд, который уже запрошен, но ещё не попал в первый кадр.
       if (!s.anim && (!cam || cam.key === s.camKey)) return;
@@ -1871,7 +1937,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       if (s.dragging) {
         if (Math.abs(e.clientX - downX) > 3 || Math.abs(e.clientY - downY) > 3) moved = true;
         s.ox = e.clientX - s.dx; s.oy = e.clientY - s.dy;
-        clampPan(); requestRedraw();
+        clampPan(); panSample(); requestRedraw();
       } else if (s.selStart) {
         const rect = wrap.getBoundingClientRect();
         const t = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
@@ -1907,6 +1973,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       }
     };
     const onMouseUp = (e: MouseEvent) => {
+      if (s.dragging && moved) startInertia();
       s.dragging = false;
       if (s.loading || performance.now() < s.ignoreMouseUntil) { downOnMap = false; return; }
       if (!downOnMap) return;
@@ -2022,7 +2089,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       if (s.dragging) {
         if (Math.abs(t0.clientX - downX) > 3 || Math.abs(t0.clientY - downY) > 3) moved = true;
         s.ox = t0.clientX - s.dx; s.oy = t0.clientY - s.dy;
-        clampPan(); requestRedraw();
+        clampPan(); panSample(); requestRedraw();
       } else if (s.selStart) {
         const rect = wrap.getBoundingClientRect();
         const t = screenToGrid(t0.clientX - rect.left, t0.clientY - rect.top);
@@ -2060,6 +2127,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       // Вся последовательность multi-touch — только камера, последний палец не становится тапом.
       if (touchSuppressed) { resetTouch(); return; }
       s.pinchDist = null; s.pinchMidX = null; s.pinchMidY = null;
+      if (s.dragging && moved) startInertia();
       s.dragging = false;
       if (s.selStart) {
         const t1 = s.selStart, t2 = s.selCur ?? s.selStart;
@@ -2173,12 +2241,12 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
   const cursor = mode !== 'view' ? 'crosshair' : 'grab';
 
   return (
-    <div ref={wrapRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor, background: MAP_BG, border: '1px solid var(--border)', touchAction: 'none' }}>
+    <div ref={wrapRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor, background: state.current.sky, border: '1px solid var(--border)', touchAction: 'none' }}>
       <div ref={layersRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />
       <canvas ref={canvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
       <div ref={focusWrapRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, transition: 'opacity 180ms ease' }}
         onTransitionEnd={() => { if (focusWrapRef.current?.style.opacity === '0') state.current.focusShown = null; }}>
-        <div ref={focusVeilRef} style={{ position: 'absolute', inset: 0, background: MAP_BG, opacity: 0.88 }} />
+        <div ref={focusVeilRef} style={{ position: 'absolute', inset: 0, background: state.current.sky, opacity: 0.88 }} />
         <canvas ref={focusCanvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
       </div>
       <canvas ref={fpsRef} />
