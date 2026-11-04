@@ -45,12 +45,8 @@ module.exports=function(app,ctx){
       // показывает ДОСОБЫТИЙНЫЕ цены: на карнавале скидку −75% сервер отдаёт прямо в каталоге
       // (base_price ×0.25), и без живого каталога все цены на карте города вчетверо завышены —
       // ровно на это была жалоба 21.08.2026, уже ПОСЛЕ починки каталога у бота.
-      // СТОЛИЦА: у неё свой формат и свой файл, живого каталога для неё нет.
-      if(req.query.type==='capital'){
-        const fp=path.join(process.cwd(),'config','capital_buildings.txt');
-        if(!fs.existsSync(fp))return res.json({ok:true,buildings:[]});
-        return res.json({ok:true,buildings:JSON.parse(fs.readFileSync(fp,'utf8'))});
-      }
+      // СТОЛИЦА: свой формат; живой каталог /capitals/buildings/ (utils/capitalCatalog.js), фолбэк — capital_buildings.txt.
+      if(req.query.type==='capital')return res.json({ok:true,buildings:require('../../utils/capitalCatalog').list()});
       const map=require('../cityStats').buildingsMap();
       res.json({ok:true,buildings:[...map.values()]});
     }catch(e){res.status(500).json({ok:false,error:e.message});}

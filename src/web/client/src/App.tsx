@@ -69,6 +69,7 @@ const AnniversaryMidway = lazy(() => import('./pages/AnniversaryMidway').then(m 
 const ShopTickets = lazy(() => import('./pages/ShopTickets').then(m => ({ default: m.ShopTickets })));
 const GreatestMayors = lazy(() => import('./pages/GreatestMayors').then(m => ({ default: m.GreatestMayors })));
 const PlayerCity = lazy(() => import('./pages/PlayerCity').then(m => ({ default: m.PlayerCity })));
+const MyRanks = lazy(() => import('./pages/MyRanks').then(m => ({ default: m.MyRanks })));
 const Leagues = lazy(() => import('./pages/Leagues').then(m => ({ default: m.Leagues })));
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })));
@@ -129,7 +130,7 @@ const PAGE_GROUP: Record<string, string> = {
   'anniversary-offer': 'anniversary', 'anniversary-carnival': 'anniversary',
   'anniversary-road': 'anniversary', 'anniversary-vault': 'anniversary', 'shop-tickets': 'anniversary',
   'anniversary-midway': 'anniversary',
-  'greatest-mayors': 'rating', leagues: 'rating',
+  'greatest-mayors': 'rating', leagues: 'rating', 'my-ranks': 'rating',
 };
 
 // ── sidebar nav component ─────────────────────────────────────────────────────
@@ -302,6 +303,7 @@ function SidebarNav({ open, onClose }: { open: boolean; onClose: () => void }) {
           <>
             {item('greatest-mayors', 'Величайшие мэры', TrophyIcon)}
             {item('leagues',         'Лиги',            StackIcon)}
+            {item('my-ranks',        'Мои аккаунты',    PersonIcon)}
           </>
         )}
 
@@ -427,6 +429,7 @@ export default function App() {
           <Route path="/questTiers"      element={<QuestTiers />} />
           <Route path="/capitals"        element={<Capitals />} />
           <Route path="/greatest-mayors" element={<GreatestMayors />} />
+          <Route path="/my-ranks"        element={<MyRanks />} />
           <Route path="/leagues"         element={<Leagues />} />
           <Route path="/player-city"     element={<PlayerCity />} />
           <Route path="/city"            element={<CityWorld />} />

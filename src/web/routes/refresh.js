@@ -42,7 +42,12 @@ module.exports=function(app,ctx){
         // каталог зданий (цены) — на событиях игра меняет их прямо в каталоге, см.
         // utils/buildingCatalog.js. Достаточно одного аккаунта, но проход по всем безвреден:
         // повторные вызовы просто перезапишут файл теми же числами.
-        buildings:(api)=>require('../../utils/buildingCatalog').refresh(api),
+        buildings:async(api)=>{
+          const n=await require('../../utils/buildingCatalog').refresh(api);
+          // каталог столицы — той же кнопкой; его сбой не ломает обновление каталога города
+          try{await require('../../utils/capitalCatalog').refresh(api);}catch(e){require('../../utils/logger').warn(`[capital] каталог столицы: ${e.message}`);}
+          return n;
+        },
         // каталог предметов + докачка иконок новых предметов (см. utils/itemCatalog.js)
         items:(api)=>require('../../utils/itemCatalog').refresh(api),
         inventory:require('../../modules/inventory').runInventory,

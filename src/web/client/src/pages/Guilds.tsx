@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { GuildExtrasModal } from '../components/GuildExtrasModal';
 import { Box, Button, Checkbox, Flash, Label, Select, Text, TextInput, Spinner } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
@@ -386,6 +387,7 @@ export function Guilds() {
   const [rows, setRows] = useState<GuildMembership[]>([]);
   const [feeAccount, setFeeAccount] = useState('');
   const [feesOpen, setFeesOpen] = useState(false);
+  const [extrasOpen, setExtrasOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:guilds', () => load());
   const [appsGuild, setAppsGuild] = useState<{ id: string; title: string } | null>(null);
@@ -478,7 +480,9 @@ export function Guilds() {
           {rows.filter(r => r.account_id != null).map(r => <Select.Option key={r.account_id!} value={String(r.account_id)}>{r.account} · {r.guild_title}</Select.Option>)}
         </Select>
         <Button onClick={() => setFeesOpen(true)}>Проверить взнос</Button>
+        <Button onClick={() => setExtrasOpen(true)}>Казна, Почёт, достижения</Button>
       </Box>}
+      {extrasOpen && (() => { const id = Number(feeAccount || rows.find(r => r.account_id != null)?.account_id); const r = rows.find(x => x.account_id === id); return <GuildExtrasModal key={id} accountId={id} title={`${r?.guild_title ?? ''} (${r?.account ?? ''})`} onClose={() => setExtrasOpen(false)} />; })()}
       {feesOpen && <GuildFeesModal key={feeAccount || String(rows.find(r => r.account_id != null)?.account_id)} accountId={Number(feeAccount || rows.find(r => r.account_id != null)?.account_id)} accountName={rows.find(r => String(r.account_id) === feeAccount)?.account || rows.find(r => r.account_id != null)?.account || ''} onClose={() => setFeesOpen(false)} />}
 
       {leaderGuilds.length === 0

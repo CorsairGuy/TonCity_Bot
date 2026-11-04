@@ -1,17 +1,10 @@
 'use strict';
 // Общие для modules/capital.js и modules/capitalProgress.js хелперы столицы — вынесены в
 // отдельный файл, чтобы избежать циклического require между этими двумя модулями.
-const fs=require('fs'),path=require('path');
 
 function loadCapBuildingsMap(){
-  try{
-    const fp=path.join(process.cwd(),'config','capital_buildings.txt');
-    if(fs.existsSync(fp)){
-      const list=JSON.parse(fs.readFileSync(fp,'utf8'));
-      return new Map(list.map(b=>[b.id,b]));
-    }
-  }catch(_){}
-  return new Map();
+  // живой каталог игры (utils/capitalCatalog.js), статичный capital_buildings.txt — фолбэк
+  return new Map(require('../utils/capitalCatalog').list().map(b=>[b.id,b]));
 }
 
 // уровень штабквартиры (hall) — от него зависят lvl-ограничения остальных зданий (getMaxAllowedLevel)

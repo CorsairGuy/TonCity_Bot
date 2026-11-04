@@ -20,6 +20,7 @@ items-live/
 config/items-live.json
 config/items-locale.json
 config/buildings-live.json
+config/capital-buildings-live.json
 config/github-cache.json
 # архивы бандла игры (scripts/tools/game-bundle.js)
 bundles/

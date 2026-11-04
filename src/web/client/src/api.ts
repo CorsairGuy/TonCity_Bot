@@ -27,7 +27,21 @@ const post = (body?: unknown): RequestInit => ({
   body: body !== undefined ? JSON.stringify(body) : undefined,
 });
 
+export type ExtraKind = 'metrics' | 'rank' | 'pack-info' | 'treasury' | 'treasury-actions' | 'treasury-lb' | 'renown' | 'renown-actions' | 'renown-lb'
+  | 'satoshi-history' | 'gram-tx' | 'achievements' | 'guild-achievements' | 'guild-notifications' | 'notifications-unread' | 'notify-can-send';
+export interface ExtraResp<T = unknown> { ok: boolean; error?: string; data: T | null; updated_at: string | null }
+
 export const api = {
+  // Новые ручки 2.5 (routes/gameExtras.js): get — снимок из БД, refresh — запрос в игру по кнопке
+  extra: <T,>(kind: ExtraKind, account?: number, ref?: string | number) =>
+    req<ExtraResp<T>>(`/api/extras/${kind}?${new URLSearchParams({ ...(account != null ? { account: String(account) } : {}), ...(ref != null ? { ref: String(ref) } : {}) })}`),
+  extraAll: <T,>(kind: ExtraKind) =>
+    req<{ ok: boolean; error?: string; rows: { account_id: number; data: T | null; updated_at: string | null }[] }>(`/api/extras/${kind}/all`),
+  extraRefresh: <T,>(kind: ExtraKind, accountId: number, ref?: string | number) =>
+    req<ExtraResp<T>>(`/api/extras/${kind}/refresh`, post({ account_id: accountId, ref: ref != null ? String(ref) : undefined })),
+  extraAction: <T = unknown,>(action: string, body: Record<string, unknown>) =>
+    req<{ ok: boolean; error?: string; data?: T }>(`/api/extras/${action}`, post(body)),
+
   // maintenance (автопауза запросов к игре во время техработ)
   maintenance: () => req<{ ok: boolean; active: boolean; since: number | null; retryInMs: number }>('/api/maintenance'),
 
@@ -398,6 +412,14 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/start`, post({ target_guild_id: targetGuildId, duration_hours: durationHours })),
   midCampaignsDeploy: (guildId: string, campaignId: number) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/deploy`, post({ campaign_id: campaignId })),
+  midCampaignsVolunteer: (guildId: string, campaignId: number, withdraw = false) =>
+    req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/volunteer${withdraw ? '/withdraw' : ''}`, post({ campaign_id: campaignId })),
+  midCampaignsDecide: (guildId: string, campaignId: number, userId: number, approve: boolean) =>
+    req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/volunteer/decide`, post({ campaign_id: campaignId, user_id: userId, approve })),
+  midCampaignsNotifyTargets: (guildId: string, campaignId: number) =>
+    req<{ ok: boolean; data?: { members?: MidNotifyTarget[] }; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/notify-targets?campaign_id=${campaignId}`),
+  midCampaignsNotify: (guildId: string, campaignId: number, userIds: number[]) =>
+    req<{ ok: boolean; data?: { sent?: number }; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/notify`, post({ campaign_id: campaignId, user_ids: userIds })),
   midCampaignsCallToArms: (guildId: string, campaignId: number) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/call-to-arms`, post({ campaign_id: campaignId })),
   midInvitationsBuy: (guildId: string, packageIndex: number) =>
@@ -1152,10 +1174,23 @@ export interface MidCampaignConfig {
   enemy_spoils_bonus?: number;
   mobilized_income_bane?: number;
 }
+// Просьба союзника о помощи (ally_calls в /guild-campaigns/overview, бандл 2.5: chunks/_id_-*.js)
+export interface MidAllyVolunteer { user_id: number; name?: string; status: 'pending' | 'approved' | 'rejected' | string }
+export interface MidAllyCall {
+  campaign: { id: number; ends_at?: string; attacker?: MidCampaignSide; defender?: MidCampaignSide };
+  volunteers?: MidAllyVolunteer[];
+  my_status?: 'pending' | 'approved' | 'rejected' | null;
+  can_volunteer?: boolean;
+  volunteer_blocked_by?: string | null;
+  is_admin?: boolean;
+}
+export interface MidNotifyTarget { user_id: number; name?: string; notified?: boolean; deployed?: boolean }
 export interface MidCampaignsData {
   active: MidCampaign[];
   recent: MidCampaignRecent[];
   config: MidCampaignConfig;
+  ally_calls?: MidAllyCall[];
+  is_admin?: boolean;
 }
 
 export interface MidSearchGuild {

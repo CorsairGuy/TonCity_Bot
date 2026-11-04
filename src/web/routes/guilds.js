@@ -229,6 +229,32 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
   });
 
+  // Добровольцы союзника (ally_calls из /guild-campaigns/overview) и оповещение своих участников о
+  // кампании — пути и тела из бандла 2.5 (chunks/_id_-*.js: volunteer/withdraw/decide, notify-targets/notify).
+  // Только по кнопке, без повторов; ответ игры отдаём как есть, страница перечитывает МИД.
+  const campaignPost=(sub,build)=>app.post(`/api/mid-live/:guildId/campaigns/${sub}`,async(req,res)=>{
+    try{
+      const campaign_id=Number(req.body?.campaign_id);
+      if(!Number.isSafeInteger(campaign_id)||campaign_id<=0)return res.status(400).json({ok:false,error:'campaign_id обязателен'});
+      const body=build(campaign_id,req.body||{});
+      if(body instanceof Error)return res.status(400).json({ok:false,error:body.message});
+      const api=await midApi(req.params.guildId);
+      res.json({ok:true,data:await api.post(`/guild-campaigns/${sub}`,body)});
+    }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
+  });
+  campaignPost('volunteer',id=>({campaign_id:id}));
+  campaignPost('volunteer/withdraw',id=>({campaign_id:id}));
+  campaignPost('volunteer/decide',(id,b)=>{const u=Number(b.user_id);return Number.isSafeInteger(u)&&u>0?{campaign_id:id,user_id:u,approve:!!b.approve}:new Error('user_id обязателен');});
+  campaignPost('notify',(id,b)=>{const ids=(Array.isArray(b.user_ids)?b.user_ids:[]).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0);return ids.length?{campaign_id:id,user_ids:ids}:new Error('Не выбраны участники');});
+  app.get('/api/mid-live/:guildId/campaigns/notify-targets',async(req,res)=>{
+    try{
+      const id=Number(req.query.campaign_id);
+      if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({ok:false,error:'campaign_id обязателен'});
+      const api=await midApi(req.params.guildId);
+      res.json({ok:true,data:await api.get('/guild-campaigns/notify-targets',{campaign_id:id})});
+    }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
+  });
+
   app.post('/api/mid-live/:guildId/invitations/buy',async(req,res)=>{
     try{
       const api=await midApi(req.params.guildId);

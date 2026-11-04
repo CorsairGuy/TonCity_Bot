@@ -247,6 +247,7 @@ class ApiClient{
   // ходы до конца общего таймаута, хотя ход уже применён. Ждать 30 с незачем — вызывающий код сам
   // перечитывает состояние (resync); сам POST при этом, как и прежде, не повторяется.
   async post(p,d={},opts={}){return this._request('POST',p,()=>this._ax.post(p,d,{headers:{'content-type':'application/json',...this._sign('POST',p)},...(opts.timeout?{timeout:opts.timeout}:{})}));}
+  async del(p){return this._request('DELETE',p,()=>this._ax.delete(p,{headers:this._sign('DELETE',p)}));}
   async patch(p,d={}){return this._request('PATCH',p,()=>this._ax.patch(p,d,{headers:{'content-type':'application/json',...this._sign('PATCH',p)}}));}
 }
 module.exports=ApiClient;

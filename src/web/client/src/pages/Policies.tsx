@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAsk } from '../hooks/useAsk';
 import { Box, Button, Flash, Spinner, Text, Label, Tooltip, ConfirmationDialog, IconButton, TextInput } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { SyncIcon, TrashIcon, CheckCircleIcon, XCircleIcon, StarIcon, ArrowUpIcon, DashIcon, PlusIcon, UnlockIcon, PlusCircleIcon, type Icon } from '@primer/octicons-react';
@@ -107,7 +108,24 @@ function PolicyModal({ policy, accountId, enacted, freeSlots, snapshotAt, reform
   const { flash, showFlash } = useFlash();
   const color = RARITY_COLOR[policy.rarity] ?? '#6e7681';
 
+  const ask = useAsk();
+  // «Снять»: сначала POST /policies/unequip/preview (как в игре) — если игра сообщает штраф,
+  // показываем его и снимаем только после подтверждения
+  const penaltyText = (p: unknown): string[] => p && typeof p === 'object'
+    ? Object.entries(p as Record<string, unknown>).filter(([, v]) => v != null && v !== false).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+    : [String(p)];
   const run = async (action: PolicyActionName) => {
+    if (action === 'unequip') {
+      setBusy(action);
+      const pv = await api.extraAction<{ penalty?: unknown }>('policy-unequip-preview', { account_id: accountId, instance_id: policy.id });
+      setBusy(null);
+      if (!pv.ok) { showFlash(pv.error ?? 'Не удалось проверить последствия снятия', false); return; }
+      const penalty = pv.data?.penalty;
+      if (penalty != null && !await ask('Снять политику со штрафом?', <Box>
+        <Text sx={{ display: 'block', mb: 2 }}>Игра предупреждает о штрафе за снятие:</Text>
+        {penaltyText(penalty).map((t, i) => <Text key={i} sx={{ display: 'block', fontFamily: 'mono', fontSize: 1 }}>{t}</Text>)}
+      </Box>, { ok: 'Снять', danger: true })) return;
+    }
     setBusy(action);
     try {
       const r = await api.policyAction(accountId, action, { instance_id: policy.id });

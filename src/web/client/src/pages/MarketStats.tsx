@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { GameLogModal } from '../components/GameLogModal';
 import { Box, Button, Flash, Spinner, Text } from '@primer/react';
 import { DataTable, Table } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
@@ -17,6 +18,7 @@ export function MarketStats() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useResumableRefresh('marketStatsRefresh', () => load());
   const { flash, showFlash } = useFlash();
+  const [gramLog, setGramLog] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -57,11 +59,13 @@ export function MarketStats() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader title="Статистика рынка" actions={<>
+        <Button onClick={() => setGramLog(true)}>Кошелёк GRAM</Button>
         <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
           Обновить
         </Button>
       </>} />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+      {gramLog && <GameLogModal kind="gram-tx" title="Операции кошелька GRAM" onClose={() => setGramLog(false)} />}
 
       {data.length === 0
         ? <Box sx={{ p: 4, color: 'fg.muted', textAlign: 'center' }}>Нет данных — нажмите «Обновить»</Box>
