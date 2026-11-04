@@ -157,22 +157,22 @@ function MachineCard({ m, cat, data, accountId, accounts, onChanged, onFlash }: 
       </Box>
       <CatTabs tabs={m.tiers.map(t => t.unlocked ? ROMAN[t.level - 1] : <LockIcon size={12} />)} value={m.tiers.indexOf(tier)} onChange={i => setLevel(m.tiers[i].level)} />
       {!tier.unlocked ? (
-        <Box sx={{ py: 2, px: 2, bg: 'canvas.subtle', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', textAlign: 'center' }}>
+        <Box sx={{ flex: 1, minHeight: '100px', py: 2, px: 2, bg: 'canvas.subtle', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
           <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Тир {ROMAN[tier.level - 1]} закрыт: открывается за 💎{tier.upgrade_crystals ?? '?'} из казны гильдии{!data.can_spend_guild_crystals ? ' (только лидер или офицер)' : ''}</Text>
           <Button size="small" leadingVisual={UnlockIcon} loading={busy === 'up'} disabled={!data.can_spend_guild_crystals || !canAffordUnlock || !!busy}
             onClick={() => run('up', api.techFactoryUpgrade(accountId, m.id, tier.level), 'Тир открыт')}>Открыть тир</Button>
         </Box>
       ) : <>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, py: 2, px: 2, bg: 'canvas.subtle', borderRadius: '12px', flexWrap: 'wrap' }}>
-          <Box sx={{ display: 'flex', gap: 2 }}>{tier.inputs.map((x, i) => { const h = haveOf(x.item_id); return <Item key={i} id={x.item_id} q={h == null ? x.quantity : `${h}/${x.quantity}`} short={h != null && h < x.quantity} />; })}</Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, height: '60px', px: 2, bg: 'canvas.subtle', borderRadius: '12px', flexWrap: 'nowrap' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>{tier.inputs.map((x, i) => { const h = haveOf(x.item_id); return <Item key={i} id={x.item_id} q={h == null ? x.quantity : `${h}/${x.quantity}`} short={h != null && h < x.quantity} />; })}</Box>
           <Text sx={{ color: 'fg.muted' }}>→</Text>
           <Item id={tier.output.item_id} q={tier.output.quantity} />
-          <Box sx={{ ml: 1 }}>
+          <Box sx={{ ml: 1, minWidth: 0, whiteSpace: 'nowrap' }}>
             <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}><ClockIcon size={12} /> {dur(tier.duration_seconds)}{tier.fee_crystals > 0 ? ` · 💎${tier.fee_crystals}` : ''}</Text>
             <Text sx={{ fontSize: 0, color: limited ? 'danger.fg' : 'fg.muted' }}>{limited ? 'лимит исчерпан' : limitText(tier)}</Text>
           </Box>
         </Box>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, mt: 'auto' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Button block variant="primary" leadingVisual={PlusIcon} loading={busy === 'go'} disabled={limited || short || !!busy} onClick={start}>
               {short ? 'Не хватает сырья' : idle ? 'Запустить' : 'В очередь'}
