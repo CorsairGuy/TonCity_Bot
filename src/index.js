@@ -280,6 +280,8 @@ async function main(){
   collectProfitLoop().catch(e=>logger.error(`profit-loop fatal: ${e.message}`));
   collectCapitalLoop().catch(e=>logger.error(`capital-collect-loop fatal: ${e.message}`));
   stakingLoop().catch(e=>logger.error(`staking-loop fatal: ${e.message}`));
+  // автооплата гильдейских взносов — только при guildFees.auto (по умолчанию выключено)
+  require('./modules/guildFeesAuto').runGuildFeesAutoLoop().catch(e=>logger.error(`guild-fees-loop fatal: ${e.message}`));
   clients.forEach(({api,account})=>startAccountLoops(api,account).catch(e=>logger.error(`[${account.name}] loops: ${e.message}`)));
 
 

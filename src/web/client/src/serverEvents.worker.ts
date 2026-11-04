@@ -10,7 +10,7 @@ const ports = new Set<Port>();
 const last = new Map<string, unknown>();
 let opened = false;
 // разовые события (свежие постройки города) — новой вкладке не повторяются
-const EVENT_ONLY = new Set(['city', 'civic-draw']);
+const EVENT_ONLY = new Set(['city', 'civic-draw', 'guild-chat']);
 
 function open() {
   opened = true;

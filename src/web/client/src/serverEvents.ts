@@ -7,14 +7,14 @@ import { connect } from './serverEventsConnect';
 
 // city — свежие постройки одного города {account,buildings} (общая карта всех городов); это разовое
 // событие, а не состояние, поэтому последнее не запоминается
-export type ServerEventType = 'build' | 'maintenance' | 'version' | 'city' | 'civic-draw';
+export type ServerEventType = 'build' | 'maintenance' | 'version' | 'city' | 'civic-draw' | 'guild-chat';
 
 const handlers = new Map<ServerEventType, Set<(data: any) => void>>();
 const last = new Map<ServerEventType, unknown>();
 let started = false;
 
 function deliver(type: ServerEventType, data: unknown) {
-  if (type !== 'city' && type !== 'civic-draw') last.set(type, data);
+  if (type !== 'city' && type !== 'civic-draw' && type !== 'guild-chat') last.set(type, data);
   handlers.get(type)?.forEach(f => f(data));
 }
 
