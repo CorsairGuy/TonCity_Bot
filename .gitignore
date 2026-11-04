@@ -7,7 +7,6 @@ logs/
 
 # личные данные конкретной инсталляции — см. .dockerignore
 config/settings.json
-config/probe-live.json
 config/bot-state.json
 
 # данные БД (bind-mount MariaDB) и дампы

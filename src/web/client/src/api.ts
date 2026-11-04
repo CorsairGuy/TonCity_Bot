@@ -174,8 +174,6 @@ export const api = {
   negotiationOffers: () => req<{ ok: boolean; error?: string; accounts: { id: number; name: string; loaded: boolean }[]; received: NegotiationOffer[]; sent: NegotiationOffer[]; updated_at: string | null }>('/api/market/offers'),
   negotiationOffersRefresh: () => req<{ ok: boolean; error?: string; errors?: string[] }>('/api/market/offers/refresh', post({})),
   negotiationOfferAction: (action: 'accept' | 'reject' | 'revoke', accountId: number, offerId: number) => req<{ ok: boolean; error?: string }>(`/api/market/offers/${action}`, post({ account_id: accountId, offer_id: offerId })),
-  probe: () => req<ProbeResult>('/api/diag/probe'),
-  probeRun: () => req<ProbeResult>('/api/diag/probe', post({})),
   auditoriumSummary: () => req<{ ok: boolean; error?: string; accounts: AuditoriumSummaryRow[] }>('/api/timeless-auditorium/summary'),
   auditoriumAccounts: () => req<{ ok: boolean; accounts: BuildingAccount[] }>('/api/timeless-auditorium/accounts'),
   auditoriumStatus: (accountId: number) =>
@@ -962,11 +960,6 @@ export interface NotifyItem {
   account?: string; account_id?: number; item_id?: number;
 }
 // переговорное предложение рынка (GET /market/user/negotiation-offers, market_profile-*.js, 2.5)
-// проверка живых ответов игры (routes/probe.js, только GET)
-export interface ProbeResult {
-  ok: boolean; error?: string; at: string | null; missing_buildings: string[] | null;
-  results: { label: string; account: string | null; ok: boolean; status?: number | null; error?: string; shape?: unknown }[];
-}
 export interface NegotiationOffer {
   id: number; listing_id: number; account_id: number; account: string;
   amount: number; currency: string; seller_proceeds?: number | null; buyer_name?: string | null;

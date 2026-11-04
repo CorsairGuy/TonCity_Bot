@@ -21,7 +21,6 @@ tmp
 # попасть в образ при раздаче проекта другим людям; сам код устойчив к их отсутствию (см.
 # src/config.js loadSettings())
 config/settings.json
-config/probe-live.json
 config/bot-state.json
 
 # редакторские / ОС
