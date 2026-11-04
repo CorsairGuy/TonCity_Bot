@@ -48,6 +48,9 @@ let spriteMapCache: Record<string, { pngUrl: string; frame: { x: number; y: numb
 const TW = 90;
 const TH = Math.round(TW * 434 / 753); // 52
 const MIN_SCALE = 0.3, MAX_SCALE = 2;
+// инерция пана из игры (pixi-viewport decelerate, параметры по умолчанию): доля скорости, остающаяся
+// через 16 мс, и скорость (px/мс), ниже которой карта останавливается
+const INERTIA_FRICTION = 0.98, INERTIA_MIN = 0.01;
 
 // Отрисовка рассчитана на 60 кадров/с при быстром свайпе на любом устройстве: неподвижная часть
 // карты (земля, дороги, здания, бейджи уровней) рисуется кусками CHUNK×CHUNK device-px, и каждый
@@ -478,6 +481,10 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     coarseImg: new Map<number, { el: HTMLCanvasElement; ver: number }>(),
     coarseDirty: new Set<number>(),
     camKey: -1,
+    // инерция пана как в игре (плагин decelerate из pixi-viewport): pan — последние положения карты
+    // при протяжке, inertia — скорость в px/мс после отпускания и время с отпускания
+    pan: [] as { x: number; y: number; t: number }[],
+    inertia: null as { vx: number; vy: number; since: number; last: number } | null,
     anim: null as { from: { cx: number; cy: number; tile: number }; to: { cx: number; cy: number; tile: number }; t0: number } | null,
     lastView: '',
     lastCenter: null as { cx: number; cy: number; tile: number } | null,
@@ -603,6 +610,42 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     const m = 120;
     s.ox = Math.min(s.ox, W - m); s.ox = Math.max(s.ox, m - mapW);
     s.oy = Math.min(s.oy, H - m); s.oy = Math.max(s.oy, m - mapH);
+  }
+
+  // Инерция — точная копия decelerate из pixi-viewport, которым карта игры двигается с параметрами
+  // по умолчанию (friction 0.98 за кадр в 16 мс, minSpeed 0.01 px/мс): скорость берётся по самой старой
+  // точке протяжки за последние 100 мс, затем гаснет по экспоненте; путь за кадр — интеграл скорости,
+  // поэтому от частоты кадров не зависит
+  function panSample() {
+    const s = state.current;
+    s.pan.push({ x: s.ox, y: s.oy, t: performance.now() });
+    if (s.pan.length > 60) s.pan.splice(0, 30);
+  }
+  function startInertia() {
+    const s = state.current, now = performance.now();
+    const p = s.pan.find(q => q.t >= now - 100);
+    s.pan = [];
+    if (!p || now - p.t <= 0) return;
+    const vx = (s.ox - p.x) / (now - p.t), vy = (s.oy - p.y) / (now - p.t);
+    if (Math.abs(vx) < INERTIA_MIN && Math.abs(vy) < INERTIA_MIN) return;
+    s.inertia = { vx, vy, since: 0, last: now };
+    requestRedraw();
+  }
+  function stepInertia() {
+    const s = state.current, it = s.inertia; if (!it) return;
+    const now = performance.now(), dt = Math.min(now - it.last, 100);
+    it.last = now;
+    const f = INERTIA_FRICTION, ln = Math.log(f), k = Math.pow(f, (it.since + dt) / 16) - Math.pow(f, it.since / 16);
+    const ox = s.ox + it.vx * 16 / ln * k, oy = s.oy + it.vy * 16 / ln * k;
+    s.ox = ox; s.oy = oy;
+    clampPan();
+    // упёрлись в край — по этой оси дальше не катимся
+    if (s.ox !== ox) it.vx = 0;
+    if (s.oy !== oy) it.vy = 0;
+    it.vx *= Math.pow(f, dt / 16); it.vy *= Math.pow(f, dt / 16);
+    it.since += dt;
+    if (Math.abs(it.vx) < INERTIA_MIN && Math.abs(it.vy) < INERTIA_MIN) s.inertia = null;
+    else requestRedraw();
   }
 
   // ширина спрайта под максимальный зум этого экрана: на MAX_SCALE пиксель спрайта = пиксель экрана
@@ -1182,7 +1225,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     if (s.loading && !s.loadReady) return false;
     // куски, где зажглись или погасли окна, перерисовываются, только пока карту не тянут и не зумят:
     // на это время они копятся
-    const allowDirty = !s.dragging && s.pinchDist == null && !s.zoomTimer;
+    const allowDirty = !s.dragging && !s.inertia && s.pinchDist == null && !s.zoomTimer;
     const isDirty = (key: string) => allowDirty && s.dirty.size > 0 && s.dirty.has(key);
     // видимая область в мировых координатах, обрезанная по содержимому карты
     const vx0 = Math.max(-s.ox / s.scale, s.world.x0), vy0 = Math.max(-s.oy / s.scale, s.world.y0);
@@ -1425,6 +1468,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       else centerOnBuildings();
       s.needsCenter = false;
     }
+    if (s.inertia) stepInertia();
     if (s.anim) {
       const p = Math.min(1, (performance.now() - s.anim.t0) / 320), e = 1 - Math.pow(1 - p, 3), f = s.anim.from, t = s.anim.to;
       lookAt(f.cx + (t.cx - f.cx) * e, f.cy + (t.cy - f.cy) * e, f.tile * Math.pow(t.tile / f.tile, e), W, H);
@@ -1820,6 +1864,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     requestRedraw();
 
     const cancelCamera = () => {
+      s.inertia = null; s.pan = [];
       const cam = camRef.current;
       // Отменяем и наезд, который уже запрошен, но ещё не попал в первый кадр.
       if (!s.anim && (!cam || cam.key === s.camKey)) return;
@@ -1871,7 +1916,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       if (s.dragging) {
         if (Math.abs(e.clientX - downX) > 3 || Math.abs(e.clientY - downY) > 3) moved = true;
         s.ox = e.clientX - s.dx; s.oy = e.clientY - s.dy;
-        clampPan(); requestRedraw();
+        clampPan(); panSample(); requestRedraw();
       } else if (s.selStart) {
         const rect = wrap.getBoundingClientRect();
         const t = screenToGrid(e.clientX - rect.left, e.clientY - rect.top);
@@ -1907,6 +1952,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       }
     };
     const onMouseUp = (e: MouseEvent) => {
+      if (s.dragging && moved) startInertia();
       s.dragging = false;
       if (s.loading || performance.now() < s.ignoreMouseUntil) { downOnMap = false; return; }
       if (!downOnMap) return;
@@ -2022,7 +2068,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       if (s.dragging) {
         if (Math.abs(t0.clientX - downX) > 3 || Math.abs(t0.clientY - downY) > 3) moved = true;
         s.ox = t0.clientX - s.dx; s.oy = t0.clientY - s.dy;
-        clampPan(); requestRedraw();
+        clampPan(); panSample(); requestRedraw();
       } else if (s.selStart) {
         const rect = wrap.getBoundingClientRect();
         const t = screenToGrid(t0.clientX - rect.left, t0.clientY - rect.top);
@@ -2060,6 +2106,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
       // Вся последовательность multi-touch — только камера, последний палец не становится тапом.
       if (touchSuppressed) { resetTouch(); return; }
       s.pinchDist = null; s.pinchMidX = null; s.pinchMidY = null;
+      if (s.dragging && moved) startInertia();
       s.dragging = false;
       if (s.selStart) {
         const t1 = s.selStart, t2 = s.selCur ?? s.selStart;
