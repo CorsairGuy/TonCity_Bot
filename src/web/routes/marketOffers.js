@@ -30,15 +30,17 @@ module.exports=function(app,ctx){
       const accs=await marketAccounts();
       const rows=await db().seq.query('SELECT account_id,data,updated_at FROM game_extra_cache WHERE kind=? AND ref=?',{replacements:[KIND,''],...SELECT()});
       const by=new Map(rows.map(r=>[Number(r.account_id),r]));
-      const received=[],sent=[];let updated_at=null;
+      const received=[],sent=[],frozen=[];let updated_at=null;
       for(const a of accs){
         const r=by.get(a.id);if(!r)continue;
         let d=null;try{d=JSON.parse(r.data);}catch{}
         if(!updated_at||new Date(r.updated_at)<new Date(updated_at))updated_at=r.updated_at;
+        // рынок аккаунта заморожен игрой: ответ — только {is_frozen:true}, без списков (живой ответ 04.11.2026)
+        if(d?.is_frozen)frozen.push(a.name);
         for(const o of d?.received||[])received.push({...o,account_id:a.id,account:a.name});
         for(const o of d?.sent||[])sent.push({...o,account_id:a.id,account:a.name});
       }
-      res.json({ok:true,accounts:accs.map(a=>({id:a.id,name:a.name,loaded:by.has(a.id)})),received,sent,updated_at});
+      res.json({ok:true,accounts:accs.map(a=>({id:a.id,name:a.name,loaded:by.has(a.id)})),received,sent,frozen,updated_at});
     }catch(e){res.status(500).json({ok:false,error:errText(e)});}
   });
   app.post('/api/market/offers/refresh',async(req,res)=>{

@@ -41,7 +41,7 @@ const left = (iso?: string | null) => {
 };
 
 export function MarketOffers() {
-  const [data, setData] = useState<{ received: NegotiationOffer[]; sent: NegotiationOffer[]; updated_at: string | null; accounts: number } | null>(null);
+  const [data, setData] = useState<{ received: NegotiationOffer[]; sent: NegotiationOffer[]; updated_at: string | null; accounts: number; frozen: string[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [, tick] = useState(0);
@@ -50,7 +50,7 @@ export function MarketOffers() {
   const load = async () => {
     const r = await api.negotiationOffers();
     if (!r.ok) { setErr(r.error ?? 'Ошибка загрузки'); return; }
-    setErr(null); setData({ received: r.received, sent: r.sent, updated_at: r.updated_at, accounts: r.accounts.length });
+    setErr(null); setData({ received: r.received, sent: r.sent, updated_at: r.updated_at, accounts: r.accounts.length, frozen: r.frozen ?? [] });
   };
   useEffect(() => { load(); const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t); }, []);
   const refresh = async () => {
@@ -78,6 +78,7 @@ export function MarketOffers() {
         actions={<Button leadingVisual={SyncIcon} loading={busy === 'refresh'} disabled={!!busy} onClick={refresh}>Обновить с игры</Button>} />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
       {!data ? <Text sx={{ color: 'fg.muted' }}>Загрузка…</Text> : <>
+        {!!data.frozen.length && <Flash variant="warning" sx={{ mb: 3 }}>Рынок заморожен игрой, предложений не видно: {data.frozen.join(', ')}</Flash>}
         <Caption right={data.received.length}>Вам предлагают</Caption>
         {!data.received.length ? <Text sx={{ display: 'block', color: 'fg.muted', mt: 2, mb: 4 }}>Входящих предложений нет{!data.updated_at ? ' — нажмите «Обновить с игры»' : ''}.</Text> : (
           <Box sx={grid}>
