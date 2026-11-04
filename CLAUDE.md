@@ -47,6 +47,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db 
 - `schema-dump.js` — снимок схемы БД (сравнить боевую базу с базой «с нуля»).
 - `probe-new-endpoints.js` — дамп сырых ответов новых систем игры (только GET, можно при работающем боте).
 - `download-sprites.js` — выкачка спрайтов карты.
+- `tools/game-bundle.js` — архив публичного бандла игры (`save`, с SHA256 в `manifest.json`) и отчёт о разнице двух архивов (`diff`: файлы, пути API, id зданий). Архивы — в `bundles/` (в git нет) и копией в общей папке проекта `/mnt/project-files/bundles/`. Сохранять бандл до и после каждого обновления игры: старые файлы с сервера пропадают сразу (404), Temp на ПК чистится.
 
 ## 2. Архитектура бэкенда
 
