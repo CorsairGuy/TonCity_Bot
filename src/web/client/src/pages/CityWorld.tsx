@@ -10,7 +10,7 @@ import { CityMapCity, CityHead, cityStatsFor, computePolicyMultiplier, buildingN
 import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
 import {
-  MapPalette, MapBrushLevel, PanelShell, StatsPanel, WalletTop, type Wallet, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
+  MapPalette, MapBrushLevel, MapIslandSwitch, PanelShell, StatsPanel, WalletTop, type Wallet, Row, Val, Caption, Empty, Thumb, BadgeThumb, Summary, Tile, SumLine, PlanBar, fillOf,
   SWAP, LogPanel, ForecastPanel, QueuePanel, PendingList, DemolishPanel, ReconstructPanel, RenovatePanel, MasterplanBar, ItemIcon, Glyph, BuildItem, fmtUp, boosterCard, fmtTimeLeft, FooterButton, CancelButton, FILL_DONE, FILL_WIP, FILL_ATTENTION, type PanelMode,
 } from './cityMapPanels';
 import { MapPanelWindow } from '../components/MapPanelWindow';
@@ -1254,12 +1254,16 @@ export function CityWorld() {
             : loaded && cities.length === 0
               ? <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Text sx={{ color: 'fg.muted' }}>Снимков городов ещё нет — нажмите «Обновить»</Text></Box>
               : cities.length > 0 && mapEl}
+          {/* острова — по центру над картой, сразу под шапкой */}
+          <Box sx={{ position: 'absolute', left: 2, right: 2, top: 3, display: 'flex', justifyContent: 'center', pointerEvents: 'none', '& > *': { pointerEvents: 'auto' } }}>
+            <MapIslandSwitch items={CITY_DISTRICTS} value={district} onChange={d => { setDistrict(d); setBuildFamily(''); }} />
+          </Box>
           <Box sx={{
             position: 'absolute', left: 2, right: 2, bottom: 3, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', columnGap: 2,
             pointerEvents: 'none', '& > *': { pointerEvents: 'auto' },
             '@media (max-width: 768px)': { display: 'flex', flexDirection: 'column-reverse', alignItems: 'center', gap: 2 },
           }}>
-            <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}><Box sx={{ display: 'flex', gap: 1 }}>{CITY_DISTRICTS.map(d => <Button key={d.id} size="small" variant={district === d.id ? 'primary' : 'default'} onClick={() => { setDistrict(d.id); setBuildFamily(''); }}>{d.title}</Button>)}</Box><WorldMapPalette mode={panelMode} onSelect={selectPanel} dots={paletteDots} /></Box></Box>
+            <Box sx={{ gridColumn: 2, minWidth: 0, maxWidth: '100%', display: 'flex' }}><WorldMapPalette mode={panelMode} onSelect={selectPanel} dots={paletteDots} /></Box>
             {/* уровень кисти «Плана» — общий для всех городов, виден и без текущего города */}
             <Box ref={setDockEl} sx={{ gridColumn: 3, justifySelf: 'start', '&:empty': { display: 'none' } }}>
               {!cur && mode === 'upgrade' && <MapBrushLevel value={Math.max(1, Math.floor(Number(addLevel)) || 1)} onChange={v => setAddLevel(String(v))} />}

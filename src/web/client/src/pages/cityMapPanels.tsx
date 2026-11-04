@@ -115,6 +115,26 @@ export function MapBrushLevel({ value, onChange }: { value: number; onChange: (v
   );
 }
 
+// переключатель островов — плашка из того же стекла, висит по центру над картой под шапкой
+export function MapIslandSwitch<T extends string>({ items, value, onChange }: { items: { id: T; title: string }[]; value: T; onChange: (id: T) => void }) {
+  return (
+    <Box role="group" aria-label="Остров" sx={{ ...DOCK_GLASS, gap: 1, maxWidth: '100%' }}>
+      {items.map(it => {
+        const on = it.id === value;
+        return (
+          <Button key={it.id} variant="invisible" aria-pressed={on} onClick={e => { onChange(it.id); blurOnTouch(e.currentTarget); }}
+            sx={{
+              height: 36, px: 3, borderRadius: '10px', fontWeight: on ? 'semibold' : 'normal', whiteSpace: 'nowrap',
+              color: on ? 'fg.onEmphasis' : 'rgba(255,255,255,.9)',
+              ...(on ? { bg: 'accent.emphasis', '&:hover:not([disabled])': { bg: 'accent.emphasis' } } : { '&:hover:not([disabled])': { bg: 'rgba(255,255,255,.14)' } }),
+              '@media (max-width: 768px)': { px: 2 },
+            }}>{it.title}</Button>
+        );
+      })}
+    </Box>
+  );
+}
+
 // ── каркас сайдбара ─────────────────────────────────────────────────────────
 // gap — зазор между блоками содержимого: 8px, как отступы по бокам (Строительство — 16px)
 // busy — данные вкладки ещё грузятся: шапка остаётся, спиннер ровно по центру свободного места
