@@ -7,7 +7,8 @@ const accountLoops=require('../utils/accountLoops');
 const{collectCivicRewards}=require('./townhall');
 const DAY=86400000,OFF_POLL=600000,ERROR_RETRY=900000,NOT_READY_RETRY=60000;
 const drawEnabled=()=>getConfig().features?.civicDraw!==false;
-const grantsEnabled=()=>getConfig().features?.policyGrants===true;
+// Один переключатель управляет обоими типами наград; старый policyGrants игнорируется.
+const grantsEnabled=drawEnabled;
 const enabled=()=>drawEnabled()||grantsEnabled();
 function plan(row,notBefore=0,now=Date.now()){
   if(!enabled())return DAY;
