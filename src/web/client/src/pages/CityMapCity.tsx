@@ -1,3 +1,4 @@
+import { reconcileUpgradeQueue, sameUpgradeQueue } from '../cityQueue';
 import { buildingDistrict, districtCoordsFor, inDistrict, type CityDistrict } from '../cityDistricts';
 import { MapPanelWindow } from '../components/MapPanelWindow';
 import { useState, useEffect, useMemo, useCallback, useRef, startTransition, type ReactNode } from 'react';
@@ -413,6 +414,8 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // сохранённые на сервере цели и очередь — к ним возвращает «Отменить»
   const [savedTargets, setSavedTargets] = useState<CityStrategyTarget[]>([]);
   const [savedManualQueue, setSavedManualQueue] = useState<CityStrategyQueueItem[]>([]);
+  const savedQueueRef = useRef(savedManualQueue); savedQueueRef.current = savedManualQueue;
+  const queueEventRef = useRef<CityStrategyQueueItem[] | null>(null);
   const [reconstructPlan, setReconstructPlan] = useState<CityStrategyQueueItem[]>([]);
   const [planHover, setPlanHover] = useState<string[] | null>(null); // "x_y" клеток под курсором в «Плане»
   const planFocus = useMemo(() => planHover ? new Set(planHover) : null, [planHover]);
@@ -453,24 +456,23 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     return () => { stale = true; };
   }, []);
 
-  // живые обновления построек с сервера (SSE, без поллинга) — бот пишет свежий снимок при каждом
-  // запуске/завершении стройки (см. modules/progress.js), сервер сразу транслирует его сюда;
-  // обратный отсчёт на canvas и так пересчитывается локально раз в секунду (CityActionsCanvas.tsx),
-  // здесь только обновляем исходные данные, откуда он берётся.
+  // Живые здания и подтверждённая очередь приходят вместе, без перечитывания карты/API.
   useEffect(() => {
     if (!account) return;
-    // на общей карте городов открыто сразу несколько: свой SSE на каждый упёрся бы в лимит соединений
-    // браузера, поэтому там постройки приходят из общего потока событий бота
-    if (props.slots) return onServerEvent<{ account: string; buildings: MapBuilding[]; unlockedSections?: string[] }>('city', d => {
-      if (d.account === account) setRows(prev => (prev as CityRow[]).map(r => r.account === account ? { ...r, buildings: d.buildings, unlockedSections: mergeUnlockedSections(r.unlockedSections, d.unlockedSections) } : r));
-    });
-    const es = new EventSource(`/api/city-strategy/${encodeURIComponent(account)}/live-stream`);
-    es.onmessage = (e) => {
-      const data = JSON.parse(e.data) as { buildings: MapBuilding[]; unlockedSections?: string[] };
-      setRows(prev => (prev as CityRow[]).map(r =>
-        r.account === account ? { ...r, buildings: data.buildings, unlockedSections: mergeUnlockedSections(r.unlockedSections, data.unlockedSections) } : r
-      ));
+    const apply = (d: { buildings: MapBuilding[]; unlockedSections?: string[]; queue?: CityStrategyQueueItem[] }) => {
+      setRows(prev => (prev as CityRow[]).map(r => r.account === account ? { ...r, buildings: d.buildings, unlockedSections: mergeUnlockedSections(r.unlockedSections, d.unlockedSections) } : r));
+      if (Array.isArray(d.queue)) {
+        queueEventRef.current = d.queue;
+        const previous = savedQueueRef.current, next = d.queue;
+        if (sameUpgradeQueue(previous, next)) return;
+        savedQueueRef.current = next;
+        setSavedManualQueue(next);
+        setManualQueue(local => reconcileUpgradeQueue(local, previous, next));
+      }
     };
+    if (props.slots) return onServerEvent<{ account: string; buildings: MapBuilding[]; unlockedSections?: string[]; queue?: CityStrategyQueueItem[] }>('city', d => { if (d.account === account) apply(d); });
+    const es = new EventSource(`/api/city-strategy/${encodeURIComponent(account)}/live-stream`);
+    es.onmessage = e => apply(JSON.parse(e.data));
     return () => es.close();
   }, [account]);
 
@@ -534,6 +536,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     let stale = false;
     setLoading(true);
     setDataDone(0);
+    queueEventRef.current = null;
     setLoadErr('');
     // только этот аккаунт: раньше карта тянула снимки, политики и балансы всего флота
     allCounted([
@@ -555,7 +558,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       if (c.ok) setRows(prev => c.rows.map(row => ({ ...row, unlockedSections: mergeUnlockedSections((prev as CityRow[]).find(old => old.account === row.account)?.unlockedSections, row.unlockedSections) })));
       else setLoadErr((c as { error?: string }).error || 'снимок города не загрузился');
       if (b.ok) setBuildingsCatalog(b.buildings);
-      if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setPlanRemoved(new Set()); setManualQueue(t.queue ?? []); setSavedManualQueue(t.queue ?? []); setReconstructPlan(t.reconstructPlan ?? []); setBuildPlan(t.buildPlan ?? []); }
+      if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setPlanRemoved(new Set()); const freshQueue = queueEventRef.current ?? t.queue ?? []; setManualQueue(freshQueue); setSavedManualQueue(freshQueue); setReconstructPlan(t.reconstructPlan ?? []); setBuildPlan(t.buildPlan ?? []); }
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
       const accRow = accs.ok ? accs.accounts.find(a => a.name === account) : undefined;
       setBalance(accRow?.balance ?? 0);
@@ -1165,7 +1168,6 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     return !!r.ok;
   };
   const stableSaveQueue = useCallback(() => saveQueueRef.current(), []);
-  const savedQueueRef = useRef(savedManualQueue); savedQueueRef.current = savedManualQueue;
   const stableResetQueue = useCallback(() => setManualQueue(savedQueueRef.current), []);
   const queueDirtyNow = cellsKeyOf(manualQueue) !== cellsKeyOf(savedManualQueue);
   const queuePricesKey = JSON.stringify(manualQueuePrices);
