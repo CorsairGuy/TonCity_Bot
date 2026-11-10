@@ -24,8 +24,9 @@ const town=moduleWith('src/modules/townhall.js',{'../utils/logger':{info(){},war
  let active=0,maxActive=0;await Promise.all([town.withClaimLock('A',async()=>{active++;maxActive=Math.max(maxActive,active);await Promise.resolve();active--;}),town.withClaimLock('A',async()=>{active++;maxActive=Math.max(maxActive,active);active--;})]);assert.equal(maxActive,1);
  let features={civicDraw:false,policyGrants:false};const auto=moduleWith('src/modules/civicDrawAuto.js',{'../utils/logger':{info(){},warn(){},error(){}},'../config':{getConfig:()=>({features})},'../utils/cityWake':{},'../utils/accountLoops':{},'./townhall':town});
  const timerRow={ready_at:new Date(+now+30000),timer_source:'server',grants:JSON.stringify([{def_id:'daily',ready:0,ready_at:new Date(+now+5000)}])};assert.equal(auto.plan(timerRow,0,+now),86400000);
- features={civicDraw:false,policyGrants:true};assert.equal(auto.plan(timerRow,0,+now),10000);assert.equal(auto.plan({...timerRow,grants:JSON.stringify([{ready:1}])},0,+now),0);assert.equal(auto.plan(timerRow,+now+15*60000,+now),15*60000);assert.equal(auto.plan(timerRow,+now+15*60000,+now+15*60000),0);
- features={civicDraw:true,policyGrants:false};assert.equal(auto.plan(timerRow,0,+now),35000);
+ features={civicDraw:false,policyGrants:true};assert.equal(auto.plan(timerRow,0,+now),86400000,'legacy grant flag cannot override disabled autocollect');
+ features={civicDraw:true,policyGrants:false};assert.equal(auto.plan(timerRow,0,+now),10000,'autocollect includes policies even with legacy false');assert.equal(auto.plan({...timerRow,grants:JSON.stringify([{ready:1}])},0,+now),0);assert.equal(auto.plan(timerRow,+now+15*60000,+now),15*60000);assert.equal(auto.plan(timerRow,+now+15*60000,+now+15*60000),0);
+ features={civicDraw:true,policyGrants:false};assert.equal(auto.plan({...timerRow,grants:'[]'},0,+now),35000);
  // Общий сбор: после КАЖДОГО POST новый GET, новые сроки сохраняются и публикуются.
  let draw=1,grant=1,calls=[];inventory=0;
  const combined={get:async()=>{calls.push('GET');return{civic_draw:{claimable:draw>0,draws_ready:draw,max_draws:3,next_draw_in_seconds:120,grants:[{def_id:'p',ready:grant,next_in_seconds:240}]}};},post:async(url)=>{calls.push(url);if(url.endsWith('/grants/claim'))grant=0;else draw=0;return{draws_consumed:1};}};
@@ -45,7 +46,7 @@ const town=moduleWith('src/modules/townhall.js',{'../utils/logger':{info(){},war
  '../utils/logger':{info(){},warn(){},error(){}},'../config':{getConfig:()=>({features:{civicDraw:true}})},
  '../utils/cityWake':{waitOrWake:async(k,ms)=>{waits.push(ms);throw new Error('unexpected wait');}},
  '../utils/accountLoops':{isStopped:()=>stopped},'../db/index':{CivicDrawStatus:{findOne:async()=>({claimable:true})}},
- './townhall':{collectCivicRewards:async()=>{attempts++;stopped=true;return{got:1,cd:{claimable:false}};}}});
+ './townhall':{collectCivicRewards:async(api,name,options)=>{assert.equal(options.draws,true);assert.equal(options.grants,true);attempts++;stopped=true;return{got:1,cd:{claimable:false}};}}});
  await loop.runCivicDrawLoop({},'A',1);assert.equal(attempts,1);assert.equal(waits.length,0);
  console.log('PASS exact/fallback timers, separate grants, live readiness, deduplicated account locks, ambiguous response resync, inventory/SSE, opt-in automation and backoff');
 })().catch(e=>{console.error(e);process.exitCode=1;});

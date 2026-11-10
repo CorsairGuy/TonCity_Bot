@@ -172,8 +172,6 @@ export function CivicDraw() {
   // автосбор (modules/civicDrawAuto.js): бот сам забирает розыгрыш, когда игра говорит «готово»
   const [auto, setAuto] = useState(true);
   const [savingAuto, setSavingAuto] = useState(false);
-  const [autoGrants, setAutoGrants] = useState(false);
-  const [savingGrants, setSavingGrants] = useState(false);
   const { flash, showFlash } = useFlash();
 
   const toggleAuto = async (next: boolean) => {
@@ -186,14 +184,6 @@ export function CivicDraw() {
     finally { setSavingAuto(false); }
   };
 
-  const toggleGrants = async () => {
-    const next = !autoGrants;
-    setSavingGrants(true);
-    try {
-      const d = await api.saveConfig({ features: { policyGrants: next } });
-      if (d.ok) setAutoGrants(next); else showFlash(d.error ?? 'Ошибка сохранения', false);
-    } finally { setSavingGrants(false); }
-  };
   const loadRef = useRef<Promise<void> | null>(null);
   const reloadRef = useRef(false);
   const load = (silent = false): Promise<void> => {
@@ -245,7 +235,7 @@ export function CivicDraw() {
   useEffect(() => { load(); }, []);
   useEffect(() => {
     api.config().then(d => {
-      if (d.ok) { setAuto(((d.settings.features as Record<string, boolean> | undefined)?.civicDraw) ?? true); setAutoGrants((d.settings.features as Record<string, boolean> | undefined)?.policyGrants === true); }
+      if (d.ok) { setAuto(((d.settings.features as Record<string, boolean> | undefined)?.civicDraw) ?? true); }
     }).catch(() => {});
   }, []);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
@@ -274,10 +264,6 @@ export function CivicDraw() {
             <Text id="civic-auto-label" sx={{ fontSize: 1 }}>Автосбор</Text>
             <ToggleSwitch size="small" aria-labelledby="civic-auto-label" statusLabelPosition="end"
               checked={auto} disabled={savingAuto} onClick={() => toggleAuto(!auto)} />
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Text id="grants-auto-label" sx={{ fontSize: 1 }}>Автосбор наград политик</Text>
-            <ToggleSwitch size="small" aria-labelledby="grants-auto-label" statusLabelPosition="end" checked={autoGrants} disabled={savingGrants} onClick={toggleGrants} />
           </Box>
           <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
             Обновить
