@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Flash, Heading, IconButton, Octicon, Text, TextInput } from '@primer/react';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, DotFillIcon, PlusIcon, SyncIcon, XIcon, ZapIcon } from '@primer/octicons-react';
 import { api, type CityBoosterRow, type CityActiveBooster, type BuildingDef, type CityActionLogRow, type CityWorldRow, type ForecastEvent, type GlobalUpgradeRule, type MapSection, type PolicyCabinet } from '../api';
-import { CityActionsCanvas, REGION_FADE, type CityActionMode, type MapCamera, type MapView, type WorldLayout, type CellFill, type RegionFill } from '../components/CityActionsCanvas';
+import { CityActionsCanvas, REGION_FADE, type CityActionMode, type MapCamera, type MapView, type MapLoadState, type WorldLayout, type CellFill, type RegionFill } from '../components/CityActionsCanvas';
 import { CityMapCity, CityHead, cityStatsFor, computePolicyMultiplier, buildingName, buildingCat, buildPriceAt, familyId, isCriteriaUnmet, criteriaReason, logLabel, cityCellSets, validCellsFor, type CityMapState, type CityCellSets } from './CityMapCity';
 import { DayNightMenu } from '../components/DayNightMenu';
 import { useMapDayNight } from '../hooks/useMapDayNight';
@@ -17,6 +17,7 @@ import { MapPanelWindow } from '../components/MapPanelWindow';
 import { CoinValue } from '../components/Icons';
 import { upgradeStep, type BuildingParam } from '../cityStats';
 import { LoadError } from '../components/LoadError';
+import { MapLoader, DATA_SHARE } from '../components/MapLoader';
 import { useFlash } from '../hooks/useFlash';
 import { useAsk } from '../hooks/useAsk';
 import { useNarrow } from '../hooks/useNarrow';
@@ -128,6 +129,15 @@ export function CityWorld() {
   const [order, setOrder] = useState<string[]>([]);
   const [loadErr, setLoadErr] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [resourcesLoaded, setResourcesLoaded] = useState(false);
+  const [dataPending, setDataPending] = useState(true);
+  const [startupReady, setStartupReady] = useState(false);
+  const [startupProgress, setStartupProgress] = useState<MapLoadState>({ pct: 0, text: 'Данные городов…' });
+  const onMapLoadState = useCallback((state: MapLoadState | null) => {
+    if (startupReady) return;
+    if (state === null) setStartupReady(true);
+    else setStartupProgress(prev => prev.pct === state.pct && prev.text === state.text ? prev : state);
+  }, [startupReady]);
   const [catalog, setCatalog] = useState<BuildingDef[]>([]);
   const [cabinets, setCabinets] = useState<Record<string, PolicyCabinet | undefined>>({});
   const [globalPlan, setGlobalPlan] = useState<GlobalUpgradeRule[]>([]);
@@ -142,19 +152,26 @@ export function CityWorld() {
     startTransition(() => { setRows(d.rows); setOrder(d.order ?? []); setLoadErr(''); setLoaded(true); });
   }, []);
   const load = useCallback(async () => {
-    try { await reloadSnapshot(); }
-    catch (e) { setLoadErr(String(e)); setLoaded(true); }
-  }, [reloadSnapshot]);
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    api.buildingsList('city').then(d => { if (d.ok) setCatalog(d.buildings); });
-    api.globalUpgradePlan().then(d => { if (d.ok) setGlobalPlan(d.plan); });
-    api.sections().then(d => { if (d.ok) setSections(d.sections); });
-    api.policies().then(d => { if (d.ok) setCabinets(Object.fromEntries(Object.entries(d.byAccount).map(([a, v]) => [a, v.cabinet]))); });
+    setDataPending(true); setLoadErr('');
+    try {
+      const [d, b, g, sec, pol] = await Promise.all([api.cityWorld(), api.buildingsList('city'), api.globalUpgradePlan(), api.sections(), api.policies()]);
+      if (!d.ok) throw new Error(d.error || 'города не загрузились');
+      if (!b.ok || !g.ok || !sec.ok || !pol.ok) throw new Error('Не удалось загрузить справочники карты');
+      startTransition(() => {
+        setRows(d.rows); setOrder(d.order ?? []); setCatalog(b.buildings); setGlobalPlan(g.plan); setSections(sec.sections);
+        setCabinets(Object.fromEntries(Object.entries(pol.byAccount).map(([a, v]) => [a, v.cabinet])));
+        setLoaded(true); setResourcesLoaded(true); setDataPending(false);
+      });
+    } catch (e) { setLoadErr(String(e)); setLoaded(true); setDataPending(false); }
   }, []);
+  useEffect(() => { load(); }, [load]);
+  // Пустая карта не монтирует Canvas: после данных раскрываем обычное пустое состояние.
+  useEffect(() => {
+    if (!dataPending && loaded && resourcesLoaded && !rows.length && !loadErr) setStartupReady(true);
+  }, [dataPending, loaded, resourcesLoaded, rows.length, loadErr]);
   // живые постройки: бот шлёт свежий снимок города при каждом старте и конце стройки
-  useEffect(() => onServerEvent<{ account: string; buildings: CityWorldRow['buildings']; unlockedSections?: string[] }>('city', d => {
-    setRows(prev => prev.map(r => r.account === d.account ? { ...r, buildings: d.buildings, ...(Array.isArray(d.unlockedSections) ? { unlockedSections: d.unlockedSections } : {}) } : r));
+  useEffect(() => onServerEvent<{ account: string; buildings: CityWorldRow['buildings']; unlockedSections?: string[]; queue?: CityWorldRow['queue'] }>('city', d => {
+    setRows(prev => prev.map(r => r.account === d.account ? { ...r, buildings: d.buildings, ...(Array.isArray(d.unlockedSections) ? { unlockedSections: d.unlockedSections } : {}), ...(Array.isArray(d.queue) ? { queue: d.queue } : {}) } : r));
   }), []);
 
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:city', () => load());
@@ -1194,6 +1211,8 @@ export function CityWorld() {
       minScale={minScale}
       camera={camera}
       onView={onView}
+      onLoadState={onMapLoadState}
+      externalLoader={!startupReady}
       onCameraCancel={() => { clickedCity.current = null; overviewFlight.current = false; }}
       fills={fills}
       regions={regions}
@@ -1207,7 +1226,8 @@ export function CityWorld() {
       display: 'flex', height: 'calc(100vh - var(--header-h))',
       '@media (max-width: 768px)': { flexDirection: 'column', height: 'calc(100dvh - 52px)' },
     }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>
+        <Box data-map-startup-content aria-hidden={!startupReady} sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, visibility: startupReady ? 'visible' : 'hidden' }}>
         {/* шапка: все города или текущий город (его шапка встаёт сюда порталом) */}
         <Box ref={setHeadEl} sx={{ flexShrink: 0 }}>
           {!cur && <>
@@ -1253,7 +1273,7 @@ export function CityWorld() {
             ? <Box sx={{ flex: 1, p: 3 }}><LoadError error={loadErr} onRetry={load} /></Box>
             : loaded && cities.length === 0
               ? <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Text sx={{ color: 'fg.muted' }}>Снимков городов ещё нет — нажмите «Обновить»</Text></Box>
-              : cities.length > 0 && mapEl}
+              : loaded && resourcesLoaded && (startupReady || !dataPending) && cities.length > 0 && mapEl}
           {/* острова — по центру над картой, сразу под шапкой */}
           <Box sx={{ position: 'absolute', left: 2, right: 2, top: 3, display: 'flex', justifyContent: 'center', pointerEvents: 'none', '& > *': { pointerEvents: 'auto' } }}>
             <MapIslandSwitch items={CITY_DISTRICTS} value={district} onChange={d => { setDistrict(d); setBuildFamily(''); }} />
@@ -1270,8 +1290,13 @@ export function CityWorld() {
             </Box>
           </Box>
         </Box>
+        </Box>
+        {!startupReady && <Box data-map-startup-loader sx={{ position: 'absolute', inset: 0, zIndex: 5, bg: 'canvas.default', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
+          {loadErr ? <LoadError error={loadErr} onRetry={load} />
+            : <MapLoader pct={!dataPending && loaded && resourcesLoaded ? startupProgress.pct : DATA_SHARE / 2} text={!dataPending && loaded && resourcesLoaded ? startupProgress.text : 'Данные городов…'} />}
+        </Box>}
       </Box>
-      <Box sx={{
+      <Box data-map-sidebar sx={{
         width: 'var(--sidebar-w)', flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
         borderLeft: '1px solid', borderColor: 'border.default',
         '@media (max-width: 768px)': { width: '100%', height: panelCollapsed ? '49px' : '45%', borderLeft: 0, borderTop: '1px solid', borderTopColor: 'border.default', overflow: 'hidden' },

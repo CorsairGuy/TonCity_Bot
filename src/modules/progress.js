@@ -703,7 +703,7 @@ async function runProgress(api,name,opts={}){
       // цикла, не видя уже запущенные апгрейды. Пишем свежий снимок при каждом обновлении состояния,
       // а не только при первой загрузке.
       try{await CitySnapshot.upsert(citySnapshotPayload(name,current,latest),{conflictFields:['account']});}catch(e){logger.warn(`[${name}] [progress] снимок города не сохранён: ${e.message}`);}
-      cityLive.broadcast(name,current,currentSections);
+      cityLive.broadcast(name,current,currentSections,queue);
       // тот же живой ответ — тут профит мог измениться относительно прошлого refreshState (именно
       // здесь цикл узнаёт о завершившемся апгрейде), см. комментарий у первого вызова выше
       if(require('../config').getConfig().features.journey){

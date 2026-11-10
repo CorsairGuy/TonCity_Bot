@@ -271,6 +271,8 @@ interface Props {
   minScale?: number;
   camera?: MapCamera | null;            // поставить клетку в центр экрана с шириной клетки tile (новый key — новый наезд)
   onCameraCancel?: () => void;         // ручной ввод прервал программный наезд
+  externalLoader?: boolean;           // страница накрывает карту своим стартовым лоадером
+  onLoadState?: (state: MapLoadState | null) => void; // null — первый видимый кадр уже отрисован
   onView?: (v: MapView) => void;        // центр экрана в клетках сетки и ширина клетки, после каждого сдвига
   fills?: CellFill[];                   // заливка клеток поверх карты
   regions?: RegionFill[];               // заливка квадратов span×span клеток (город целиком)
@@ -313,15 +315,17 @@ const NIGHT_TICK_MS = 20000;
 // дольше карта загрузку не ждёт: показывается как есть, недостающее дорисуется само
 const LOAD_MAX_MS = 60000;
 
-interface LoadState { pct: number; text: string }
+export interface MapLoadState { pct: number; text: string }
 
 // Лоадер поверх карты, пока она не загружена целиком. Ход загрузки опрашивает сам (tick), чтобы
 // частые обновления шкалы не перерисовывали всю карту; tick вернул null — карта готова, лоадер гаснет.
-function MapLoadOverlay({ tick, runKey }: { tick: () => LoadState | null; runKey: string }) {
-  const [p, setP] = useState<LoadState | null>(() => tick());
+function MapLoadOverlay({ tick, runKey, onState, external = false }: { tick: () => MapLoadState | null; runKey: string; onState?: (state: MapLoadState | null) => void; external?: boolean }) {
+  const stateCallback = useRef(onState); stateCallback.current = onState;
+  const [p, setP] = useState<MapLoadState | null>(() => tick());
   useEffect(() => {
     const step = () => {
       const n = tick();
+      stateCallback.current?.(n);
       setP(prev => (prev && n && prev.pct === n.pct && prev.text === n.text ? prev : n));
       return n;
     };
@@ -331,7 +335,7 @@ function MapLoadOverlay({ tick, runKey }: { tick: () => LoadState | null; runKey
   }, [tick, runKey]);
   return (
     <Box sx={{
-      position: 'absolute', inset: 0, zIndex: 2, bg: 'canvas.default', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      position: 'absolute', inset: 0, zIndex: 2, bg: 'canvas.default', display: external ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center',
       opacity: p ? 1 : 0, pointerEvents: p ? 'auto' : 'none', transition: 'opacity 200ms ease',
     }}>
       <MapLoader pct={p?.pct ?? 1} text={p?.text ?? ''} />
@@ -339,7 +343,7 @@ function MapLoadOverlay({ tick, runKey }: { tick: () => LoadState | null; runKey
   );
 }
 
-export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut, world, minScale, camera, onView, onCameraCancel, fills, regions, onTap, onHoverCell }: Props) {
+export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, mode, validSet, pickedSet, targets, queue, globalPlan, catalog, onPick, sections, unlockedSections, onUnlockCell, focusSet, dayNight = 'day', onZoomOut, world, minScale, camera, onView, onLoadState, externalLoader, onCameraCancel, fills, regions, onTap, onHoverCell }: Props) {
   const onZoomOutRef = useRef(onZoomOut);
   onZoomOutRef.current = onZoomOut;
   const cb = useRef({ onView, onTap, onHoverCell, onCameraCancel });
@@ -1233,8 +1237,9 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     layerFor(r);
     // контейнеры: translate(ox,oy) scale(desired/r) — до 1:1 к экрану, когда r === desired
     for (const [lr, el] of s.layers) {
-      // сдвиг — в целых пикселях экрана: дробный заставил бы композитор пересэмплировать куски (мыло)
-      const tf = `translate(${Math.round(s.ox * s.dpr) / s.dpr}px,${Math.round(s.oy * s.dpr) / s.dpr}px) scale(${desired / lr})`;
+      // Одна дробная позиция с focus/overlay, включая хвост инерции и покой.
+      // Округление здесь превращает медленное движение в однопиксельные скачки.
+      const tf = `translate(${s.ox}px,${s.oy}px) scale(${desired / lr})`;
       if (el.dataset.tf !== tf) { el.dataset.tf = tf; el.style.transform = tf; }
     }
     // ночной набор спрайтов ещё готовится — на экране остаются прежние куски
@@ -2199,7 +2204,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
   // ход загрузки карты для лоадера (опрашивается раз в 100 мс, пока карта грузится). Шкала: данные
   // страницы — уже позади (DATA_SHARE), дальше атласы, нарезка спрайтов и, если сейчас ночь, перекраска
   // спрайтов под ночь. Всё готово — loadReady и кадр: он нарисует видимые куски разом и снимет loading
-  const loadTick = useCallback((): LoadState | null => {
+  const loadTick = useCallback((): MapLoadState | null => {
     const s = state.current;
     if (!s.loading) return null;
     if (s.loadReady) return { pct: 1, text: 'Отрисовка…' };
@@ -2250,7 +2255,7 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
         <canvas ref={focusCanvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
       </div>
       <canvas ref={fpsRef} />
-      <MapLoadOverlay tick={loadTick} runKey={loadKey} />
+      <MapLoadOverlay tick={loadTick} runKey={loadKey} onState={onLoadState} external={externalLoader} />
     </div>
   );
 }

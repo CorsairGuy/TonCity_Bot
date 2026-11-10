@@ -14,10 +14,13 @@ function unsubscribe(account, res) {
   subscribers.get(account)?.delete(res);
 }
 
-function broadcast(account, buildings, unlockedSections) {
+function broadcast(account, buildings, unlockedSections, queue) {
   const payload={buildings};
   // Отсутствующее поле — неизвестное состояние, а [] — достоверно пустой список.
   if(Array.isArray(unlockedSections))payload.unlockedSections=unlockedSections;
+  // Очередь известна циклу улучшений после чтения планов/удаления выполненных записей.
+  // Отсутствие поля не стирает очередь у подписчика; [] означает, что она опустела.
+  if(Array.isArray(queue))payload.queue=queue;
   // общая карта всех городов слушает общий поток событий панели, а не по соединению на город
   try { require('../web/lib/panelEvents').emit('city', { account, ...payload }); } catch (_) {}
   const set = subscribers.get(account);

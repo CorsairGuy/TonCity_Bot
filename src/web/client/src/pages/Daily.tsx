@@ -64,7 +64,7 @@ function AccountRewards({ data }: { data: DailyRewardAccount }) {
           ? <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Ещё не синхронизировано — появится после ближайшего суточного цикла или кнопки «Обновить»</Text>
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              {data.days.map(d => <DayCard key={d.day} day={d} />)}
+              {[...data.days].sort((a, b) => a.day - b.day).map(d => <DayCard key={d.day} day={d} />)}
             </div>
           )}
       </Box>
