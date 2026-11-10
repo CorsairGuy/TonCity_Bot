@@ -35,20 +35,9 @@ function normalizeGrants(grants,now=new Date()){
     ready_at:exactReadyAt(g.next_in_seconds,now)?.toISOString()??null}));
 }
 async function saveCivicDraw(name,cd,now=new Date()){
-  const baseUnits=(cd.draws_ready??0)+(cd.draw_progress??0),rate=cd.draws_per_day??0;
   const exact=exactReadyAt(cd.next_draw_in_seconds,now);
-  const timerSource=exact?'server':'forecast';
-  let readyAt=null;
-  if(cd.claimable)readyAt=now;
-  else if(exact)readyAt=exact;
-  else if(cd.next_draw_in_seconds===undefined){
-    // Совместимость со старым ответом: только прогноз защищаем от сдвига назад.
-    const frac=baseUnits-Math.floor(baseUnits);
-    const predicted=rate>0?new Date(now.getTime()+((1-frac)/rate)*86400000):null;
-    const prev=await CivicDrawStatus.findOne({where:{account:name},attributes:['ready_at','timer_source']});
-    const previous=prev?.timer_source!=='server'&&prev?.ready_at?new Date(prev.ready_at):null;
-    readyAt=predicted&&previous?new Date(Math.max(predicted.getTime(),previous.getTime())):(predicted??previous);
-  }
+  const timerSource=exact?'server':'unknown';
+  const readyAt=cd.claimable?now:exact;
   const grants=normalizeGrants(cd.grants,now);
   await CivicDrawStatus.upsert({account:name,draws_per_day:cd.draws_per_day??null,draws_ready:cd.draws_ready??null,
     draw_progress:cd.draw_progress??null,claimable:!!cd.claimable,odds:JSON.stringify(cd.odds||[]),
@@ -98,4 +87,45 @@ function claimPolicyGrant(api,name,defId){
   }).finally(()=>{if(grantClaims.get(key)===task)grantClaims.delete(key);});
   grantClaims.set(key,task);return task;
 }
-module.exports={runTownhall,saveCivicDraw,fetchCivicDraw,withClaimLock,claimPolicyGrant,normalizeGrants,exactReadyAt};
+// Одна операция для кнопок и автоматики. После каждого POST перечитываем серверные таймеры.
+async function collectCivicRewards(api,name,{draws=true,grants=true}={}){
+  return withClaimLock(name,async()=>{
+    let cd=await fetchCivicDraw(api,name),got=0,drawCount=0,grantCount=0,error=null,ambiguous=false,attempted=false;
+    const results=[];
+    async function claim(path,body,kind){
+      let result,failed;
+      const before=cd;
+      attempted=true;
+      try{result=await api.post(path,body);}catch(e){failed=e;}
+      const after=await fetchCivicDraw(api,name).catch(()=>null);
+      cd=after;
+      if(failed){
+        ambiguous=true;error=failed.message||String(failed);
+        const consumed=after&&(kind==='draw'
+          ?Number(after.draws_ready)<Number(before.draws_ready)
+          :Number(after.grants?.find(g=>String(g.def_id)===String(body.def_id))?.ready??0)<Number(before.grants?.find(g=>String(g.def_id)===String(body.def_id))?.ready??0));
+        if(consumed){got++;if(kind==='draw')drawCount++;else grantCount++;}
+        return false; // POST не повторяем даже после неизвестного ответа.
+      }
+      got++;if(kind==='draw')drawCount+=Math.max(1,Number(result?.draws_consumed)||1);else grantCount++;results.push({kind,result});
+      if(!after){error='Награда получена, но новые таймеры не загрузились';return false;}
+      return true;
+    }
+    try{
+      if(draws)for(let i=0;i<Math.min(10,Math.max(1,Number(cd?.max_draws)||3))&&cd?.claimable===true;i++){
+        if(!await claim('/policies/civic-draw/claim',{},'draw'))break;
+      }
+      if(grants&&!error){
+        const ids=[...new Set((cd?.grants??[]).filter(g=>Number(g.ready)>0).map(g=>g.def_id))];
+        for(const def_id of ids){
+          if(!cd?.grants?.some(g=>String(g.def_id)===String(def_id)&&Number(g.ready)>0))continue;
+          if(!await claim('/policies/civic-draw/grants/claim',{def_id},'grant'))break;
+        }
+      }
+    }finally{
+      if(attempted)await require('./inventory').runInventory(api,name).catch(e=>logger.warn(`[${name}] [civic-draw] склад: ${e.message}`));
+    }
+    return{ok:got>0&&!error,got,draws:drawCount,grants:grantCount,notReady:!got&&!error,ambiguous,refreshed:!!cd,error:error||(!got?'Награды ещё не готовы — состояние обновлено':undefined),result:results.find(r=>r.kind==='draw')?.result,cd};
+  });
+}
+module.exports={collectCivicRewards,runTownhall,saveCivicDraw,fetchCivicDraw,withClaimLock,claimPolicyGrant,normalizeGrants,exactReadyAt};

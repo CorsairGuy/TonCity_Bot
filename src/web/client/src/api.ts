@@ -1,3 +1,4 @@
+export interface CivicClaimResult { ok: boolean; got?: number; draws?: number; grants?: number; notReady?: boolean; ambiguous?: boolean; refreshed?: boolean; result?: unknown; error?: string }
 // Ответ без JSON (502 от прокси, пока бот перезапускается; HTML-заглушка) и обрыв сети
 // превращаются в обычный {ok:false,error}: страницы уже умеют показывать error, а исключение
 // уходило в консоль и оставляло на экране пустое «нет данных».
@@ -386,8 +387,9 @@ export const api = {
   // городской розыгрыш (civic_draw из /progress/diversity) — обновляется тем же api.refresh('townhall')
   policyGrantClaim: (accountId: number, defId: string | number) => req<{ok:boolean; result?:unknown; error?:string}>(`/api/civic-draw/${accountId}/grants/claim`, post({def_id:defId})),
   civicDraw: () => req<{ ok: boolean; accounts: CivicDrawAccount[]; error?: string }>('/api/civic-draw'),
+  civicDrawClaimAccount: (accountId: number) => req<CivicClaimResult>(`/api/civic-draw/${accountId}/claim-all`, post({})),
   civicDrawClaimAll: () =>
-    req<{ ok: boolean; results?: { account: string; ok: boolean; result?: unknown; error?: string }[]; succeeded?: number; total?: number; error?: string }>(
+    req<{ ok: boolean; results?: (CivicClaimResult & { account: string })[]; succeeded?: number; total?: number; error?: string }>(
       '/api/civic-draw/claim-all', post({})),
 
   // staking
