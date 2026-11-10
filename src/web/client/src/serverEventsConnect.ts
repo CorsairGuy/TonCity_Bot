@@ -7,7 +7,7 @@ export function connect(onEvent: (type: string, data: unknown) => void) {
   let delay = 2000;
   const open = () => {
     const es = new EventSource('/api/events');
-    es.onopen = () => { delay = 2000; };
+    es.onopen = () => { delay = 2000; onEvent('connection', { at: Date.now() }); };
     es.onerror = () => {
       if (es.readyState !== EventSource.CLOSED) return;
       setTimeout(open, delay);
