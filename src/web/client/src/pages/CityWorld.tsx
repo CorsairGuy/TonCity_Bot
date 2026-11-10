@@ -153,8 +153,8 @@ export function CityWorld() {
     api.policies().then(d => { if (d.ok) setCabinets(Object.fromEntries(Object.entries(d.byAccount).map(([a, v]) => [a, v.cabinet]))); });
   }, []);
   // живые постройки: бот шлёт свежий снимок города при каждом старте и конце стройки
-  useEffect(() => onServerEvent<{ account: string; buildings: CityWorldRow['buildings']; unlockedSections?: string[] }>('city', d => {
-    setRows(prev => prev.map(r => r.account === d.account ? { ...r, buildings: d.buildings, ...(Array.isArray(d.unlockedSections) ? { unlockedSections: d.unlockedSections } : {}) } : r));
+  useEffect(() => onServerEvent<{ account: string; buildings: CityWorldRow['buildings']; unlockedSections?: string[]; queue?: CityWorldRow['queue'] }>('city', d => {
+    setRows(prev => prev.map(r => r.account === d.account ? { ...r, buildings: d.buildings, ...(Array.isArray(d.unlockedSections) ? { unlockedSections: d.unlockedSections } : {}), ...(Array.isArray(d.queue) ? { queue: d.queue } : {}) } : r));
   }), []);
 
   const [refreshing, setRefreshing] = useResumableRefresh('refresh:city', () => load());

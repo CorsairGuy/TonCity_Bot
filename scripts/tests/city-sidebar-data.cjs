@@ -33,7 +33,7 @@ function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function environment(embedded=true){
   const transitions=[],events=[],values={setRows:[{account:'A',unlockedSections:['start','new']}]};let lane=0,nextLane=0;
-  const context={exports:{},account:'A',accountRef:{current:'A'},props:{slots:embedded?{}:undefined},
+  const context={exports:{},account:'A',accountRef:{current:'A'},queueEventRef:{current:null},props:{slots:embedded?{}:undefined},
     startTransition:fn=>transitions.push(fn),computePolicyMultiplier:()=>1,fetch:()=>Promise.resolve({json:()=>Promise.resolve({coords:[{x:1,y:2}]})})};
   for(const name of [...source.matchAll(/\b(set[A-Z]\w*)\(/g)].map(m=>m[1])){
     context[name]=value=>{values[name]=typeof value==='function'?value(values[name]??0):value;events.push({name,value:values[name],lane});};
