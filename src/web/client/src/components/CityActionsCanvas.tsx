@@ -1233,8 +1233,9 @@ export function CityActionsCanvas({ district = 'main', buildings, type, mapKey, 
     layerFor(r);
     // контейнеры: translate(ox,oy) scale(desired/r) — до 1:1 к экрану, когда r === desired
     for (const [lr, el] of s.layers) {
-      // сдвиг — в целых пикселях экрана: дробный заставил бы композитор пересэмплировать куски (мыло)
-      const tf = `translate(${Math.round(s.ox * s.dpr) / s.dpr}px,${Math.round(s.oy * s.dpr) / s.dpr}px) scale(${desired / lr})`;
+      // Одна дробная позиция с focus/overlay, включая хвост инерции и покой.
+      // Округление здесь превращает медленное движение в однопиксельные скачки.
+      const tf = `translate(${s.ox}px,${s.oy}px) scale(${desired / lr})`;
       if (el.dataset.tf !== tf) { el.dataset.tf = tf; el.style.transform = tf; }
     }
     // ночной набор спрайтов ещё готовится — на экране остаются прежние куски
