@@ -1,6 +1,7 @@
 'use strict';
 const {GlobalUpgradePlan,CitySnapshot}=require('../db/index');
 const cityPlans=require('../db/cityPlans');
+const guildBonuses=require('../utils/guildBonuses');
 const logger=require('../utils/logger');
 const {globalLock}=require('../utils/lock');
 const {sleep,fmt,withRetry}=require('../utils/helpers');
@@ -623,8 +624,15 @@ async function runProgress(api,name,opts={}){
   if(isCityPaused()){logger.info(`[${name}] [progress] прокачка на паузе — пропускаю`);return;}
   try{
     const buildingsMap=cityBuildingsMap();
-    const[{discount,buildDiscount,additionalBuilder},{builderBonus:policyBuilderBonus,upgradeCostMultiplier,buildCostMultiplier}]=await Promise.all([loadGuildBonuses(api),loadPolicyEffects(api)]);
-    const builderBonus=additionalBuilder+policyBuilderBonus;
+    const[initialGuild,{builderBonus:policyBuilderBonus,upgradeCostMultiplier,buildCostMultiplier}]=await Promise.all([guildBonuses.ensure(api,name),loadPolicyEffects(api)]);
+    let{discount,buildDiscount,additionalBuilder}=initialGuild;
+    let guildRevision=initialGuild.revision,builderBonus=additionalBuilder+policyBuilderBonus;
+    const updateGuild=()=>{
+      const fresh=guildBonuses.current(name);
+      if(!fresh||fresh.revision===guildRevision)return;
+      ({discount,buildDiscount,additionalBuilder}=fresh);
+      guildRevision=fresh.revision;builderBonus=additionalBuilder+policyBuilderBonus;
+    };
     let prog;
     try{
       prog=await withRetry(()=>api.get('/progress/'),2,1500,`${name} progress load`);
@@ -695,6 +703,7 @@ async function runProgress(api,name,opts={}){
     const refreshState=async()=>{
       const latest=await withRetry(()=>api.get('/progress/'),2,1500,`${name} progress refresh`);
       const latestData=latest?.progress?.data||{};
+      updateGuild();
       current=Array.isArray(latestData.buildings)?latestData.buildings:[];
       if(Array.isArray(latest?.progress?.unlocked_sections))currentSections=latest.progress.unlocked_sections;
       // раньше CitySnapshot писался только ОДИН раз в начале цикла (см. выше) — пока бот улучшает
@@ -709,7 +718,7 @@ async function runProgress(api,name,opts={}){
       if(require('../config').getConfig().features.journey){
         try{await require('./journey').runJourney(api,name,extractCurrentProfit(latest));}catch(e){logger.warn(`[${name}] [progress] journey check: ${e.message}`);}
       }
-      return{coins:latestData.coins||0,builders:(latest?.progress?.builders||(builders-builderBonus))+builderBonus};
+      return{coins:latestData.coins||0,builders:(latest?.progress?.builders??prog?.progress?.builders??1)+builderBonus};
     };
 
     while(true){
@@ -728,6 +737,7 @@ async function runProgress(api,name,opts={}){
         globalPlan=await loadGlobalPlan();
       }catch(e){logger.warn(`[${name}] [progress] не удалось перечитать стратегию: ${e.message}`);}
       const state=await refreshState();
+      const batchGuildRevision=guildRevision;
       await runPendingReconstructions(api,name,current,buildingsMap); // здание могло дойти до required_lvl прямо во время этого цикла апгрейдов
       const busyNow=current.filter(b=>b.end&&new Date(b.end).getTime()>Date.now()).length;
       const free=Math.max(0,state.builders-busyNow);
@@ -749,7 +759,7 @@ async function runProgress(api,name,opts={}){
       const effectiveTargets=resolveEffectiveTargets(current,personalTargets,globalPlan);
       const{picked,consumedQueueKeys,skipped}=pickStrategyTargets(current,queue,effectiveTargets,buildingsMap,discount,upgradeCostMultiplier,free,state.coins);
 
-      if(cityMutation.revision(name)!==mapRevision)continue;
+      if(cityMutation.revision(name)!==mapRevision||guildBonuses.current(name)?.revision!==batchGuildRevision)continue;
       // почему очередь пропустила записи — видно в логе, а не только в поведении
 
       if(skipped&&skipped.length)logger.info(`[${name}] [progress] очередь пропустила: ${skipped.join('; ')}`);
@@ -785,12 +795,13 @@ async function runProgress(api,name,opts={}){
       const pending=[];
       logger.info(`[${name}] [progress] запускаю пачку: ${picked.length} апгрейд(ов) на ${free} свободных строителей`);
       for(const b of picked){
-        if(cityMutation.revision(name)!==mapRevision)break;
+        if(cityMutation.revision(name)!==mapRevision||guildBonuses.current(name)?.revision!==batchGuildRevision)break;
         const nextLvl=(Number(b.level)||1)+1;
         const ok=await runProgressAction(name,`upgrade ${b.id} at (${b.x},${b.y}) to lvl ${nextLvl}`,async()=>{
           await cityMutation.run(name,async()=>{
             if(cityMutation.revision(name)!==mapRevision)throw new Error('Координаты изменились при перемещении; пересчитываю пачку');
             await sleep(500);
+            if(guildBonuses.current(name)?.revision!==batchGuildRevision)throw new Error('Бонусы гильдии изменились; пересчитываю пачку');
             const r=await api.post('/progress/',[{type:'upgrade',id:b.id,x:b.x,y:b.y}]);
             if(r?.coins!==undefined){
               logger.info(`[${name}] [progress] upgraded ${b.id} | LVL ${b.level} -> ${nextLvl}`);
@@ -811,7 +822,7 @@ async function runProgress(api,name,opts={}){
           if(row)pending.push({row,x:Number(b.x),y:Number(b.y),startedAt:Date.now()});
         }
       }
-      if(!launched&&cityMutation.revision(name)!==mapRevision)continue;
+      if(!launched&&(cityMutation.revision(name)!==mapRevision||guildBonuses.current(name)?.revision!==batchGuildRevision))continue;
       // одно обновление после всей пачки — дальше while сам пересчитает свободных строителей и,
       // если они ещё есть и цели остались, сразу запустит следующую пачку без ожидания
       if(launched){

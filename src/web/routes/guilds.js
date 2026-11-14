@@ -33,6 +33,98 @@ module.exports=function(app,ctx){
     }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
 
+  app.post('/api/guilds/:accountId/leave',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.params.accountId);
+      const out=await opRegistry.run(`guildLeave:${acc.id}`,async()=>{
+        const api=apiForAcc(acc);
+        const result=await require('../../modules/guildActions').leaveGuild(api,req.body||{});
+        if(result.membership&&String(result.membership.guild?.id??'')!==String(req.body?.expected_guild_id??'')){
+          const{GuildSnapshot}=require('../../db/index'),g=result.membership.guild;
+          // Удаляем только подтверждённые старые членства; ошибка GET не стирает снимки.
+          await GuildSnapshot.destroy({where:{account:acc.name}});
+          if(g?.id)await GuildSnapshot.upsert({account:acc.name,guild_id:String(g.id),guild_title:g.title||'',role:g.role||'',benefits:null,updated_at:new Date()},{conflictFields:['account','guild_id']});
+        }
+        if(result.ok){
+          if(result.membership){
+            try{await require('../../utils/guildBonuses').syncGuildBonuses(api,acc.name,result.membership.guild);}
+            catch(e){result.refresh_error=[result.refresh_error,e.message].filter(Boolean).join('; ');}
+          }else require('../../utils/guildBonuses').publish(acc.name,null);
+        }
+        const{membership,...data}=result;return data;
+      });
+      res.json(out);
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+  app.post('/api/guilds/:accountId/deposit',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.params.accountId),b=req.body||{};
+      const out=await opRegistry.run(`guildDeposit:${acc.id}:${b.expected_guild_id}:${b.currency}:${b.amount}`,async()=>{
+        const api=apiForAcc(acc);
+        try{return await require('../../modules/guildActions').depositGuild(api,b);}
+        finally{
+          // В том числе после неоднозначного POST: актуализируем личный баланс без повтора взноса.
+          try{await require('../../modules/session').saveStats(acc,acc.name,await api.get('/progress/'));}catch(e){logger.warn(`[${acc.name}] [guild-deposit] баланс: ${e.message}`);}
+        }
+      });
+      res.json(out);
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+
+  async function discoveryCache(accId,ref,data){
+    const{seq}=require('../../db/index');
+    if(data!==undefined){await seq.query('INSERT INTO game_extra_cache (account_id,kind,ref,data,updated_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE data=VALUES(data),updated_at=VALUES(updated_at)',{replacements:[accId,'guild-discovery',ref,JSON.stringify(data),new Date()]});return data;}
+    const rows=await seq.query('SELECT data FROM game_extra_cache WHERE account_id=? AND kind=? AND ref=? LIMIT 1',{replacements:[accId,'guild-discovery',ref],type:require('sequelize').QueryTypes.SELECT});
+    return rows.length?JSON.parse(rows[0].data):null;
+  }
+  app.get('/api/guild-discovery',async(req,res)=>{
+    try{
+      const{Account}=require('../../db/index');
+      const accounts=await Account.findAll({attributes:['id','name']});
+      const data=req.query.account?await discoveryCache(Number(req.query.account),'search'):null;
+      res.json({ok:true,accounts,data});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+  app.post('/api/guild-discovery/search',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.body?.account_id),api=apiForAcc(acc);
+      const query=String(req.body?.query??'').trim().slice(0,100),page=Math.max(1,Math.min(1000,Math.floor(Number(req.body?.page)||1)));
+      const r=await api.get('/guilds/popular',{search:query,page});
+      const data={query,page,results:Array.isArray(r?.results)?r.results:[],has_more:!!r?.next};
+      await discoveryCache(acc.id,'search',data);res.json({ok:true,data});
+    }catch(e){res.status(e.status||500).json({ok:false,error:midErr(e)});}
+  });
+  app.post('/api/guild-discovery/detail',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.body?.account_id),svc=require('../../modules/guildDiscovery');
+      const data=await svc.detail(apiForAcc(acc),req.body?.guild_id);
+      await discoveryCache(acc.id,String(svc.guildId(req.body?.guild_id)),data);
+      res.json({ok:true,data,reason:svc.allowed(data)});
+    }catch(e){res.status(e.status||500).json({ok:false,error:midErr(e)});}
+  });
+  app.post('/api/guild-discovery/join',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.body?.account_id),svc=require('../../modules/guildDiscovery'),id=svc.guildId(req.body?.guild_id);
+      const out=await opRegistry.run(`guildJoin:${acc.id}`,async()=>{
+        const api=apiForAcc(acc),r=await svc.joinGuild(api,id,req.body?.expected_type);
+        if(r.current){
+          await discoveryCache(acc.id,String(id),r.current);
+          if(r.ok&&String(r.current.membership?.id??'')===String(id)){
+            const{GuildSnapshot}=require('../../db/index'),g=r.current.membership;
+            await GuildSnapshot.destroy({where:{account:acc.name}});
+            await GuildSnapshot.upsert({account:acc.name,guild_id:String(g.id),guild_title:g.title||'',role:g.role||'',benefits:null,updated_at:new Date()},{conflictFields:['account','guild_id']});
+            try{
+              const{data:benefits}=await require('../../utils/guildBonuses').syncGuildBonuses(api,acc.name,g);
+              await GuildSnapshot.update({benefits:JSON.stringify(benefits)},{where:{account:acc.name,guild_id:String(g.id)}});
+            }catch(e){r.refresh_error=[r.refresh_error,e.message].filter(Boolean).join('; ');}
+          }
+        }
+        return r;
+      });
+      res.json(out);
+    }catch(e){res.status(e.status||500).json({ok:false,error:midErr(e)});}
+  });
+
   // ── МИД live endpoints ───────────────────────────────────────────────────
   async function midApi(guildId){
     const{GuildSnapshot,Account}=require('../../db/index');

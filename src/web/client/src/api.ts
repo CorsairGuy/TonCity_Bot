@@ -28,7 +28,7 @@ const post = (body?: unknown): RequestInit => ({
   body: body !== undefined ? JSON.stringify(body) : undefined,
 });
 
-export type ExtraKind = 'metrics' | 'rank' | 'pack-info' | 'treasury' | 'treasury-actions' | 'treasury-lb' | 'renown' | 'renown-actions' | 'renown-lb'
+export type ExtraKind = 'guild-gifts' | 'guild-gifts-history' | 'metrics' | 'rank' | 'pack-info' | 'treasury' | 'treasury-actions' | 'treasury-lb' | 'renown' | 'renown-actions' | 'renown-lb'
   | 'satoshi-history' | 'gram-tx' | 'achievements' | 'guild-achievements' | 'guild-notifications' | 'notifications-unread' | 'notify-can-send';
 export interface ExtraResp<T = unknown> { ok: boolean; error?: string; data: T | null; updated_at: string | null }
 
@@ -195,6 +195,12 @@ export const api = {
 
   // guilds — server: {account, guild_id, guild_title, role, benefits, updated_at}
   guilds: () => req<{ ok: boolean; rows: GuildMembership[] }>('/api/guilds'),
+  guildDiscovery: (accountId?: number) => req<{ ok: boolean; accounts: { id: number; name: string }[]; data: GuildSearchData | null; error?: string }>('/api/guild-discovery' + (accountId ? `?account=${accountId}` : '')),
+  guildSearch: (accountId: number, query: string, page = 1) => req<{ ok: boolean; data: GuildSearchData; error?: string }>('/api/guild-discovery/search', post({ account_id: accountId, query, page })),
+  guildDetail: (accountId: number, guildId: number) => req<{ ok: boolean; data: GuildJoinDetail; reason: string | null; error?: string }>('/api/guild-discovery/detail', post({ account_id: accountId, guild_id: guildId })),
+  guildJoin: (accountId: number, guildId: number, expectedType: string) => req<{ ok: boolean; status?: string; error?: string; refresh_error?: string; current?: GuildJoinDetail }>('/api/guild-discovery/join', post({ account_id: accountId, guild_id: guildId, expected_type: expectedType })),
+  guildLeave: (accountId: number, guildId: string, leader: boolean) => req<{ ok: boolean; error?: string; refresh_error?: string }>(`/api/guilds/${accountId}/leave`, post({ expected_guild_id: guildId, confirm_leader: leader })),
+  guildDeposit: (accountId: number, guildId: string, currency: 'coins' | 'crystals', amount: number) => req<{ ok: boolean; error?: string }>(`/api/guilds/${accountId}/deposit`, post({ expected_guild_id: guildId, currency, amount })),
   guildFees: (accountId: number) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}`),
   guildFeesPay: (accountId: number, state: GuildFeesState) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}/pay`, post({ expected_guild_id: state.guild_id, expected_amount: state.remaining, expected_currency: state.currency, expected_deadline: state.deadline })),
   guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[] }>('/api/guild-quests'),
@@ -1089,6 +1095,14 @@ export interface QuestTierGuild {
   guild_title: string;
   data: QuestTierData | null;
   updated_at: string | null;
+}
+
+export interface GuildSearchData { query: string; page: number; results: { id: number; title: string; population?: number; profit?: number; members_count?: number }[]; has_more: boolean }
+export interface GuildJoinDetail {
+  guild: { id: number; title: string; members_count?: number; description?: string } | null;
+  settings: { guild_type?: string; member_capacity?: number; application_criteria_population?: number; application_criteria_profit?: number; membership_fee_type?: string; membership_fee_amount?: number; membership_fee_currency?: string } | null;
+  membership: { id: number; title: string } | null;
+  metrics: { population?: number; profit?: number }; status: string | null;
 }
 
 export interface GuildMembership {

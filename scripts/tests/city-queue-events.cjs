@@ -24,7 +24,7 @@ async function scenario(kind){
  const db={seq:{transaction:async fn=>fn({})},CityUpgradeQueue:Queue,CityUpgradeTarget:{findAll:async()=>[]},CityReconstructPlan:{findAll:async()=>[]}};
  const plansCtx={module:{exports:{}},require:()=>db};vm.runInNewContext(read('src/db/cityPlans.js'),plansCtx);const plans=plansCtx.module.exports;
  const initialQueue=(await plans.loadPlans('A')).queue;
- const warnings=[],ctx={initialQueue,name:'A',cityPlans:plans,logger:{warn:m=>warnings.push(m),info:()=>{}},current:[],currentSections:[],builders:3,builderBonus:0,CitySnapshot:{upsert:async()=>{}},citySnapshotPayload:()=>({}),cityLive:live,
+ const warnings=[],ctx={guildBonuses:{current:()=>({revision:0})},batchGuildRevision:0,updateGuild:()=>{},prog:{progress:{builders:3}},initialQueue,name:'A',cityPlans:plans,logger:{warn:m=>warnings.push(m),info:()=>{}},current:[],currentSections:[],builders:3,builderBonus:0,CitySnapshot:{upsert:async()=>{}},citySnapshotPayload:()=>({}),cityLive:live,
   api:{get:async()=>{gets++;return{progress:{data:{coins:123,buildings:[{id:'RES_test.png',x:1,y:2,level:2}]},unlocked_sections:['core'],builders:3}};},post:async()=>{posts++;if(kind==='timeout')throw Error('ECONNABORTED');if(kind==='http-failure')throw Error('HTTP 500');return kind==='unconfirmed'?{}:{coins:123};}},
   withRetry:async fn=>fn(),require:name=>{assert.equal(name,'../config');return{getConfig:()=>({features:{journey:false}})}},
   cityMutation:{run:async(_,fn)=>fn(),revision:()=>0},mapRevision:0,b:{id:'RES_test.png',x:1,y:2,level:1},nextLvl:2,sleep:async()=>{},consumedQueueKeys:['1,2'],runProgressAction:async(_,__,fn)=>{try{await fn();return true;}catch{return false;}}};

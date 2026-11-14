@@ -10,6 +10,8 @@ const READ={
   metrics:{path:()=>'/progress/metrics'},
   rank:{path:()=>'/leaderboard/global/me'},
   'pack-info':{path:(r)=>`/booster-packs/info/${num(r)}`,shared:true},
+  'guild-gifts':{path:(r,g)=>`/guilds/${g}/gifts`,guild:true},
+  'guild-gifts-history':{path:(r,g)=>`/guilds/${g}/gifts/history`,params:r=>({before:num(r)}),guild:true},
   treasury:{path:(r,g)=>`/guilds/${g}/treasury`,guild:true},
   'treasury-actions':{path:(r,g)=>`/guilds/${g}/treasury/actions`,guild:true},
   'treasury-lb':{guild:true,multi:g=>({coins:`/guilds/${g}/treasury/leaderboard/coins`,crystals:`/guilds/${g}/treasury/leaderboard/crystals`})},
@@ -30,6 +32,20 @@ const errText=e=>{const d=e?.response?.data;return(d&&(d.detail||d.error||d.mess
 module.exports=function(app,ctx){
   const{apiForAcc}=ctx;
   const db=()=>require('../../db/index');
+  const sendingGifts=new Set();
+  const bad=(message,status=400)=>Object.assign(new Error(message),{status});
+  const admin=g=>['Superuser','Leader','Officer'].includes(g?.role);
+  async function giftGuild(api,expected){
+    const g=(await api.get('/users/me/guild'))?.guild;
+    if(!g?.id)throw bad('Аккаунт не состоит в гильдии',409);
+    if(expected!=null&&String(g.id)!==String(expected))throw bad('Гильдия изменилась — обновите подарки и подтвердите заново',409);
+    const role=await api.get(`/guilds/${g.id}/role`);
+    return{...g,role:role?.role};
+  }
+  const giftData=(data,g)=>{
+    if(!data||!Array.isArray(data.items)||!Array.isArray(data.members)||!Array.isArray(data.history?.gifts)||!Number.isFinite(data.balance))throw bad('Игра вернула неполное состояние подарков',502);
+    return{...data,guild_id:String(g.id),can_send:admin(g)&&data.can_send!==false,captured_at:new Date().toISOString()};
+  };
 
   async function account(id){
     const acc=await db().Account.findByPk(num(id));
@@ -61,7 +77,11 @@ module.exports=function(app,ctx){
       const def=READ[req.params.kind];if(!def)return res.status(404).json({ok:false,error:'Неизвестный раздел'});
       const ref=String(req.query.ref??'');
       const accountId=def.shared?0:num(req.query.account);
-      const c=await readCache(accountId,req.params.kind,ref);
+      let c=await readCache(accountId,req.params.kind,ref);
+      if(req.params.kind==='guild-gifts'&&c){
+        const acc=await account(accountId),membership=await db().GuildSnapshot.findOne({where:{account:acc.name}});
+        if(String(c.data?.guild_id??'')!==String(membership?.guild_id??''))c=null;
+      }
       res.json({ok:true,data:c?.data??null,updated_at:c?.updated_at??null});
     }catch(e){fail(res,e);}
   });
@@ -79,11 +99,13 @@ module.exports=function(app,ctx){
     try{
       const ref=String(req.body?.ref??'');
       const acc=await account(req.body?.account_id);
-      const gid=def.guild?await guildOf(acc):null;
       const api=apiForAcc(acc);
+      const g=kind.startsWith('guild-gifts')?await giftGuild(api):null;
+      const gid=g?g.id:def.guild?await guildOf(acc):null;
       let data;
       if(def.multi){data={};for(const[k,p]of Object.entries(def.multi(gid)))data[k]=await api.get(p);}
       else data=await api.get(def.path(ref,gid),def.params?def.params(ref):{});
+      if(kind==='guild-gifts')data=giftData(data,g);
       const updated_at=await writeCache(def.shared?0:acc.id,kind,ref,data);
       res.json({ok:true,data,updated_at});
     }catch(e){
@@ -100,6 +122,44 @@ module.exports=function(app,ctx){
       res.json({ok:true,...(r&&typeof r==='object'?{data:r}:{})});
     }catch(e){logger.warn(`[extras] ${req.path}: ${errText(e)}`);fail(res,e);}
   }
+  app.post('/api/extras/guild-gifts-send',async(req,res)=>{
+    let lock;
+    try{
+      const acc=await account(req.body?.account_id),api=apiForAcc(acc);
+      lock=acc.id;
+      if(sendingGifts.has(lock)){lock=null;throw bad('Отправка подарков уже выполняется',409);}
+      sendingGifts.add(lock);
+      const g=await giftGuild(api,num(req.body?.expected_guild_id));
+      if(!admin(g))throw bad('Отправлять подарки могут лидер и офицеры',403);
+      const before=giftData(await api.get(`/guilds/${g.id}/gifts`),g);
+      if(before?.can_send===false)throw bad('Игра запретила отправку подарков',403);
+      const gifts=req.body?.gifts;
+      if(!Array.isArray(gifts)||!gifts.length||gifts.length>1000)throw bad('Выберите получателей подарков');
+      const users=new Set();let cost=0;
+      for(const gift of gifts){
+        const uid=num(gift?.user_id);if(users.has(uid))throw bad('Получатель указан дважды');users.add(uid);
+        const member=before.members?.find(m=>Number(m.user_id)===uid);
+        if(!member||!Number.isFinite(member.eligible_in_seconds)||member.eligible_in_seconds>0)throw bad('Получатель ещё не может получать подарки — обновите список',409);
+        if(!Array.isArray(gift.items)||!gift.items.length)throw bad('Укажите предметы получателя');
+        const items=new Set();
+        for(const line of gift.items){
+          const id=num(line?.item_id),quantity=line?.quantity;
+          if(items.has(id)||!Number.isSafeInteger(quantity)||quantity<=0)throw bad('Некорректное количество подарков');items.add(id);
+          const item=before.items?.find(i=>Number(i.item_id)===id),remaining=Number(member.remaining?.[String(id)]);
+          if(!item||!Number.isFinite(item.price)||item.price<0||!Number.isFinite(remaining)||quantity>remaining)throw bad('Ассортимент или недельный лимит изменился — обновите подарки',409);
+          cost+=item.price*quantity;
+        }
+      }
+      if(!Number.isFinite(cost)||cost!==req.body.expected_cost)throw bad('Стоимость изменилась — обновите подарки и подтвердите заново',409);
+      if(!Number.isFinite(before.balance)||cost>before.balance)throw bad('Недостаточно алмазов в казне',409);
+      let error=null,after=null;
+      try{await api.post(`/guilds/${g.id}/gifts`,{gifts:gifts.map(gift=>({user_id:Number(gift.user_id),items:gift.items.map(i=>({item_id:Number(i.item_id),quantity:i.quantity}))}))});}catch(e){error=e;}
+      // После неоднозначного POST перечитываем состояние, но расходующий запрос не повторяем.
+      try{after=giftData(await api.get(`/guilds/${g.id}/gifts`),g);await writeCache(acc.id,'guild-gifts','',after);}catch(e){logger.warn(`[${acc.name}] [guild-gifts] обновление: ${errText(e)}`);}
+      res.json({ok:!error,error:error?`${errText(error)}. Перед повтором проверьте историю подарков.`:undefined,data:after,refresh_error:after?undefined:'Не удалось обновить снимок подарков'});
+    }catch(e){fail(res,e);}
+    finally{if(lock!=null)sendingGifts.delete(lock);}
+  });
   // предпросмотр снятия политики: штраф (penalty) или null — изменяющий только по методу, состояние не трогает
   app.post('/api/extras/policy-unequip-preview',(req,res)=>act(req,res,(acc,api)=>api.post('/policies/unequip/preview',{instance_id:num(req.body.instance_id)})));
   // взнос личного Почёта в казну Почёта гильдии

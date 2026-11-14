@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.resolve(__dirname,'../../src/web/client'),ts=require(path.join(root,'node_modules/typescript'));
+const text=fs.readFileSync(path.join(root,'src/components/GuildGifts.tsx'),'utf8'),start=text.indexOf('export function giftDraft'),end=text.indexOf('\nconst duration',start);
+const scope={exports:{}};vm.runInNewContext(ts.transpileModule(text.slice(start,end),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,scope);const draft=scope.exports.giftDraft;
+const state={balance:100,items:[{item_id:43,price:5}],members:[{user_id:11,eligible_in_seconds:0,remaining:{43:3}},{user_id:12,eligible_in_seconds:0,remaining:{43:1}},{user_id:13,eligible_in_seconds:60,remaining:{43:3}}]};
+let d=draft(state,new Set([11,12]),{11:{43:'2'},12:{43:'1'}});assert.equal(d.cost,15);assert.equal(d.gifts.length,2);assert.equal(d.error,'');assert.equal(d.gifts[0].items[0].quantity,2);
+for(const qty of ['4','-1','1.5','NaN','Infinity'])assert(draft(state,new Set([11]),{11:{43:qty}}).error);
+assert(draft(state,new Set([13]),{13:{43:'1'}}).error);assert(draft({...state,balance:9},new Set([11]),{11:{43:'2'}}).error);
+assert.equal(draft(state,new Set([11]),{11:{43:''}}).gifts.length,0);assert.equal(draft(state,new Set(),{}).cost,0);
+console.log('PASS guild gifts draft: recipient-specific quantities, total cost, limits, eligibility, malformed input and treasury balance');
