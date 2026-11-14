@@ -181,8 +181,8 @@ function extractGuildType(raw: unknown): string | null {
 }
 
 // ── модалка заявок на вступление ────────────────────────────────────────────
-function ApplicationsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
-  guildId: string; title: string; onClose: () => void; showFlash: (m: string, ok: boolean) => void;
+function ApplicationsModal({ guildId, accountId, title, onClose, showFlash: showPageFlash }: {
+  guildId: string; accountId: number; title: string; onClose: () => void; showFlash: (m: string, ok: boolean) => void;
 }) {
   // сообщения — внутри окна: флэш на странице прятался под затемнением открытого диалога
   const [note, setNote] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -193,7 +193,7 @@ function ApplicationsModal({ guildId, title, onClose, showFlash: showPageFlash }
 
   const load = async () => {
     setLoading(true);
-    try { const d = await api.guildApplications(guildId); if (d.ok) setApps(d.applications); else showFlash(d.error || 'Ошибка', false); }
+    try { const d = await api.guildApplications(guildId, accountId); if (d.ok) setApps(d.applications); else showFlash(d.error || 'Ошибка', false); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
@@ -201,7 +201,7 @@ function ApplicationsModal({ guildId, title, onClose, showFlash: showPageFlash }
   const act = async (appId: number, name: string, kind: 'approve' | 'reject') => {
     setBusy(appId);
     try {
-      const d = kind === 'approve' ? await api.guildAppApprove(guildId, appId) : await api.guildAppReject(guildId, appId);
+      const d = kind === 'approve' ? await api.guildAppApprove(guildId, appId, accountId) : await api.guildAppReject(guildId, appId, accountId);
       if (d.ok) { showFlash(`${kind === 'approve' ? 'Принят' : 'Отклонён'}: ${name}`, true); setApps(a => a.filter(x => x.id !== appId)); }
       else showFlash(d.error || 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); } finally { setBusy(null); }
@@ -236,32 +236,34 @@ function ApplicationsModal({ guildId, title, onClose, showFlash: showPageFlash }
 const ONLINE_COLOR: Record<string, string> = { green: 'var(--green)', yellow: '#d4a23c', red: 'var(--red)', gray: 'var(--fg-subtle)' };
 const ROLE_NAME: Record<string, string> = { Leader: 'Лидер', Officer: 'Офицер', Member: 'Участник' };
 
-function MembersModal({ guildId, title, myRole, onClose, showFlash: showPageFlash }: {
-  guildId: string; title: string; myRole: string; onClose: () => void; showFlash: (m: string, ok: boolean) => void;
+function GuildMembersPanel({ guildId, accountId, myRole, showFlash }: {
+  guildId: string; accountId: number; myRole: string; showFlash: (m: string, ok: boolean) => void;
 }) {
-  // сообщения — внутри окна: флэш на странице прятался под затемнением открытого диалога
-  const [note, setNote] = useState<{ msg: string; ok: boolean } | null>(null);
-  const showFlash = (msg: string, ok: boolean) => { setNote({ msg, ok }); showPageFlash(msg, ok); };
   const [members, setMembers] = useState<GuildMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
   const isLeader = myRole === 'Leader';
   const ask = useAsk();
 
-  const load = async () => {
-    setLoading(true);
-    try { const d = await api.guildMembers(guildId); if (d.ok) setMembers(d.members); else showFlash(d.error || 'Ошибка', false); }
-    finally { setLoading(false); }
+  const load = async (manual = false) => {
+    if (manual) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const d = await api.guildMembers(guildId, accountId);
+      if (d.ok) setMembers(d.members);
+      else showFlash(d.error || 'Не удалось загрузить участников гильдии', false);
+    } finally { setLoading(false); setRefreshing(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [guildId, accountId]);
 
   const act = async (m: GuildMember, action: 'promote' | 'demote' | 'kick' | 'promote-to-leader') => {
     if (action === 'promote-to-leader' && !await ask('Передать лидерство?', `Лидером станет ${m.first_name}, вы станете офицером.`, { ok: 'Передать', danger: true })) return;
     if (action === 'kick' && !await ask('Исключить из гильдии?', `${m.first_name} будет исключён из гильдии.`, { ok: 'Исключить', danger: true })) return;
     setBusy(m.id);
     try {
-      const d = await api.guildMemberAction(guildId, m.id, action);
-      if (d.ok) { showFlash('Готово', true); load(); }
+      const d = await api.guildMemberAction(guildId, m.id, action, accountId);
+      if (d.ok) { showFlash('Изменения участников сохранены', true); await load(); }
       else showFlash(d.error || 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); } finally { setBusy(null); }
   };
@@ -271,34 +273,30 @@ function MembersModal({ guildId, title, myRole, onClose, showFlash: showPageFlas
     return (ro[a.role] ?? 3) - (ro[b.role] ?? 3);
   });
 
-  return (
-    <Dialog title={`Участники · ${title}`} onClose={onClose} width="xlarge" position={{ narrow: 'bottom', regular: 'center' }}>
-      <Box>
-        {note && <Flash variant={note.ok ? 'success' : 'danger'} sx={{ mb: 2 }}>{note.msg}</Flash>}
-        <Box sx={{ mb: 2 }}><Button onClick={load} disabled={loading}>↻ Обновить</Button></Box>
-        {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><Spinner /></Box>
-          : sorted.length === 0 ? <Text sx={{ color: 'fg.muted' }}>Нет участников</Text>
-          : sorted.map(m => (
-            <Box key={m.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 1, py: '8px', borderBottom: '1px solid', borderColor: 'border.muted' }}>
-              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bg: ONLINE_COLOR[m.online_status] ?? 'var(--fg-subtle)', flexShrink: 0 }} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{m.first_name}{m.last_name ? ` ${m.last_name}` : ''}</Text>
-                <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>{ROLE_NAME[m.role] ?? m.role} · 👥 {fmt(m.population)} · 🪙 {fmt(m.profit)}/ч</Text>
-              </Box>
-              {m.role !== 'Leader' && (
-                <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
-                  {isLeader && m.role === 'Member' && <Button disabled={busy != null} onClick={() => act(m, 'promote')}>↑ Офицер</Button>}
-                  {isLeader && m.role === 'Officer' && <Button disabled={busy != null} onClick={() => act(m, 'demote')}>↓ Участник</Button>}
-                  {isLeader && <Button disabled={busy != null} onClick={() => act(m, 'promote-to-leader')}>👑 Лидер</Button>}
-                  <Button variant="danger" loading={busy === m.id} disabled={busy != null} onClick={() => act(m, 'kick')}>Кик</Button>
-                </Box>
-              )}
+  return <Box sx={guildCard}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+      <Text sx={{ fontWeight: 'semibold', flex: 1 }}>Участники гильдии{!loading && ` · ${sorted.length}`}</Text>
+      <Button size="small" leadingVisual={SyncIcon} loading={refreshing} disabled={loading || refreshing || busy != null} onClick={() => void load(true)}>Обновить список</Button>
+    </Box>
+    {loading ? <Spinner /> : sorted.length === 0 ? <Text sx={{ color: 'fg.muted' }}>Игра не вернула участников гильдии.</Text>
+      : sorted.map(m => (
+        <Box key={m.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 1, py: 2, borderTop: '1px solid', borderColor: 'border.muted', flexWrap: 'wrap' }}>
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bg: ONLINE_COLOR[m.online_status] ?? 'var(--fg-subtle)', flexShrink: 0 }} />
+          <Box sx={{ flex: 1, minWidth: 180 }}>
+            <Text sx={{ fontWeight: 'bold', fontSize: 1 }}>{m.first_name}{m.last_name ? ` ${m.last_name}` : ''}</Text>
+            <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>{ROLE_NAME[m.role] ?? m.role} · 👥 {fmt(m.population)} · 🪙 {fmt(m.profit)}/ч</Text>
+          </Box>
+          {m.role !== 'Leader' && (
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {isLeader && m.role === 'Member' && <Button size="small" disabled={busy != null} onClick={() => void act(m, 'promote')}>↑ Офицер</Button>}
+              {isLeader && m.role === 'Officer' && <Button size="small" disabled={busy != null} onClick={() => void act(m, 'demote')}>↓ Участник</Button>}
+              {isLeader && <Button size="small" disabled={busy != null} onClick={() => void act(m, 'promote-to-leader')}>👑 Лидер</Button>}
+              <Button size="small" variant="danger" loading={busy === m.id} disabled={busy != null} onClick={() => void act(m, 'kick')}>Исключить</Button>
             </Box>
-          ))
-        }
-      </Box>
-    </Dialog>
-  );
+          )}
+        </Box>
+      ))}
+  </Box>;
 }
 
 // ── модалка настроек гильдии (поля 1:1 с UI игры) ────────────────────────────
@@ -313,8 +311,8 @@ const FEE_TYPES = [{ v: '', n: 'Нет' }, { v: 'hourly', n: 'Почасовой
 const FEE_FREQ = [{ v: 'daily', n: 'Ежедневно' }, { v: 'weekly', n: 'Еженедельно' }, { v: 'monthly', n: 'Ежемесячно' }];
 const FEE_CUR = [{ v: 'coins', n: 'Монеты' }, { v: 'crystals', n: 'Кристаллы' }];
 
-function SettingsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
-  guildId: string; title: string; onClose: () => void; showFlash: (m: string, ok: boolean) => void;
+function SettingsModal({ guildId, accountId, title, onClose, showFlash: showPageFlash }: {
+  guildId: string; accountId: number; title: string; onClose: () => void; showFlash: (m: string, ok: boolean) => void;
 }) {
   // сообщения — внутри окна: флэш на странице прятался под затемнением открытого диалога
   const [note, setNote] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -336,7 +334,7 @@ function SettingsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
   const load = async () => {
     setLoading(true);
     try {
-      const d = await api.guildSettings(guildId);
+      const d = await api.guildSettings(guildId, accountId);
       if (d.ok) {
         const s = d.settings; setInfo(s);
         setGuildType(s.guild_type || 'application');
@@ -369,7 +367,7 @@ function SettingsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
         membership_fee_amount: ft ? (parseInt(feeAmount) || 0) : null,
         membership_fee_duration: ft ? feeFreq : null,
         membership_fee_currency: ft ? feeCur : null,
-      });
+      }, accountId);
       if (d.ok) { showFlash('Настройки сохранены', true); onClose(); }
       else showFlash(d.error || 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); } finally { setSaving(false); }
@@ -490,7 +488,6 @@ export function Guilds() {
   const [deposit, setDeposit] = useState<{ row: GuildMembership; currency: 'coins' | 'crystals' } | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [appsGuild, setAppsGuild] = useState<{ id: string; title: string } | null>(null);
-  const [memGuild, setMemGuild] = useState<{ id: string; title: string; myRole: string } | null>(null);
   const [setGuild, setSetGuild] = useState<{ id: string; title: string } | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const loadSerial = useRef(0);
@@ -529,8 +526,7 @@ export function Guilds() {
   const actor = accounts.find(a => a.id === selected?.account_id);
   const coins = savedBalance(actor, 'coins'), crystals = savedBalance(actor, 'crystals');
   const ungrouped = accounts.filter(a => !currentRows.has(a.id));
-  const leader = guild?.members.find(m => m.role === 'Leader');
-  const canManage = !!leader;
+  const canManage = selected?.role === 'Leader' || selected?.role === 'Officer';
   const duplicateLeaders = guild?.members.filter(m => m.role === 'Leader') ?? [];
   const benRow = guild?.members.filter(m => m.benefits).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
   const ben = extractBenefits(benRow?.benefits);
@@ -571,8 +567,9 @@ export function Guilds() {
     try { const r = await api.deleteAccount(row.account_id); if (!r.ok) showFlash(r.error ?? 'Ошибка', false); else await changed(); }
     catch (e) { showFlash(String(e), false); } finally { setDeletingId(null); }
   };
-  const pickGuild = (id: string) => { if (leaving || refreshing) return; setSelectedId(id); setTab('Казна'); setDeposit(null); setFeesOpen(false); };
-  const side = <PanelShell mode="view" title="Гильдии" busy={loading} hint="Выберите гильдию. Аккаунт для взноса или другого действия выбирается слева в строке «От имени».">
+  const closeGuildModals = () => { setDeposit(null); setFeesOpen(false); setAppsGuild(null); setSetGuild(null); };
+  const pickGuild = (id: string) => { if (leaving || refreshing) return; setSelectedId(id); setTab('Казна'); closeGuildModals(); };
+  const side = <PanelShell mode="view" title="Гильдии" busy={loading} hint="Управление доступно от имени выбранного лидера или офицера. Для взноса можно выбрать любой свой аккаунт в гильдии.">
     <Summary tone="accent"><Box sx={{ display: 'flex', gap: 2 }}><Tile size={2} value={guilds.length} label="гильдии" color="accent.fg" /><Tile size={2} value={currentRows.size} label="аккаунтов" /></Box><SumLine left="С лидером" right={guilds.filter(g => g.members.some(m => m.role === 'Leader')).length} /></Summary>
     <TextInput aria-label="Поиск гильдии" placeholder="Поиск гильдии" value={query} onChange={e => setQuery(e.target.value)} block />
     <CatTabs tabs={['Все', 'С лидером']} value={filter} onChange={setFilter} />
@@ -585,18 +582,21 @@ export function Guilds() {
     <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, mb: 3, flexWrap: 'wrap' }}><Box><Heading as="h2" sx={{ fontSize: 3 }}>Гильдии</Heading><Text sx={{ color: 'fg.muted', fontSize: 1 }}>{guild ? `${guild.title} · своих аккаунтов: ${guild.members.length}` : searchMode ? 'Поиск и вступление' : 'Выберите гильдию справа'}</Text></Box><Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing || leaving} onClick={refresh}>Обновить</Button></Box>
     {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
     {loading ? <Spinner /> : searchMode ? <GuildDiscovery onJoined={() => { void changed(); }} /> : !guild || !selected ? <Text sx={{ color: 'fg.muted' }}>Выберите гильдию справа или найдите новую.</Text> : <>
-      <Box sx={{ ...guildCard, mb: 3 }}><Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}><Box sx={{ width: 36, height: 36, borderRadius: 2, bg: 'accent.subtle', color: 'accent.fg', display: 'grid', placeItems: 'center' }}><OrganizationIcon size={22} /></Box><Box sx={{ flex: 1, minWidth: 0 }}><Text sx={{ fontWeight: 'semibold', display: 'block' }}>{guild.title}</Text><Text sx={{ fontSize: 0, color: 'fg.muted' }}>#{guild.id}{gtype ? ` · ${{ open: 'Открытая', application: 'По заявке', closed: 'Закрытая' }[gtype] ?? gtype}` : ''}</Text></Box>{canManage && <Label variant="accent">Есть лидер</Label>}
+      <Box sx={{ ...guildCard, mb: 3 }}><Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}><Box sx={{ width: 36, height: 36, borderRadius: 2, bg: 'accent.subtle', color: 'accent.fg', display: 'grid', placeItems: 'center' }}><OrganizationIcon size={22} /></Box><Box sx={{ flex: 1, minWidth: 0 }}><Text sx={{ fontWeight: 'semibold', display: 'block' }}>{guild.title}</Text><Text sx={{ fontSize: 0, color: 'fg.muted' }}>#{guild.id}{gtype ? ` · ${{ open: 'Открытая', application: 'По заявке', closed: 'Закрытая' }[gtype] ?? gtype}` : ''}</Text></Box>{canManage && <Label variant="accent">Управление: {roleName(selected.role)}</Label>}
         <ActionMenu><ActionMenu.Button aria-label="Действия гильдии" disabled={leaving || refreshing} trailingVisual={KebabHorizontalIcon}>Ещё</ActionMenu.Button><ActionMenu.Overlay><ActionList>{canManage && <ActionList.Item onSelect={() => setSetGuild({ id: guild.id, title: guild.title })}><ActionList.LeadingVisual><GearIcon /></ActionList.LeadingVisual>Настройки гильдии</ActionList.Item>}<ActionList.Item variant="danger" onSelect={leave}><ActionList.LeadingVisual><SignOutIcon /></ActionList.LeadingVisual>Выйти: {selected.account}</ActionList.Item></ActionList></ActionMenu.Overlay></ActionMenu>
       </Box>{ben ? <Summary tone="accent"><Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 2 }}><Tile size={2} value={ben.additional_builder == null ? '—' : `+${ben.additional_builder}`} label="строителей" /><Tile size={2} value={ben.upgrades_discount == null ? '—' : benefitText('pct-', ben.upgrades_discount)} label="улучшения" /><Tile size={2} value={ben.income_boost == null ? '—' : benefitText('pct+', ben.income_boost)} label="доход" /><Tile size={2} value={ben.reduced_upgrade_times == null ? '—' : benefitText('pct-', ben.reduced_upgrade_times)} label="время улучшений" /></Box></Summary> : <Text sx={{ fontSize: 0, color: 'fg.muted', px: 1 }}>Бонусы ещё не загружены — нажмите «Обновить».</Text>}</Box>
-      <Box sx={{ ...guildCard, mb: 3, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}><Text sx={{ color: 'fg.muted', fontSize: 0, px: 1 }}>От имени</Text><Select aria-label="Аккаунт для действия" disabled={leaving || refreshing} value={String(selected.account_id)} onChange={e => { setActors(old => ({ ...old, [guild.id]: Number(e.target.value) })); setFeesOpen(false); }}>
+      <Box sx={{ ...guildCard, mb: 3, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}><Text sx={{ color: 'fg.muted', fontSize: 0, px: 1 }}>От имени</Text><Select aria-label="Аккаунт для действия" disabled={leaving || refreshing} value={String(selected.account_id)} onChange={e => { setActors(old => ({ ...old, [guild.id]: Number(e.target.value) })); closeGuildModals(); }}>
         {guild.members.map(m => <Select.Option key={m.account_id!} value={String(m.account_id)}>{m.account} · {roleName(m.role)}</Select.Option>)}
       </Select><Text sx={{ ml: 'auto', color: 'fg.muted', fontSize: 0 }}>Личный баланс</Text><CoinValue value={coins == null ? '—' : fmt(coins)} /><CrystalValue value={crystals == null ? '—' : fmt(crystals)} /></Box>
       <UnderlineNav aria-label="Разделы гильдии" sx={{ mb: 3 }}>{['Казна', 'Подарки', 'Участники', 'Почёт', 'Достижения', 'Настройки'].map(t => <UnderlineNav.Item key={t} href="#" icon={t === 'Подарки' ? GiftIcon : undefined} aria-current={tab === t ? 'page' : undefined} onSelect={e => { e.preventDefault(); setTab(t); }}>{t}</UnderlineNav.Item>)}</UnderlineNav>
       <Box key={`${guild.id}:${selected.account_id}:${tab}:${reloadKey}`}>
         {tab === 'Казна' ? <GuildTreasury accountId={selected.account_id!} coins={coins} crystals={crystals} onDeposit={currency => setDeposit({ row: selected, currency })} onFees={() => setFeesOpen(true)} /> : tab === 'Подарки' ? <GuildGifts accountId={selected.account_id!} /> : tab === 'Почёт' ? <RenownTab accountId={selected.account_id!} /> : tab === 'Достижения' ? <AchTab accountId={selected.account_id!} /> : tab === 'Участники' ? <Box sx={guildCard}>
-          <Text sx={{ fontWeight: 'semibold', px: 1 }}>Мои аккаунты в гильдии</Text>{guild.members.map(m => <Row key={m.account_id!} title={m.account} sub={roleName(m.role)} lead={<PeopleIcon />} />)}
-          {canManage && <Box sx={{ display: 'flex', gap: 2 }}><Button onClick={() => setMemGuild({ id: guild.id, title: guild.title, myRole: 'Leader' })}>Все участники</Button>{gtype === 'application' && <Button onClick={() => setAppsGuild({ id: guild.id, title: guild.title })}>Заявки на вступление</Button>}</Box>}
-        </Box> : <Box sx={guildCard}><Text sx={{ fontWeight: 'semibold' }}>Настройки гильдии</Text>{canManage ? <Button leadingVisual={GearIcon} onClick={() => setSetGuild({ id: guild.id, title: guild.title })}>Открыть настройки</Button> : <Text sx={{ color: 'fg.muted' }}>Для управления нужен свой аккаунт-лидер.</Text>}{ben && <><SumLine left="Скидка покупки зданий" right={ben.building_purchases_discount == null ? '—' : benefitText('pct-', ben.building_purchases_discount)} /><SumLine left="Дополнительное хранилище" right={ben.storage_cap_increase == null ? '—' : benefitText('time', ben.storage_cap_increase)} /></>}{duplicateLeaders.length > 1 && <Flash variant="warning">Несколько аккаунтов числятся лидером. Проверьте дубли.{duplicateLeaders.map(m => <Button key={m.account_id!} variant="danger" disabled={deletingId != null} loading={deletingId === m.account_id} onClick={() => removeDuplicate(m)}>Удалить «{m.account}»</Button>)}</Flash>}</Box>}
+          {canManage ? <GuildMembersPanel key={`${guild.id}:${selected.account_id}`} guildId={guild.id} accountId={selected.account_id!} myRole={selected.role} showFlash={showFlash} /> : <>
+            <Text sx={{ fontWeight: 'semibold', px: 1 }}>Мои аккаунты в гильдии</Text>{guild.members.map(m => <Row key={m.account_id!} title={m.account} sub={roleName(m.role)} lead={<PeopleIcon />} />)}
+            <Text sx={{ color: 'fg.muted', fontSize: 0 }}>Полный список участников доступен выбранному лидеру или офицеру.</Text>
+          </>}
+          {canManage && gtype === 'application' && <Button onClick={() => setAppsGuild({ id: guild.id, title: guild.title })}>Заявки на вступление</Button>}
+        </Box> : <Box sx={guildCard}><Text sx={{ fontWeight: 'semibold' }}>Настройки гильдии</Text>{canManage ? <Button leadingVisual={GearIcon} onClick={() => setSetGuild({ id: guild.id, title: guild.title })}>Открыть настройки</Button> : <Text sx={{ color: 'fg.muted' }}>Выберите аккаунт-лидер или офицер для управления.</Text>}{ben && <><SumLine left="Скидка покупки зданий" right={ben.building_purchases_discount == null ? '—' : benefitText('pct-', ben.building_purchases_discount)} /><SumLine left="Дополнительное хранилище" right={ben.storage_cap_increase == null ? '—' : benefitText('time', ben.storage_cap_increase)} /></>}{duplicateLeaders.length > 1 && <Flash variant="warning">Несколько аккаунтов числятся лидером. Проверьте дубли.{duplicateLeaders.map(m => <Button key={m.account_id!} variant="danger" disabled={deletingId != null} loading={deletingId === m.account_id} onClick={() => removeDuplicate(m)}>Удалить «{m.account}»</Button>)}</Flash>}</Box>}
       </Box>
       <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 3 }}>Членство: снимок от {new Date(selected.updated_at).toLocaleString('ru')}</Text>
     </>}
@@ -605,8 +605,7 @@ export function Guilds() {
   return <><SidePage main={main} side={side} />
     {deposit && <GuildDepositModal key={`${deposit.row.account_id}:${deposit.currency}`} row={deposit.row} currency={deposit.currency} coins={savedBalance(depositAccount, 'coins')} crystals={savedBalance(depositAccount, 'crystals')} onClose={() => setDeposit(null)} onChanged={changed} />}
     {feesOpen && selected?.account_id != null && <GuildFeesModal key={selected.account_id} accountId={selected.account_id} accountName={selected.account} onClose={() => setFeesOpen(false)} />}
-    {appsGuild && <ApplicationsModal guildId={appsGuild.id} title={appsGuild.title} onClose={() => setAppsGuild(null)} showFlash={showFlash} />}
-    {memGuild && <MembersModal guildId={memGuild.id} title={memGuild.title} myRole={memGuild.myRole} onClose={() => setMemGuild(null)} showFlash={showFlash} />}
-    {setGuild && <SettingsModal guildId={setGuild.id} title={setGuild.title} onClose={() => setSetGuild(null)} showFlash={showFlash} />}
+    {appsGuild && selected?.account_id != null && <ApplicationsModal key={selected.account_id} guildId={appsGuild.id} accountId={selected.account_id} title={appsGuild.title} onClose={() => setAppsGuild(null)} showFlash={showFlash} />}
+    {setGuild && selected?.account_id != null && <SettingsModal key={selected.account_id} guildId={setGuild.id} accountId={selected.account_id} title={setGuild.title} onClose={() => setSetGuild(null)} showFlash={showFlash} />}
   </>;
 }

@@ -357,8 +357,17 @@ module.exports=function(app,ctx){
   });
 
   // ── управление гильдией: аккаунт-менеджер (лидер/офицер) + заявки ────────────
-  async function guildManagerApi(guildId){
+  async function guildManagerApi(guildId,accountId){
     const{GuildSnapshot,Account}=require('../../db/index');
+    if(accountId!=null){
+      const id=Number(accountId);
+      if(!Number.isSafeInteger(id)||id<=0)throw Object.assign(new Error('Неверный аккаунт управления'),{status:400});
+      const acc=await Account.findByPk(id);
+      if(!acc?.access_token||acc.access_token==='placeholder')throw Object.assign(new Error('Аккаунт не найден или без токена'),{status:404});
+      const membership=await GuildSnapshot.findOne({where:{account:acc.name,guild_id:guildId}});
+      if(!['Leader','Officer'].includes(membership?.role))throw Object.assign(new Error('Выбранный аккаунт не является лидером или офицером этой гильдии'),{status:403});
+      return makeApiForAccount(acc.id,{noLock:true});
+    }
     const rows=await GuildSnapshot.findAll({where:{guild_id:guildId,role:['Leader','Officer']}});
     for(const r of rows){
       const acc=await Account.findOne({where:{name:r.account}});
@@ -368,30 +377,30 @@ module.exports=function(app,ctx){
   }
   app.get('/api/guild/:guildId/applications',async(req,res)=>{
     try{
-      const api=await guildManagerApi(req.params.guildId);
+      const api=await guildManagerApi(req.params.guildId,req.query.account_id);
       const d=await api.get(`/guilds/management/${req.params.guildId}/applications`);
       res.json({ok:true,applications:d?.applications||[]});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
   app.post('/api/guild/:guildId/applications/:appId/approve',async(req,res)=>{
     try{
-      const api=await guildManagerApi(req.params.guildId);
+      const api=await guildManagerApi(req.params.guildId,req.query.account_id);
       const r=await api.post(`/guilds/management/${req.params.guildId}/applications/${req.params.appId}/approve`,{});
       res.json({ok:true,result:r});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
   app.post('/api/guild/:guildId/applications/:appId/reject',async(req,res)=>{
     try{
-      const api=await guildManagerApi(req.params.guildId);
+      const api=await guildManagerApi(req.params.guildId,req.query.account_id);
       const r=await api.post(`/guilds/management/${req.params.guildId}/applications/${req.params.appId}/reject`,{});
       res.json({ok:true,result:r});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
   // участники гильдии + действия (повысить/понизить/кикнуть/сделать лидером)
   const GUILD_MEMBER_ACTIONS={promote:'/guilds/members/promote',demote:'/guilds/members/demote',kick:'/guilds/members/kick','promote-to-leader':'/guilds/members/promote-to-leader'};
   app.get('/api/guild/:guildId/members',async(req,res)=>{
     try{
-      const api=await guildManagerApi(req.params.guildId);
+      const api=await guildManagerApi(req.params.guildId,req.query.account_id);
       // ответ игры — DRF-пагинация {results:[...],next:<url|null>,count}. Листаем все страницы по ?page=N.
       const all=[];
       for(let page=1;page<=200;page++){
@@ -399,10 +408,10 @@ module.exports=function(app,ctx){
         const k=d&&typeof d==='object'?Object.keys(d).find(x=>Array.isArray(d[x])):null;
         const items=Array.isArray(d?.results)?d.results:(k?d[k]:[]);
         all.push(...items);
-        if(!d?.next||!items.length)break; // next пустой или страница пуста — конец
+        if(!d?.next||!items.length)break;
       }
       res.json({ok:true,members:all});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
   app.post('/api/guild/:guildId/members/:action',async(req,res)=>{
     try{
@@ -411,19 +420,19 @@ module.exports=function(app,ctx){
       if(!p)return res.status(400).json({ok:false,error:'неизвестное действие'});
       const{user_id}=req.body||{};
       if(!user_id)return res.status(400).json({ok:false,error:'user_id обязателен'});
-      const api=await guildManagerApi(req.params.guildId);
+      const api=await guildManagerApi(req.params.guildId,req.query.account_id);
       // игра шлёт guild_id ЧИСЛОМ (в бандле guildId:{default:0}); строка отклоняется валидацией
       const r=await api.post(p,{guild_id:Number(req.params.guildId),user_id:Number(user_id)});
       res.json({ok:true,result:r});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
   // настройки гильдии: чтение + сохранение (PATCH)
   app.get('/api/guild/:guildId/settings',async(req,res)=>{
     try{
-      const api=await guildManagerApi(req.params.guildId);
+      const api=await guildManagerApi(req.params.guildId,req.query.account_id);
       const d=await api.get(`/guilds/management/${req.params.guildId}`);
       res.json({ok:true,settings:d?.settings||{}});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
   app.patch('/api/guild/:guildId/settings',async(req,res)=>{
     try{
@@ -439,9 +448,9 @@ module.exports=function(app,ctx){
         membership_fee_duration:b.membership_fee_duration??null,
         membership_fee_currency:b.membership_fee_currency??null,
       };
-      const api=await guildManagerApi(req.params.guildId);
+      const api=await guildManagerApi(req.params.guildId,req.query.account_id);
       const r=await api.patch(`/guilds/management/${req.params.guildId}`,payload);
       res.json({ok:true,result:r});
-    }catch(e){res.status(500).json({ok:false,error:e.message});}
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
 };

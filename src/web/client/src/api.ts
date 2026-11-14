@@ -250,22 +250,22 @@ export const api = {
   specialBuildingsRefresh: () => req<{ ok: boolean; results: { guild: string; ok: boolean; error?: string }[] }>('/api/special-buildings/refresh', post({})),
 
   // управление гильдией: заявки
-  guildApplications: (guildId: string) =>
-    req<{ ok: boolean; applications: GuildApplication[]; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/applications`),
-  guildAppApprove: (guildId: string, appId: number) =>
-    req<{ ok: boolean; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/applications/${appId}/approve`, post({})),
-  guildAppReject: (guildId: string, appId: number) =>
-    req<{ ok: boolean; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/applications/${appId}/reject`, post({})),
+  guildApplications: (guildId: string, accountId: number) =>
+    req<{ ok: boolean; applications: GuildApplication[]; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/applications?account_id=${accountId}`),
+  guildAppApprove: (guildId: string, appId: number, accountId: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/applications/${appId}/approve?account_id=${accountId}`, post({})),
+  guildAppReject: (guildId: string, appId: number, accountId: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/applications/${appId}/reject?account_id=${accountId}`, post({})),
   // управление гильдией: участники
-  guildMembers: (guildId: string) =>
-    req<{ ok: boolean; members: GuildMember[]; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/members`),
-  guildMemberAction: (guildId: string, userId: number, action: 'promote' | 'demote' | 'kick' | 'promote-to-leader') =>
-    req<{ ok: boolean; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/members/${action}`, post({ user_id: userId })),
+  guildMembers: (guildId: string, accountId: number) =>
+    req<{ ok: boolean; members: GuildMember[]; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/members?account_id=${accountId}`),
+  guildMemberAction: (guildId: string, userId: number, action: 'promote' | 'demote' | 'kick' | 'promote-to-leader', accountId: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/members/${action}?account_id=${accountId}`, post({ user_id: userId })),
   // управление гильдией: настройки
-  guildSettings: (guildId: string) =>
-    req<{ ok: boolean; settings: GuildSettings; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/settings`),
-  guildSaveSettings: (guildId: string, payload: GuildSettingsPayload) =>
-    req<{ ok: boolean; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
+  guildSettings: (guildId: string, accountId: number) =>
+    req<{ ok: boolean; settings: GuildSettings; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/settings?account_id=${accountId}`),
+  guildSaveSettings: (guildId: string, payload: GuildSettingsPayload, accountId: number) =>
+    req<{ ok: boolean; error?: string }>(`/api/guild/${encodeURIComponent(guildId)}/settings?account_id=${accountId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
 
   // capitals — server: {rows: [{guild_id, guild_title, buildings, coins, economic_strength, updated_at}]}
   capitals: () => req<{ ok: boolean; rows: CapitalRow[] }>('/api/capital-snapshots'),
