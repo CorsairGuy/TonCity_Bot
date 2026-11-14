@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { GuildGifts } from './GuildGifts';
 import { Box, Button, Flash, Text, UnderlineNav, Spinner, TextInput, Label } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { SyncIcon } from '@primer/octicons-react';
@@ -131,14 +132,14 @@ function AchTab({ accountId }: { accountId: number }) {
 }
 
 export function GuildExtrasModal({ accountId, title, onClose }: { accountId: number; title: string; onClose: () => void }) {
-  const [tab, setTab] = useState<'treasury' | 'renown' | 'ach'>('treasury');
-  const tabs: [typeof tab, string][] = [['treasury', 'Казна'], ['renown', 'Почёт'], ['ach', 'Достижения']];
+  const [tab, setTab] = useState<'treasury' | 'gifts' | 'renown' | 'ach'>('treasury');
+  const tabs: [typeof tab, string][] = [['treasury', 'Казна'], ['gifts', 'Подарки'], ['renown', 'Почёт'], ['ach', 'Достижения']];
   return (
     <Dialog title={`Гильдия · ${title}`} onClose={onClose} width="large" position={{ narrow: 'bottom', regular: 'center' }}>
       <UnderlineNav aria-label="Разделы гильдии" sx={{ mb: 3 }}>
         {tabs.map(([k, t]) => <UnderlineNav.Item key={k} href="#" aria-current={k === tab ? 'page' : undefined} onSelect={e => { e.preventDefault(); setTab(k); }}>{t}</UnderlineNav.Item>)}
       </UnderlineNav>
-      {tab === 'treasury' ? <TreasuryTab accountId={accountId} /> : tab === 'renown' ? <RenownTab accountId={accountId} /> : <AchTab accountId={accountId} />}
+      {tab === 'treasury' ? <TreasuryTab accountId={accountId} /> : tab === 'gifts' ? <GuildGifts accountId={accountId} /> : tab === 'renown' ? <RenownTab accountId={accountId} /> : <AchTab accountId={accountId} />}
     </Dialog>
   );
 }

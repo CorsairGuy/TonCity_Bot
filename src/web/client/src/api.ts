@@ -28,7 +28,7 @@ const post = (body?: unknown): RequestInit => ({
   body: body !== undefined ? JSON.stringify(body) : undefined,
 });
 
-export type ExtraKind = 'metrics' | 'rank' | 'pack-info' | 'treasury' | 'treasury-actions' | 'treasury-lb' | 'renown' | 'renown-actions' | 'renown-lb'
+export type ExtraKind = 'guild-gifts' | 'guild-gifts-history' | 'metrics' | 'rank' | 'pack-info' | 'treasury' | 'treasury-actions' | 'treasury-lb' | 'renown' | 'renown-actions' | 'renown-lb'
   | 'satoshi-history' | 'gram-tx' | 'achievements' | 'guild-achievements' | 'guild-notifications' | 'notifications-unread' | 'notify-can-send';
 export interface ExtraResp<T = unknown> { ok: boolean; error?: string; data: T | null; updated_at: string | null }
 
