@@ -1,11 +1,12 @@
 'use strict';
 const assert=require('node:assert/strict'),{detail,allowed,joinGuild,guildId}=require('../../src/modules/guildDiscovery');
-function fixture({type='open',member=null,status='none',fail=false,applied=true,population=100,capacity=10}={}){
+function fixture({type='open',member=null,status='none',fail=false,applied=true,population=100,capacity=10,gid=7}={}){
  let current=member,pending=status;const calls=[];
- const api={get:async p=>{calls.push(['GET',p]);if(p==='/guilds/7')return{guild:{id:7,title:'Test',members_count:3}};if(p==='/guilds/management/7')return{settings:{guild_type:type,member_capacity:capacity,application_criteria_population:50,application_criteria_profit:5}};if(p==='/users/me/guild')return{guild:current};if(p==='/progress/metrics')return{population,profit:10};if(p==='/users/me/')return{user:{id:42}};if(p==='/guilds/management/7/status/42')return{status:pending};throw Error(p);},post:async(p,b)=>{calls.push(['POST',p,b]);if(applied){if(type==='open')current={id:7,title:'Test',role:'Member'};else pending='pending';}if(fail)throw Error('timeout');return{status:type==='open'?'joined':'application_submitted'};}};return{api,calls};
+ const api={get:async p=>{calls.push(['GET',p]);if(p===`/guilds/${gid}`)return{guild:{id:gid,title:'Test',members_count:3}};if(p===`/guilds/management/${gid}`)return{settings:{guild_type:type,member_capacity:capacity,application_criteria_population:50,application_criteria_profit:5}};if(p==='/users/me/guild')return{guild:current};if(p==='/progress/metrics')return{population,profit:10};if(p==='/users/me/')return{user:{id:42}};if(p===`/guilds/management/${gid}/status/42`)return{status:pending};throw Error(p);},post:async(p,b)=>{calls.push(['POST',p,b]);if(applied){if(type==='open')current={id:gid,title:'Test',role:'Member'};else pending='pending';}if(fail)throw Error('timeout');return{status:type==='open'?'joined':'application_submitted'};}};return{api,calls};
 }
 (async()=>{
- for(const value of [0,-1,1.5,'bad',Number.MAX_SAFE_INTEGER+1])assert.throws(()=>guildId(value));
+ for(const value of [0,1.5,'bad',Number.MAX_SAFE_INTEGER+1])assert.throws(()=>guildId(value));
+ const gid=-100260674352;assert.equal(guildId(String(gid)),gid);const negative=fixture({gid}),nr=await joinGuild(negative.api,gid,'open');assert.equal(nr.ok,true);assert.deepEqual(negative.calls.filter(c=>c[0]==='POST'),[['POST','/guilds/join',{id:gid}]]);
  for(const type of ['open','application']){const f=fixture({type}),d=await detail(f.api,7);assert.equal(allowed(d),null);const r=await joinGuild(f.api,7,type);assert(r.ok);assert.equal(r.status,type==='open'?'joined':'application_submitted');assert.deepEqual(f.calls.filter(c=>c[0]==='POST'),[['POST','/guilds/join',{id:7}]]);}
  for(const options of [{member:{id:8}},{status:'pending'},{type:'closed'},{population:10},{capacity:3}]){const f=fixture(options);await assert.rejects(joinGuild(f.api,7,'open'));assert(!f.calls.some(c=>c[0]==='POST'));}
  const changed=fixture({type:'application'});await assert.rejects(joinGuild(changed.api,7,'open'),/изменились/);assert(!changed.calls.some(c=>c[0]==='POST'));
