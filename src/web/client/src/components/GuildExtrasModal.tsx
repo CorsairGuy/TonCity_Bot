@@ -69,7 +69,7 @@ function TreasuryTab({ accountId }: { accountId: number }) {
   );
 }
 
-function RenownTab({ accountId }: { accountId: number }) {
+export function RenownTab({ accountId }: { accountId: number }) {
   const st = useExtra<RenownState>('renown', accountId);
   const actions = useExtra<unknown>('renown-actions', accountId);
   const lb = useExtra<unknown>('renown-lb', accountId);
@@ -115,7 +115,7 @@ function RenownTab({ accountId }: { accountId: number }) {
   );
 }
 
-function AchTab({ accountId }: { accountId: number }) {
+export function AchTab({ accountId }: { accountId: number }) {
   const a = useExtra<unknown>('guild-achievements', accountId);
   const list = listOf<GuildAch>(a.data, 'achievements');
   return (
