@@ -11,7 +11,7 @@ type GiftLine = { item_id: number; quantity: number };
 type Gift = { id: number; giver_name?: string; crystals?: number; created_at?: string; recipients: { user_id: number; name?: string; items: GiftLine[] }[] };
 type GiftItem = { item_id: number; price: number; weekly_limit: number };
 type GiftMember = { user_id: number; name: string; role: string; eligible_in_seconds: number; remaining: Record<string, number> };
-export type GiftState = { guild_id: string; can_send: boolean; balance: number; resets_in_seconds: number; items: GiftItem[]; members: GiftMember[]; history: { gifts: Gift[]; has_more: boolean } };
+export type GiftState = { captured_at?: string; guild_id: string; can_send: boolean; balance: number; resets_in_seconds: number; items: GiftItem[]; members: GiftMember[]; history: { gifts: Gift[]; has_more: boolean } };
 type Quantities = Record<number, Record<number, string>>;
 
 export function giftDraft(data: GiftState | null, selected: Set<number>, quantities: Quantities) {
@@ -37,6 +37,7 @@ const duration = (seconds: number) => seconds >= 86400 ? `${Math.ceil(seconds / 
 export function GuildGifts({ accountId }: { accountId: number }) {
   const snapshot = useExtra<GiftState>('guild-gifts', accountId);
   const data = snapshot.data;
+  const capturedAt = data?.captured_at ?? snapshot.updatedAt;
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [quantities, setQuantities] = useState<Quantities>({});
   const [defaults, setDefaults] = useState<Record<number, string>>({});
@@ -82,12 +83,12 @@ export function GuildGifts({ accountId }: { accountId: number }) {
   };
   return <Box sx={{ px: 3, pb: 3 }}>
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-      <Text sx={{ flex: 1, color: 'fg.muted', fontSize: 0 }}>{snapshot.updatedAt ? `Снимок от ${new Date(snapshot.updatedAt).toLocaleString('ru')}` : 'Нажмите «Обновить», чтобы получить подарки из игры'}</Text>
+      <Text sx={{ flex: 1, color: 'fg.muted', fontSize: 0 }}>{capturedAt ? `Снимок от ${new Date(capturedAt).toLocaleString('ru')}` : 'Нажмите «Обновить», чтобы получить подарки из игры'}</Text>
       <Button disabled={busy || snapshot.refreshing} loading={snapshot.refreshing} onClick={refresh}>Обновить</Button>
     </Box>
     {(snapshot.error || note) && <Flash variant={note?.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{note?.text ?? snapshot.error}</Flash>}
     {snapshot.loading ? <Spinner /> : data && <>
-      <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap', mb: 3 }}><Text>Казна: <CrystalValue value={data.balance.toLocaleString('ru')} /></Text><Text>Сброс лимитов: {snapshot.updatedAt ? new Date(Date.parse(snapshot.updatedAt) + data.resets_in_seconds * 1000).toLocaleString('ru') : `через ${duration(data.resets_in_seconds)}`}</Text></Box>
+      <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap', mb: 3 }}><Text>Казна: <CrystalValue value={data.balance.toLocaleString('ru')} /></Text><Text>Сброс лимитов: {capturedAt ? new Date(Date.parse(capturedAt) + data.resets_in_seconds * 1000).toLocaleString('ru') : `через ${duration(data.resets_in_seconds)}`}</Text></Box>
       {!canSend && <Flash sx={{ mb: 3 }}>Отправка недоступна для этого аккаунта. Можно просмотреть каталог и историю.</Flash>}
       <Text sx={{ fontWeight: 'bold', display: 'block', mb: 2 }}>Наборы каждому получателю</Text>
       <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 3 }}>{data.items.map(item => <Box key={item.item_id} sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 2, width: 200 }}>

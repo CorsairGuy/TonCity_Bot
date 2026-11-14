@@ -44,7 +44,7 @@ module.exports=function(app,ctx){
   }
   const giftData=(data,g)=>{
     if(!data||!Array.isArray(data.items)||!Array.isArray(data.members)||!Array.isArray(data.history?.gifts)||!Number.isFinite(data.balance))throw bad('Игра вернула неполное состояние подарков',502);
-    return{...data,guild_id:String(g.id),can_send:admin(g)&&data.can_send!==false};
+    return{...data,guild_id:String(g.id),can_send:admin(g)&&data.can_send!==false,captured_at:new Date().toISOString()};
   };
 
   async function account(id){
