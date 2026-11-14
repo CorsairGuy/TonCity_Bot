@@ -33,6 +33,37 @@ module.exports=function(app,ctx){
     }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
 
+  app.post('/api/guilds/:accountId/leave',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.params.accountId);
+      const out=await opRegistry.run(`guildLeave:${acc.id}`,async()=>{
+        const result=await require('../../modules/guildActions').leaveGuild(apiForAcc(acc),req.body||{});
+        if(result.membership&&String(result.membership.guild?.id??'')!==String(req.body?.expected_guild_id??'')){
+          const{GuildSnapshot}=require('../../db/index'),g=result.membership.guild;
+          // Удаляем только подтверждённые старые членства; ошибка GET не стирает снимки.
+          await GuildSnapshot.destroy({where:{account:acc.name}});
+          if(g?.id)await GuildSnapshot.upsert({account:acc.name,guild_id:String(g.id),guild_title:g.title||'',role:g.role||'',benefits:null,updated_at:new Date()},{conflictFields:['account','guild_id']});
+        }
+        const{membership,...data}=result;return data;
+      });
+      res.json(out);
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+  app.post('/api/guilds/:accountId/deposit',async(req,res)=>{
+    try{
+      const acc=await feeAccount(req.params.accountId),b=req.body||{};
+      const out=await opRegistry.run(`guildDeposit:${acc.id}:${b.expected_guild_id}:${b.currency}:${b.amount}`,async()=>{
+        const api=apiForAcc(acc);
+        try{return await require('../../modules/guildActions').depositGuild(api,b);}
+        finally{
+          // В том числе после неоднозначного POST: актуализируем личный баланс без повтора взноса.
+          try{await require('../../modules/session').saveStats(acc,acc.name,await api.get('/progress/'));}catch(e){logger.warn(`[${acc.name}] [guild-deposit] баланс: ${e.message}`);}
+        }
+      });
+      res.json(out);
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+
   // ── МИД live endpoints ───────────────────────────────────────────────────
   async function midApi(guildId){
     const{GuildSnapshot,Account}=require('../../db/index');

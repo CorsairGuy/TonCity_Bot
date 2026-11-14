@@ -195,6 +195,8 @@ export const api = {
 
   // guilds — server: {account, guild_id, guild_title, role, benefits, updated_at}
   guilds: () => req<{ ok: boolean; rows: GuildMembership[] }>('/api/guilds'),
+  guildLeave: (accountId: number, guildId: string, leader: boolean) => req<{ ok: boolean; error?: string; refresh_error?: string }>(`/api/guilds/${accountId}/leave`, post({ expected_guild_id: guildId, confirm_leader: leader })),
+  guildDeposit: (accountId: number, guildId: string, currency: 'coins' | 'crystals', amount: number) => req<{ ok: boolean; error?: string }>(`/api/guilds/${accountId}/deposit`, post({ expected_guild_id: guildId, currency, amount })),
   guildFees: (accountId: number) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}`),
   guildFeesPay: (accountId: number, state: GuildFeesState) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}/pay`, post({ expected_guild_id: state.guild_id, expected_amount: state.remaining, expected_currency: state.currency, expected_deadline: state.deadline })),
   guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[] }>('/api/guild-quests'),
