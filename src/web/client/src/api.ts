@@ -195,6 +195,10 @@ export const api = {
 
   // guilds — server: {account, guild_id, guild_title, role, benefits, updated_at}
   guilds: () => req<{ ok: boolean; rows: GuildMembership[] }>('/api/guilds'),
+  guildDiscovery: (accountId?: number) => req<{ ok: boolean; accounts: { id: number; name: string }[]; data: GuildSearchData | null; error?: string }>('/api/guild-discovery' + (accountId ? `?account=${accountId}` : '')),
+  guildSearch: (accountId: number, query: string, page = 1) => req<{ ok: boolean; data: GuildSearchData; error?: string }>('/api/guild-discovery/search', post({ account_id: accountId, query, page })),
+  guildDetail: (accountId: number, guildId: number) => req<{ ok: boolean; data: GuildJoinDetail; reason: string | null; error?: string }>('/api/guild-discovery/detail', post({ account_id: accountId, guild_id: guildId })),
+  guildJoin: (accountId: number, guildId: number, expectedType: string) => req<{ ok: boolean; status?: string; error?: string; refresh_error?: string; current?: GuildJoinDetail }>('/api/guild-discovery/join', post({ account_id: accountId, guild_id: guildId, expected_type: expectedType })),
   guildLeave: (accountId: number, guildId: string, leader: boolean) => req<{ ok: boolean; error?: string; refresh_error?: string }>(`/api/guilds/${accountId}/leave`, post({ expected_guild_id: guildId, confirm_leader: leader })),
   guildDeposit: (accountId: number, guildId: string, currency: 'coins' | 'crystals', amount: number) => req<{ ok: boolean; error?: string }>(`/api/guilds/${accountId}/deposit`, post({ expected_guild_id: guildId, currency, amount })),
   guildFees: (accountId: number) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}`),
@@ -1091,6 +1095,14 @@ export interface QuestTierGuild {
   guild_title: string;
   data: QuestTierData | null;
   updated_at: string | null;
+}
+
+export interface GuildSearchData { query: string; page: number; results: { id: number; title: string; population?: number; profit?: number; members_count?: number }[]; has_more: boolean }
+export interface GuildJoinDetail {
+  guild: { id: number; title: string; members_count?: number; description?: string } | null;
+  settings: { guild_type?: string; member_capacity?: number; application_criteria_population?: number; application_criteria_profit?: number; membership_fee_type?: string; membership_fee_amount?: number; membership_fee_currency?: string } | null;
+  membership: { id: number; title: string } | null;
+  metrics: { population?: number; profit?: number }; status: string | null;
 }
 
 export interface GuildMembership {

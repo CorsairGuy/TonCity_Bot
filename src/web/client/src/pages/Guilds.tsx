@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { GuildDiscovery } from '../components/GuildDiscovery';
 import { GuildExtrasModal } from '../components/GuildExtrasModal';
 import { Box, Button, Checkbox, Flash, Label, Select, Text, TextInput, Spinner } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
@@ -444,6 +445,7 @@ function SettingsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
 }
 
 export function Guilds() {
+  const [tab, setTab] = useState<'mine' | 'search'>('mine');
   const [rows, setRows] = useState<GuildMembership[]>([]);
   const [feeAccount, setFeeAccount] = useState('');
   const [feesOpen, setFeesOpen] = useState(false);
@@ -510,25 +512,26 @@ export function Guilds() {
     if (!byGuild.has(r.guild_id)) byGuild.set(r.guild_id, { title: r.guild_title, members: [] });
     byGuild.get(r.guild_id)!.members.push(r);
   }
-  // показываем только гильдии, где хотя бы один аккаунт — лидер
-  const leaderGuilds = [...byGuild.entries()].filter(([, g]) => g.members.some(m => m.role === 'Leader'));
+  // Все свои гильдии; управление доступно только при наличии лидера.
+  const leaderGuilds = [...byGuild.entries()];
 
   // строки для Primer-таблицы: бафы разложены по отдельным числовым полям (для сортировки)
   const data = leaderGuilds.map(([guildId, { title, members }]) => {
     const blob = members.find(m => m.benefits)?.benefits;
     const ben = extractBenefits(blob) ?? {};
     const leaders = members.filter(m => m.role === 'Leader');
-    const accounts = leaders.map(m => m.account);
+    const accounts = members.map(m => `${m.account} (${m.role})`);
     // у гильдии физически не может быть двух лидеров одновременно — если у нас ДВА своих
     // аккаунта числятся лидерами одной и той же гильдии, это стопроцентный признак того, что
     // один и тот же игровой аккаунт задвоен в базе бота (напр. один раз с реальным именем,
     // второй раз с плейсхолдером account_XXXXXXXX от старой уязвимости добавления без пароля).
     const duplicateLeaders = leaders.length > 1 ? leaders : [];
+    const canManage = leaders.length > 0;
     return {
       id: guildId,
       title,
       accounts,
-      duplicateLeaders,
+      duplicateLeaders, canManage,
       accountsStr: accounts.join(', '),
       income_boost: Number(ben.income_boost ?? 0),
       upgrades_discount: Number(ben.upgrades_discount ?? 0),
@@ -551,7 +554,11 @@ export function Guilds() {
         </Button>
       </>} />
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-
+      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+        <Button variant={tab === 'mine' ? 'primary' : 'default'} onClick={() => setTab('mine')}>Мои гильдии</Button>
+        <Button variant={tab === 'search' ? 'primary' : 'default'} onClick={() => setTab('search')}>Поиск гильдии</Button>
+      </Box>
+      {tab === 'search' ? <GuildDiscovery onJoined={() => { void load(); }} /> : <>
       {rows.some(r => r.account_id != null) && <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <Text sx={{ fontWeight: 'semibold' }}>Аккаунт гильдии</Text>
         <Select aria-label="Аккаунт гильдии" disabled={leaving} value={feeAccount || String(rows.find(r => r.account_id != null)?.account_id ?? '')} onChange={e => setFeeAccount(e.target.value)}>
@@ -568,7 +575,7 @@ export function Guilds() {
       {feesOpen && <GuildFeesModal key={feeAccount || String(rows.find(r => r.account_id != null)?.account_id)} accountId={Number(feeAccount || rows.find(r => r.account_id != null)?.account_id)} accountName={rows.find(r => String(r.account_id) === feeAccount)?.account || rows.find(r => r.account_id != null)?.account || ''} onClose={() => setFeesOpen(false)} />}
 
       {leaderGuilds.length === 0
-        ? <Text sx={{ color: 'fg.muted' }}>Нет гильдий, где аккаунт — лидер</Text>
+        ? <Text sx={{ color: 'fg.muted' }}>Нет сохранённых гильдий — нажмите «Обновить» или перейдите в поиск</Text>
         : (
             <Table.Container>
               <DataTable
@@ -619,9 +626,9 @@ export function Guilds() {
                     header: '', id: 'actions', align: 'end',
                     renderCell: r => (
                       <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <Button onClick={() => setSetGuild({ id: r.id, title: r.title })}>Настройки</Button>
-                        <Button onClick={() => setMemGuild({ id: r.id, title: r.title, myRole: 'Leader' })}>Участники</Button>
-                        {r.gtype === 'application' && <Button variant="primary" onClick={() => setAppsGuild({ id: r.id, title: r.title })}>Заявки</Button>}
+                        {r.canManage && <Button onClick={() => setSetGuild({ id: r.id, title: r.title })}>Настройки</Button>}
+                        {r.canManage && <Button onClick={() => setMemGuild({ id: r.id, title: r.title, myRole: 'Leader' })}>Участники</Button>}
+                        {r.canManage && r.gtype === 'application' && <Button variant="primary" onClick={() => setAppsGuild({ id: r.id, title: r.title })}>Заявки</Button>}
                       </Box>
                     ),
                   },
@@ -630,6 +637,7 @@ export function Guilds() {
             </Table.Container>
           )
       }
+      </>}
       {appsGuild && <ApplicationsModal guildId={appsGuild.id} title={appsGuild.title} onClose={() => setAppsGuild(null)} showFlash={showFlash} />}
       {memGuild && <MembersModal guildId={memGuild.id} title={memGuild.title} myRole={memGuild.myRole} onClose={() => setMemGuild(null)} showFlash={showFlash} />}
       {setGuild && <SettingsModal guildId={setGuild.id} title={setGuild.title} onClose={() => setSetGuild(null)} showFlash={showFlash} />}
