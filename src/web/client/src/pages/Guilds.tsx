@@ -498,7 +498,11 @@ export function Guilds() {
 
   const refresh = async () => {
     setRefreshing(true);
-    try { await api.refresh('guilds' as Parameters<typeof api.refresh>[0]); await load(); showFlash('Обновлено', true); }
+    try {
+      const r = await api.refresh('guilds'); await load();
+      const failed = ((r.results ?? []) as { name?: string; ok?: boolean; error?: string }[]).filter(x => x.ok === false);
+      showFlash(!r.ok ? 'Не удалось обновить гильдии' : failed.length ? `Не обновлены: ${failed.map(x => `${x.name ?? 'аккаунт'}: ${x.error ?? 'ошибка'}`).join('; ')}` : 'Членство, бонусы гильдий и строители обновлены', r.ok && !failed.length);
+    }
     catch (e) { showFlash(String(e), false); }
     finally { setRefreshing(false); }
   };
