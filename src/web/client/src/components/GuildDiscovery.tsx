@@ -29,7 +29,7 @@ export function GuildDiscovery({ onJoined }: { onJoined: () => void }) {
   };
   const search = async (page = 1) => {
     if (!account || busy) return;
-    if (page === 1 && /^\d+$/.test(query.trim())) { await open(Number(query.trim())); return; }
+    if (page === 1 && /^#?-?\d+$/.test(query.trim())) { await open(Number(query.trim().replace(/^#/, ''))); return; }
     setBusy(true); setMessage(null); setDetail(null);
     try { const r = await api.guildSearch(account, query, page); if (r.ok) setData(r.data); else setMessage({ ok: false, text: r.error ?? 'Ошибка поиска' }); }
     catch (e) { setMessage({ ok: false, text: String(e) }); } finally { setBusy(false); }

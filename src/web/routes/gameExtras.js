@@ -129,7 +129,7 @@ module.exports=function(app,ctx){
       lock=acc.id;
       if(sendingGifts.has(lock)){lock=null;throw bad('Отправка подарков уже выполняется',409);}
       sendingGifts.add(lock);
-      const g=await giftGuild(api,num(req.body?.expected_guild_id));
+      const g=await giftGuild(api,require('../../modules/guildDiscovery').guildId(req.body?.expected_guild_id));
       if(!admin(g))throw bad('Отправлять подарки могут лидер и офицеры',403);
       const before=giftData(await api.get(`/guilds/${g.id}/gifts`),g);
       if(before?.can_send===false)throw bad('Игра запретила отправку подарков',403);
