@@ -55,7 +55,7 @@ const plans=plansCtx.module.exports;
  for(const stale of [false,true]){
   const calls=[],account='callback'+stale,rev=mutation.revision(account);
   if(stale)mutation.changed(account);
-  const c={cityMutation:mutation,name:account,b:{id:'RES_test.png',x:1,y:2,level:1},nextLvl:2,mapRevision:rev,
+  const c={guildBonuses:{current:()=>({revision:0})},batchGuildRevision:0,cityMutation:mutation,name:account,b:{id:'RES_test.png',x:1,y:2,level:1},nextLvl:2,mapRevision:rev,
    runProgressAction:async(_,__,fn)=>{try{await fn();return true;}catch{return false;}},sleep:async()=>{},
    api:{post:async()=>{calls.push('POST');return {coins:1};}},logger:{info:()=>{}},consumedQueueKeys:['1,2'],persistQueue:async()=>calls.push('consume')};
   const ok=await vm.runInNewContext('(async()=>{'+cb+';return ok;})()',c);

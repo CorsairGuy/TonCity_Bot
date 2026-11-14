@@ -174,7 +174,7 @@ module.exports=function(app,ctx){
               const g=await api.get('/users/me/guild');
               const role=g?.guild?.role,guildId=String(g?.guild?.id||''),guildName=g?.guild?.title||'';
               if(guildId){
-                const ben=await api.get('/guilds/benefits').catch(()=>null);
+                const{data:ben}=await require('../../utils/guildBonuses').syncGuildBonuses(api,acc.name,g.guild);
                 // guild_type есть только в management-настройках (нужны права лидера/офицера)
                 let guildType=null;
                 if(role==='Leader'||role==='Officer'){
@@ -182,9 +182,11 @@ module.exports=function(app,ctx){
                   guildType=mg?.settings?.guild_type||null;
                 }
                 const blob=(ben||guildType)?JSON.stringify({...(ben||{}),guild_type:guildType}):null;
+                await GuildSnapshot.destroy({where:{account:acc.name,guild_id:{[require('sequelize').Op.ne]:guildId}}});
                 await GuildSnapshot.upsert({account:acc.name,guild_id:guildId,guild_title:guildName,role:role||'',benefits:blob,updated_at:new Date()},{conflictFields:['account','guild_id']});
               }else{
                 await GuildSnapshot.destroy({where:{account:acc.name}});
+                await require('../../utils/guildBonuses').syncGuildBonuses(api,acc.name,null);
               }
               results.push({name:acc.name,ok:true});
             }catch(e){results.push({name:acc.name,ok:false,error:e.message});}
