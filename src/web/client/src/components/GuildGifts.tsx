@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Box, Button, Checkbox, Flash, Label, Spinner, Text, TextInput } from '@primer/react';
+import { GiftIcon, HistoryIcon, SyncIcon } from '@primer/octicons-react';
+import { Row, Summary, SumLine, Empty } from '../pages/cityMapPanels';
 import { api } from '../api';
 import { useExtra } from '../hooks/useExtra';
 import { useAsk } from '../hooks/useAsk';
@@ -81,32 +83,54 @@ export function GuildGifts({ accountId }: { accountId: number }) {
     } catch (e) { setNote({ ok: false, text: String(e) }); }
     finally { setLoadingMore(false); }
   };
-  return <Box sx={{ px: 3, pb: 3 }}>
+  const card = { p: 2, borderRadius: '12px', border: '1px solid', borderColor: 'border.default', bg: 'canvas.default', display: 'flex', flexDirection: 'column', gap: 2 } as const;
+  return <>
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
       <Text sx={{ flex: 1, color: 'fg.muted', fontSize: 0 }}>{capturedAt ? `Снимок от ${new Date(capturedAt).toLocaleString('ru')}` : 'Нажмите «Обновить», чтобы получить подарки из игры'}</Text>
-      <Button disabled={busy || snapshot.refreshing} loading={snapshot.refreshing} onClick={refresh}>Обновить</Button>
+      <Button size="small" leadingVisual={SyncIcon} disabled={busy || snapshot.refreshing} loading={snapshot.refreshing} onClick={refresh}>Обновить подарки</Button>
     </Box>
     {(snapshot.error || note) && <Flash variant={note?.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{note?.text ?? snapshot.error}</Flash>}
-    {snapshot.loading ? <Spinner /> : data && <>
-      <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap', mb: 3 }}><Text>Казна: <CrystalValue value={data.balance.toLocaleString('ru')} /></Text><Text>Сброс лимитов: {capturedAt ? new Date(Date.parse(capturedAt) + data.resets_in_seconds * 1000).toLocaleString('ru') : `через ${duration(data.resets_in_seconds)}`}</Text></Box>
+    {snapshot.loading ? <Spinner /> : data ? <>
+      <Box sx={{ ...card, mb: 3 }}>
+        <Row lead={<Box sx={{ width: 36, height: 36, borderRadius: 2, bg: 'canvas.default', color: 'accent.fg', display: 'grid', placeItems: 'center', flexShrink: 0 }}><GiftIcon size={18} /></Box>}
+          title="Подарки участникам" sub="Наборы привязаны к аккаунтам получателей" trail={<CrystalValue value={`${data.balance.toLocaleString('ru')} в казне`} />} />
+        <SumLine left="Сброс недельных лимитов" right={capturedAt ? new Date(Date.parse(capturedAt) + data.resets_in_seconds * 1000).toLocaleString('ru') : `через ${duration(data.resets_in_seconds)}`} />
+      </Box>
       {!canSend && <Flash sx={{ mb: 3 }}>Отправка недоступна для этого аккаунта. Можно просмотреть каталог и историю.</Flash>}
-      <Text sx={{ fontWeight: 'bold', display: 'block', mb: 2 }}>Наборы каждому получателю</Text>
-      <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 3 }}>{data.items.map(item => <Box key={item.item_id} sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 2, width: 200 }}>
-        <ItemThumb itemId={item.item_id} item={catalog.get(item.item_id)} size={40} /><Text sx={{ display: 'block', fontWeight: 'semibold' }}>{itemName(item.item_id, catalog)}</Text>
-        <Text sx={{ display: 'block', fontSize: 0 }}>{item.price.toLocaleString('ru')} алмазов · лимит {item.weekly_limit}/нед.</Text>
-        <TextInput type="number" min={0} step={1} aria-label={`Каждому: ${itemName(item.item_id, catalog)}`} value={defaults[item.item_id] ?? ''} disabled={!canSend || busy} onChange={e => setDefaults(d => ({ ...d, [item.item_id]: e.target.value }))} sx={{ width: 100, mt: 2 }} />
-      </Box>)}</Box>
-      <Text sx={{ display: 'block', color: 'fg.muted', fontSize: 0, mb: 2 }}>Общее количество применяется при выборе участника. Ниже можно изменить набор каждого.</Text>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>{data.members.map(member => <Box key={member.user_id} sx={{ border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}><Checkbox aria-label={`Подарки: ${member.name}`} checked={selected.has(member.user_id)} disabled={!canSend || busy || member.eligible_in_seconds > 0 || data.items.every(i => !(member.remaining[String(i.item_id)] > 0))} onChange={() => toggle(member)} /><Text sx={{ fontWeight: 'semibold' }}>{member.name}</Text><Label>{member.role}</Label>{member.eligible_in_seconds > 0 && <Text sx={{ color: 'fg.muted', fontSize: 0 }}>Допуск через {duration(member.eligible_in_seconds)} от времени снимка</Text>}</Box>
-        <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mt: 2 }}>{data.items.map(item => <Box key={item.item_id}><Text sx={{ display: 'block', fontSize: 0 }}>{itemName(item.item_id, catalog)} · осталось {member.remaining[String(item.item_id)] ?? 0}</Text>{selected.has(member.user_id) && <TextInput type="number" min={0} max={member.remaining[String(item.item_id)] ?? 0} step={1} aria-label={`${member.name}: ${itemName(item.item_id, catalog)}`} value={quantities[member.user_id]?.[item.item_id] ?? ''} disabled={busy} onChange={e => setQuantities(q => ({ ...q, [member.user_id]: { ...q[member.user_id], [item.item_id]: e.target.value } }))} sx={{ width: 100 }} />}</Box>)}</Box>
-      </Box>)}</Box>
-      {draft.error && <Text sx={{ display: 'block', mt: 2, color: 'danger.fg' }}>{draft.error}</Text>}
-      {canSend && <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, my: 3 }}><Text>Получателей: {draft.gifts.length} · итого {draft.cost.toLocaleString('ru')} алмазов</Text><Button variant="primary" disabled={busy || snapshot.refreshing || !draft.gifts.length || !!draft.error} loading={busy} onClick={send}>Проверить и отправить</Button></Box>}
-      <Text sx={{ display: 'block', fontWeight: 'bold', my: 3 }}>История подарков</Text>
-      {!history.length && <Text sx={{ color: 'fg.muted' }}>Подарков пока нет</Text>}
-      {history.map(g => <Box key={g.id} sx={{ borderBottom: '1px solid', borderColor: 'border.muted', py: 2 }}><Text sx={{ display: 'block', fontWeight: 'semibold' }}>{g.giver_name ?? 'Бывший участник'} · {g.crystals?.toLocaleString('ru')} алмазов</Text><Text sx={{ display: 'block', color: 'fg.muted', fontSize: 0 }}>{g.created_at ? new Date(g.created_at).toLocaleString('ru') : ''}</Text>{g.recipients.map(r => <Text key={r.user_id} sx={{ display: 'block' }}>{r.name ?? `#${r.user_id}`}: {r.items.map(i => `${itemName(i.item_id, catalog)} ×${i.quantity}`).join(', ')}</Text>)}</Box>)}
-      {(more ?? data.history.has_more) && <Button sx={{ mt: 2 }} loading={loadingMore} disabled={loadingMore || busy} onClick={loadMore}>Ещё подарки</Button>}
-    </>}
-  </Box>;
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 3, mb: 3 }}>
+        <Box sx={card}>
+          <Text sx={{ fontWeight: 'semibold', px: 1 }}>Набор подарков</Text>
+          {data.items.map(item => <Row key={item.item_id} lead={<ItemThumb itemId={item.item_id} item={catalog.get(item.item_id)} size={36} />}
+            title={itemName(item.item_id, catalog)} sub={<><CrystalValue value={item.price.toLocaleString('ru')} /> · лимит {item.weekly_limit}/нед.</>}
+            trail={<TextInput type="number" min={0} step={1} aria-label={`Каждому: ${itemName(item.item_id, catalog)}`} value={defaults[item.item_id] ?? ''} disabled={!canSend || busy} onChange={e => setDefaults(d => ({ ...d, [item.item_id]: e.target.value }))} sx={{ width: 68 }} />} />)}
+          <Text sx={{ color: 'fg.muted', fontSize: 0, px: 1 }}>Общее количество применяется при выборе участника. Его набор можно изменить отдельно.</Text>
+        </Box>
+        <Box sx={card}>
+          <Text sx={{ fontWeight: 'semibold', px: 1 }}>Получатели</Text>
+          {data.members.map(member => <Row key={member.user_id}
+            lead={<Checkbox aria-label={`Подарки: ${member.name}`} checked={selected.has(member.user_id)} disabled={!canSend || busy || member.eligible_in_seconds > 0 || data.items.every(i => !(member.remaining[String(i.item_id)] > 0))} onChange={() => toggle(member)} />}
+            title={member.name} trail={<Label>{member.role}</Label>}
+            sub={member.eligible_in_seconds > 0 ? `Допуск через ${duration(member.eligible_in_seconds)} от времени снимка` : data.items.map(i => `${itemName(i.item_id, catalog)}: осталось ${member.remaining[String(i.item_id)] ?? 0}`).join(' · ')}>
+            {selected.has(member.user_id) && <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', p: 2, pt: 0 }}>{data.items.map(item => <Box key={item.item_id} sx={{ flex: '1 1 120px', minWidth: 0 }}>
+              <Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted', mb: 1 }}>{itemName(item.item_id, catalog)} · осталось {member.remaining[String(item.item_id)] ?? 0}</Text>
+              <TextInput block type="number" min={0} max={member.remaining[String(item.item_id)] ?? 0} step={1} aria-label={`${member.name}: ${itemName(item.item_id, catalog)}`} value={quantities[member.user_id]?.[item.item_id] ?? ''} disabled={busy} onChange={e => setQuantities(q => ({ ...q, [member.user_id]: { ...q[member.user_id], [item.item_id]: e.target.value } }))} />
+            </Box>)}</Box>}
+          </Row>)}
+        </Box>
+      </Box>
+      {draft.error && <Flash variant="danger" sx={{ mb: 3 }}>{draft.error}</Flash>}
+      {canSend && <Box sx={{ ...card, mb: 3 }}>
+        <Summary tone="accent"><SumLine left={`Получателей: ${draft.gifts.length}`} right={<CrystalValue value={draft.cost.toLocaleString('ru')} />} /><SumLine left="Останется в казне" right={<CrystalValue value={(data.balance - draft.cost).toLocaleString('ru')} />} /></Summary>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}><Button variant="primary" disabled={busy || snapshot.refreshing || !draft.gifts.length || !!draft.error} loading={busy} onClick={send}>Проверить и отправить</Button></Box>
+      </Box>}
+      <Box sx={{ ...card, mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 1 }}><HistoryIcon /><Text sx={{ fontWeight: 'semibold' }}>История подарков</Text></Box>
+        {!history.length && <Empty>Подарков пока нет</Empty>}
+        {history.map(g => <Row key={g.id} title={g.giver_name ?? 'Бывший участник'} sub={g.created_at ? new Date(g.created_at).toLocaleString('ru') : 'Время неизвестно'} trail={<CrystalValue value={g.crystals == null ? '—' : g.crystals.toLocaleString('ru')} />}>
+          <Box sx={{ p: 2, pt: 0 }}>{g.recipients.map(r => <Text key={r.user_id} sx={{ display: 'block', fontSize: 0 }}>{r.name ?? `#${r.user_id}`}: {r.items.map(i => `${itemName(i.item_id, catalog)} ×${i.quantity}`).join(', ')}</Text>)}</Box>
+        </Row>)}
+        {(more ?? data.history.has_more) && <Button loading={loadingMore} disabled={loadingMore || busy} onClick={loadMore}>Ещё подарки</Button>}
+      </Box>
+    </> : <Empty>Нет сохранённых данных подарков</Empty>}
+  </>;
 }
