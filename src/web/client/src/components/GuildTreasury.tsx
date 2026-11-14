@@ -57,7 +57,7 @@ function GuildTreasuryContent({ accountId, coins, crystals, onDeposit, onFees }:
       <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{treasury.updatedAt ? `Снимок от ${new Date(treasury.updatedAt).toLocaleString('ru')}` : 'Данных казны ещё нет — нажмите «Обновить казну»'}</Text>
       <Button size="small" leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>Обновить казну</Button>
     </Box>
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 3, mb: 3 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 3, mb: 3 }}>
       {(['coins', 'crystals'] as const).map(c => {
         const balance = known(treasury.data?.[c]), mine = c === 'coins' ? coins : crystals;
         return <Box key={c} sx={card}>

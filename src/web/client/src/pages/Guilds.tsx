@@ -1,14 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { GuildDiscovery } from '../components/GuildDiscovery';
-import { GuildExtrasModal } from '../components/GuildExtrasModal';
-import { Box, Button, Checkbox, Flash, Label, Select, Text, TextInput, Spinner } from '@primer/react';
+import { RenownTab, AchTab } from '../components/GuildExtrasModal';
+import { GuildGifts } from '../components/GuildGifts';
+import { GuildTreasury } from '../components/GuildTreasury';
+import { SidePage, CatTabs, SELECTED_RING } from '../components/SidePage';
+import { PanelShell, Row, Summary, Tile, SumLine, Val } from './cityMapPanels';
+import { CoinIcon, CrystalIcon, CoinValue, CrystalValue } from '../components/Icons';
+import { OrganizationIcon, PeopleIcon, SearchIcon, SyncIcon, GiftIcon, KebabHorizontalIcon, SignOutIcon, GearIcon } from '@primer/octicons-react';
+import { Box, Button, Checkbox, Flash, Heading, Label, Select, Text, TextInput, Spinner, UnderlineNav, ActionMenu, ActionList, FormControl } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { DataTable, Table } from '@primer/react/experimental';
-import { api, type GuildMembership, type GuildApplication, type GuildMember, type GuildSettings, type GuildFeesState } from '../api';
+import { api, type GuildMembership, type GuildApplication, type GuildMember, type GuildSettings, type GuildFeesState, type Account } from '../api';
 import { fmt } from '../utils';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
-import { PageHeader } from '../components/PageHeader';
 import { useAsk } from '../hooks/useAsk';
 
 // автооплата взносов всех аккаунтов (modules/guildFeesAuto.js) — отдельная настройка, по умолчанию выключена
@@ -92,39 +97,57 @@ function GuildFeesModal({ accountId, accountName, onClose }: { accountId: number
   </Dialog>;
 }
 
-function GuildDepositModal({ row, currency, onClose }: { row: GuildMembership; currency: 'coins' | 'crystals'; onClose: () => void }) {
+function GuildDepositModal({ row, currency: initialCurrency, coins, crystals, onClose, onChanged }: {
+  row: GuildMembership; currency: 'coins' | 'crystals'; coins: number | null; crystals: number | null;
+  onClose: () => void; onChanged: () => Promise<void>;
+}) {
+  const [currency, setCurrency] = useState(initialCurrency);
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; msg: string } | null>(null);
   const ask = useAsk();
-  const n = Number(amount), valid = Number.isSafeInteger(n) && n > 0;
+  const saved = currency === 'coins' ? coins : crystals;
+  const max = saved != null && Number.isFinite(saved) && saved >= 0 ? Math.min(Number.MAX_SAFE_INTEGER, Math.floor(saved)) : null;
+  const n = Number(amount), valid = max != null && Number.isSafeInteger(n) && n > 0 && n <= max;
   const unit = currency === 'coins' ? 'монет' : 'алмазов';
+  const choose = (value: number) => setAmount(String(Math.max(0, Math.min(max ?? 0, Math.floor(value)))));
   const pay = async () => {
     if (!valid || busy || row.account_id == null) return;
     if (!await ask('Внести в казну?', `С аккаунта «${row.account}» в гильдию «${row.guild_title}» будет внесено ${n.toLocaleString('ru')} ${unit}.`, { ok: 'Внести' })) return;
     setBusy(true); setNote(null);
     try {
       const r = await api.guildDeposit(row.account_id, row.guild_id, currency, n);
-      if (!r.ok) { setNote({ ok: false, msg: r.error ?? 'Не удалось выполнить взнос. Перед повтором проверьте баланс и историю казны.' }); return; }
+      // В том числе после неоднозначного ответа перечитываем только БД; POST не повторяем.
+      await onChanged();
+      if (!r.ok) { setNote({ ok: false, msg: r.error ?? 'Перед повтором проверьте баланс и историю казны.' }); return; }
       setAmount('');
       const fresh = await Promise.allSettled([api.extraRefresh('treasury', row.account_id), api.extraRefresh('treasury-actions', row.account_id), api.extraRefresh('treasury-lb', row.account_id)]);
+      await onChanged();
       const updated = fresh.every(r => r.status === 'fulfilled' && r.value.ok);
       setNote({ ok: true, msg: `Внесено ${n.toLocaleString('ru')} ${unit}.${updated ? '' : ' Взнос выполнен, но снимок казны обновить не удалось.'}` });
     } catch (e) { setNote({ ok: false, msg: `${String(e)}. Перед повтором проверьте баланс и историю казны.` }); }
     finally { setBusy(false); }
   };
-  return <Dialog title={`Взнос ${unit} · ${row.account}`} onClose={busy ? () => {} : onClose} width="medium">
+  return <Dialog title={`Взнос в казну · ${row.guild_title}`} onClose={busy ? () => {} : onClose} width="large" position={{ narrow: 'bottom', regular: 'center' }}>
     <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <Text>Гильдия: {row.guild_title}</Text>
+      <Row title={row.account} sub={row.guild_title} />
       {note && <Flash variant={note.ok ? 'success' : 'danger'}>{note.msg}</Flash>}
-      <TextInput aria-label={`Сумма ${unit}`} type="number" min={1} step={1} value={amount} disabled={busy} onChange={e => setAmount(e.target.value)} placeholder="Сумма" block />
-      <Button variant="primary" disabled={!valid || busy} loading={busy} onClick={pay}>Внести {unit}</Button>
+      <CatTabs tabs={['Монеты', 'Алмазы']} value={currency === 'coins' ? 0 : 1} onChange={i => { if (!busy) { setCurrency(i === 0 ? 'coins' : 'crystals'); setAmount(''); setNote(null); } }} />
+      <Summary tone="accent"><Tile value={max == null ? '—' : currency === 'coins' ? <CoinValue value={max.toLocaleString('ru')} /> : <CrystalValue value={max.toLocaleString('ru')} />} label="доступно на аккаунте" /><SumLine left="Сохранённый баланс" /></Summary>
+      {max == null && <Text sx={{ color: 'fg.muted' }}>Нет снимка баланса — нажмите «Обновить» на странице гильдий.</Text>}
+      <FormControl disabled={busy || max == null}><FormControl.Label>Сумма взноса</FormControl.Label><TextInput aria-label="Сумма взноса" type="number" min={1} max={max ?? 0} step={1} value={amount} onChange={e => setAmount(max != null && Number(e.target.value) > max ? String(max) : e.target.value)} placeholder="Сумма" block /></FormControl>
+      <Box as="input" aria-label="Доля баланса" type="range" min={0} max={max ?? 0} step={1} value={Math.max(0, Math.min(max ?? 0, Number.isFinite(n) ? n : 0))} disabled={busy || !max} onChange={(e: React.ChangeEvent<HTMLInputElement>) => choose(Number(e.target.value))} sx={{ width: '100%', m: 0, accentColor: 'var(--cyan)' }} />
+      <SumLine left="0" right={max == null ? '—' : max.toLocaleString('ru')} />
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2 }}>{[25, 50, 75, 100].map(p => <Button key={p} disabled={busy || !max} onClick={() => choose((max ?? 0) * p / 100)}>{p}%</Button>)}</Box>
+      <SumLine left="Останется на аккаунте" right={max == null ? '—' : Math.max(0, max - (valid ? n : 0)).toLocaleString('ru')} />
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}><Button disabled={busy} onClick={onClose}>Отмена</Button><Button variant="primary" disabled={!valid || busy} loading={busy} onClick={pay}>Внести {valid ? n.toLocaleString('ru') : unit}</Button></Box>
     </Box>
   </Dialog>;
 }
 
 // ── бафы гильдии (GET /guilds/benefits) ──────────────────────────────────────
 type GuildBenefits = {
+  additional_builder?: number;
   income_boost?: number;
   upgrades_discount?: number;
   building_purchases_discount?: number;
@@ -444,207 +467,146 @@ function SettingsModal({ guildId, title, onClose, showFlash: showPageFlash }: {
   );
 }
 
+const guildCard = { p: 2, borderRadius: '12px', border: '1px solid', borderColor: 'border.default', bg: 'canvas.default', display: 'flex', flexDirection: 'column', gap: 2 } as const;
+const roleName = (role: string) => ({ Leader: 'Лидер', Officer: 'Офицер', Member: 'Участник', Superuser: 'Администратор' }[role] ?? role);
+const rankRole = (role: string) => role === 'Leader' ? 0 : role === 'Officer' ? 1 : 2;
+function savedBalance(account: Account | undefined, currency: 'coins' | 'crystals'): number | null {
+  const raw = currency === 'coins' ? account?.balance : account?.crystals;
+  if (raw == null || String(raw).trim() === '') return null;
+  const value = Number(raw); return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 export function Guilds() {
-  const [tab, setTab] = useState<'mine' | 'search'>('mine');
   const [rows, setRows] = useState<GuildMembership[]>([]);
-  const [feeAccount, setFeeAccount] = useState('');
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [actors, setActors] = useState<Record<string, number>>({});
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState(0);
+  const [tab, setTab] = useState('Казна');
+  const [reloadKey, setReloadKey] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [feesOpen, setFeesOpen] = useState(false);
-  const [extrasOpen, setExtrasOpen] = useState(false);
   const [deposit, setDeposit] = useState<{ row: GuildMembership; currency: 'coins' | 'crystals' } | null>(null);
   const [leaving, setLeaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useResumableRefresh('refresh:guilds', () => load());
   const [appsGuild, setAppsGuild] = useState<{ id: string; title: string } | null>(null);
   const [memGuild, setMemGuild] = useState<{ id: string; title: string; myRole: string } | null>(null);
   const [setGuild, setSetGuild] = useState<{ id: string; title: string } | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const loadSerial = useRef(0);
   const { flash, showFlash } = useFlash();
   const ask = useAsk();
-
-  const selected = rows.find(r => String(r.account_id) === feeAccount) ?? rows.find(r => r.account_id != null);
-  const leave = async () => {
-    if (!selected || selected.account_id == null || leaving) return;
-    const leader = selected.role === 'Leader';
-    if (!await ask(leader ? 'Выйти из гильдии лидером?' : 'Выйти из гильдии?',
-      `Аккаунт «${selected.account}» покинет «${selected.guild_title}».${leader ? ' В игре выход лидера может расформировать гильдию. Это действие нельзя отменить.' : ''}`,
-      { ok: 'Выйти', danger: true })) return;
-    setLeaving(true);
+  const [refreshing, setRefreshing] = useResumableRefresh('refresh:guilds', () => { void load(true); });
+  const load = async (silent = false) => {
+    const serial = ++loadSerial.current;
+    if (!silent) setLoading(true);
     try {
-      const r = await api.guildLeave(selected.account_id, selected.guild_id, leader);
-      showFlash(r.ok ? `Аккаунт вышел из гильдии.${r.refresh_error ? ' Не удалось обновить снимок: ' + r.refresh_error : ''}` : r.error ?? 'Ошибка выхода', r.ok);
-      setFeeAccount(''); await load();
-    } catch (e) { showFlash(String(e), false); }
-    finally { setLeaving(false); }
+      const [g, a] = await Promise.all([api.guilds(), api.accounts()]);
+      if (!g.ok || !a.ok) throw new Error('Не удалось прочитать сохранённые гильдии и балансы');
+      if (serial === loadSerial.current) { setRows(g.rows); setAccounts(a.accounts); }
+      return g.rows;
+    } catch (e) { if (serial === loadSerial.current) showFlash(String(e), false); return null; }
+    finally { if (serial === loadSerial.current) setLoading(false); }
   };
+  useEffect(() => { void load(); return () => { loadSerial.current++; }; }, []);
 
-  const removeDuplicate = async (accountId: number | null, accountName: string) => {
-    if (accountId == null) { showFlash(`У аккаунта "${accountName}" не найден id — удалите вручную на странице Аккаунтов`, false); return; }
-    if (!await ask('Удалить дубль аккаунта?', `Аккаунт «${accountName}» (id ${accountId}) будет удалён из бота. Действие необратимо.`, { ok: 'Удалить', danger: true })) return;
-    setDeletingId(accountId);
-    try {
-      const d = await api.deleteAccount(accountId);
-      if (d.ok) { showFlash(`Аккаунт "${accountName}" удалён`, true); await load(); }
-      else showFlash(d.error || 'Ошибка', false);
-    } catch (e) { showFlash(String(e), false); } finally { setDeletingId(null); }
-  };
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const d = await api.guilds();
-      if (d.ok) setRows(d.rows);
-    } finally { setLoading(false); }
-  };
-
+  const currentRows = new Map<number, GuildMembership>();
+  for (const row of rows) {
+    if (row.account_id == null || !accounts.some(a => a.id === row.account_id)) continue;
+    const previous = currentRows.get(row.account_id);
+    if (!previous || new Date(row.updated_at).getTime() >= new Date(previous.updated_at).getTime()) currentRows.set(row.account_id, row);
+  }
+  const groups = new Map<string, { id: string; title: string; members: GuildMembership[] }>();
+  for (const row of currentRows.values()) {
+    const group = groups.get(row.guild_id) ?? { id: row.guild_id, title: row.guild_title, members: [] };
+    group.members.push(row); groups.set(row.guild_id, group);
+  }
+  const guilds = [...groups.values()].sort((a, b) => a.title.localeCompare(b.title, 'ru'));
+  guilds.forEach(g => g.members.sort((a, b) => rankRole(a.role) - rankRole(b.role) || a.account.localeCompare(b.account, 'ru')));
+  const searchMode = selectedId === 'search';
+  const guild = !searchMode ? guilds.find(g => g.id === selectedId) ?? guilds[0] ?? null : null;
+  const selected = guild?.members.find(m => m.account_id === actors[guild.id]) ?? guild?.members[0] ?? null;
+  const actor = accounts.find(a => a.id === selected?.account_id);
+  const coins = savedBalance(actor, 'coins'), crystals = savedBalance(actor, 'crystals');
+  const ungrouped = accounts.filter(a => !currentRows.has(a.id));
+  const leader = guild?.members.find(m => m.role === 'Leader');
+  const canManage = !!leader;
+  const duplicateLeaders = guild?.members.filter(m => m.role === 'Leader') ?? [];
+  const benRow = guild?.members.filter(m => m.benefits).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
+  const ben = extractBenefits(benRow?.benefits);
+  const gtype = extractGuildType(benRow?.benefits);
+  const changed = async () => { await load(true); setReloadKey(k => k + 1); };
   const refresh = async () => {
     setRefreshing(true);
     try {
-      const r = await api.refresh('guilds'); await load();
+      const r = await api.refresh('guilds');
+      const latest = await load(true);
       const failed = ((r.results ?? []) as { name?: string; ok?: boolean; error?: string }[]).filter(x => x.ok === false);
-      showFlash(!r.ok ? 'Не удалось обновить гильдии' : failed.length ? `Не обновлены: ${failed.map(x => `${x.name ?? 'аккаунт'}: ${x.error ?? 'ошибка'}`).join('; ')}` : 'Членство, бонусы гильдий и строители обновлены', r.ok && !failed.length);
-    }
-    catch (e) { showFlash(String(e), false); }
+      const extraFailed: string[] = [];
+      if (selected?.account_id != null && latest?.some(x => x.account_id === selected.account_id && x.guild_id === selected.guild_id)) {
+        const kinds = tab === 'Казна' ? ['treasury', 'treasury-actions', 'treasury-lb'] as const : tab === 'Подарки' ? ['guild-gifts'] as const : tab === 'Почёт' ? ['renown', 'renown-actions', 'renown-lb'] as const : tab === 'Достижения' ? ['guild-achievements'] as const : [];
+        for (const kind of kinds) { try { const d = await api.extraRefresh(kind, selected.account_id); if (!d.ok) extraFailed.push(d.error ?? kind); } catch (e) { extraFailed.push(String(e)); } }
+      }
+      setReloadKey(k => k + 1);
+      const errors = [...failed.map(x => `${x.name ?? 'аккаунт'}: ${x.error ?? 'ошибка'}`), ...extraFailed];
+      showFlash(!r.ok ? 'Не удалось обновить гильдии' : errors.length ? errors.join('; ') : 'Членство, бонусы и данные гильдии обновлены', r.ok && !errors.length);
+    } catch (e) { showFlash(String(e), false); }
     finally { setRefreshing(false); }
   };
-
-  useEffect(() => { load(); }, []);
-
-  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
-
-  const byGuild = new Map<string, { title: string; members: GuildMembership[] }>();
-  for (const r of rows) {
-    if (!byGuild.has(r.guild_id)) byGuild.set(r.guild_id, { title: r.guild_title, members: [] });
-    byGuild.get(r.guild_id)!.members.push(r);
-  }
-  // Все свои гильдии; управление доступно только при наличии лидера.
-  const leaderGuilds = [...byGuild.entries()];
-
-  // строки для Primer-таблицы: бафы разложены по отдельным числовым полям (для сортировки)
-  const data = leaderGuilds.map(([guildId, { title, members }]) => {
-    const blob = members.find(m => m.benefits)?.benefits;
-    const ben = extractBenefits(blob) ?? {};
-    const leaders = members.filter(m => m.role === 'Leader');
-    const accounts = members.map(m => `${m.account} (${m.role})`);
-    // у гильдии физически не может быть двух лидеров одновременно — если у нас ДВА своих
-    // аккаунта числятся лидерами одной и той же гильдии, это стопроцентный признак того, что
-    // один и тот же игровой аккаунт задвоен в базе бота (напр. один раз с реальным именем,
-    // второй раз с плейсхолдером account_XXXXXXXX от старой уязвимости добавления без пароля).
-    const duplicateLeaders = leaders.length > 1 ? leaders : [];
-    const canManage = leaders.length > 0;
-    return {
-      id: guildId,
-      title,
-      accounts,
-      duplicateLeaders, canManage,
-      accountsStr: accounts.join(', '),
-      income_boost: Number(ben.income_boost ?? 0),
-      upgrades_discount: Number(ben.upgrades_discount ?? 0),
-      building_purchases_discount: Number(ben.building_purchases_discount ?? 0),
-      reduced_upgrade_times: Number(ben.reduced_upgrade_times ?? 0),
-      storage_cap_increase: Number(ben.storage_cap_increase ?? 0),
-      gtype: extractGuildType(blob),
-    };
-  });
-
-  const benCell = (kind: 'pct+' | 'pct-' | 'abs' | 'time', v: number) =>
-    v ? <Text sx={{ fontVariantNumeric: 'tabular-nums', color: 'success.fg', fontWeight: 'semibold' }}>{benefitText(kind, v)}</Text>
-      : <Text sx={{ color: 'fg.subtle' }}>—</Text>;
-
-  return (
-    <Box sx={{ p: 3 }}>
-      <PageHeader title="Гильдии" actions={<>
-        <Button onClick={refresh} disabled={refreshing} loading={refreshing}>
-          ↻ Обновить
-        </Button>
-      </>} />
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-        <Button variant={tab === 'mine' ? 'primary' : 'default'} onClick={() => setTab('mine')}>Мои гильдии</Button>
-        <Button variant={tab === 'search' ? 'primary' : 'default'} onClick={() => setTab('search')}>Поиск гильдии</Button>
+  const leave = async () => {
+    if (selected?.account_id == null || leaving) return;
+    const isLeader = selected.role === 'Leader';
+    if (!await ask(isLeader ? 'Выйти из гильдии лидером?' : 'Выйти из гильдии?', `Аккаунт «${selected.account}» покинет «${selected.guild_title}».${isLeader ? ' Выход лидера может расформировать гильдию. Действие нельзя отменить.' : ''}`, { ok: 'Выйти', danger: true })) return;
+    setLeaving(true);
+    try {
+      const r = await api.guildLeave(selected.account_id, selected.guild_id, isLeader);
+      showFlash(r.ok ? `Аккаунт вышел из гильдии.${r.refresh_error ? ' Снимок не обновлён: ' + r.refresh_error : ''}` : r.error ?? 'Ошибка выхода', r.ok);
+      await changed();
+    } catch (e) { showFlash(String(e), false); }
+    finally { setLeaving(false); }
+  };
+  const removeDuplicate = async (row: GuildMembership) => {
+    if (row.account_id == null || !await ask('Удалить дубль аккаунта?', `Аккаунт «${row.account}» будет удалён из бота. Действие необратимо.`, { ok: 'Удалить', danger: true })) return;
+    setDeletingId(row.account_id);
+    try { const r = await api.deleteAccount(row.account_id); if (!r.ok) showFlash(r.error ?? 'Ошибка', false); else await changed(); }
+    catch (e) { showFlash(String(e), false); } finally { setDeletingId(null); }
+  };
+  const pickGuild = (id: string) => { if (leaving || refreshing) return; setSelectedId(id); setTab('Казна'); setDeposit(null); setFeesOpen(false); };
+  const side = <PanelShell mode="view" title="Гильдии" busy={loading} hint="Выберите гильдию. Аккаунт для взноса или другого действия выбирается слева в строке «От имени».">
+    <Summary tone="accent"><Box sx={{ display: 'flex', gap: 2 }}><Tile size={2} value={guilds.length} label="гильдии" color="accent.fg" /><Tile size={2} value={currentRows.size} label="аккаунтов" /></Box><SumLine left="С лидером" right={guilds.filter(g => g.members.some(m => m.role === 'Leader')).length} /></Summary>
+    <TextInput aria-label="Поиск гильдии" placeholder="Поиск гильдии" value={query} onChange={e => setQuery(e.target.value)} block />
+    <CatTabs tabs={['Все', 'С лидером']} value={filter} onChange={setFilter} />
+    {guilds.filter(g => g.title.toLowerCase().includes(query.toLowerCase()) && (!filter || g.members.some(m => m.role === 'Leader'))).map(g => <Row key={g.id} onClick={() => pickGuild(g.id)} sx={guild?.id === g.id ? SELECTED_RING : undefined} lead={<Box sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', color: 'accent.fg' }}><OrganizationIcon size={16} /></Box>} title={g.title} sub={g.members.some(m => m.role === 'Leader') ? 'Есть лидер' : g.members.some(m => m.role === 'Officer') ? 'Есть офицер' : 'Участники'} trail={<Val>{g.members.length}</Val>} />)}
+    {!guilds.length && <Text sx={{ color: 'fg.muted', fontSize: 0 }}>Нет сохранённых гильдий — нажмите «Обновить».</Text>}
+    <Row onClick={() => pickGuild('search')} sx={searchMode ? SELECTED_RING : undefined} lead={<Box sx={{ width: 36, height: 36, borderRadius: '8px', bg: 'canvas.default', display: 'grid', placeItems: 'center', color: 'attention.fg' }}><PeopleIcon size={16} /></Box>} title="Без гильдии" sub="Выбрать гильдию для вступления" trail={<Val>{ungrouped.length}</Val>} />
+    <Button leadingVisual={SearchIcon} disabled={leaving || refreshing} onClick={() => pickGuild('search')}>Найти гильдию</Button>
+  </PanelShell>;
+  const main = <>
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, mb: 3, flexWrap: 'wrap' }}><Box><Heading as="h2" sx={{ fontSize: 3 }}>Гильдии</Heading><Text sx={{ color: 'fg.muted', fontSize: 1 }}>{guild ? `${guild.title} · своих аккаунтов: ${guild.members.length}` : searchMode ? 'Поиск и вступление' : 'Выберите гильдию справа'}</Text></Box><Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing || leaving} onClick={refresh}>Обновить</Button></Box>
+    {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+    {loading ? <Spinner /> : searchMode ? <GuildDiscovery onJoined={() => { void changed(); }} /> : !guild || !selected ? <Text sx={{ color: 'fg.muted' }}>Выберите гильдию справа или найдите новую.</Text> : <>
+      <Box sx={{ ...guildCard, mb: 3 }}><Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}><Box sx={{ width: 36, height: 36, borderRadius: 2, bg: 'accent.subtle', color: 'accent.fg', display: 'grid', placeItems: 'center' }}><OrganizationIcon size={22} /></Box><Box sx={{ flex: 1, minWidth: 0 }}><Text sx={{ fontWeight: 'semibold', display: 'block' }}>{guild.title}</Text><Text sx={{ fontSize: 0, color: 'fg.muted' }}>#{guild.id}{gtype ? ` · ${{ open: 'Открытая', application: 'По заявке', closed: 'Закрытая' }[gtype] ?? gtype}` : ''}</Text></Box>{canManage && <Label variant="accent">Есть лидер</Label>}
+        <ActionMenu><ActionMenu.Button aria-label="Действия гильдии" disabled={leaving || refreshing} trailingVisual={KebabHorizontalIcon}>Ещё</ActionMenu.Button><ActionMenu.Overlay><ActionList>{canManage && <ActionList.Item onSelect={() => setSetGuild({ id: guild.id, title: guild.title })}><ActionList.LeadingVisual><GearIcon /></ActionList.LeadingVisual>Настройки гильдии</ActionList.Item>}<ActionList.Item variant="danger" onSelect={leave}><ActionList.LeadingVisual><SignOutIcon /></ActionList.LeadingVisual>Выйти: {selected.account}</ActionList.Item></ActionList></ActionMenu.Overlay></ActionMenu>
+      </Box>{ben ? <Summary tone="accent"><Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 2 }}><Tile size={2} value={ben.additional_builder == null ? '—' : `+${ben.additional_builder}`} label="строителей" /><Tile size={2} value={ben.upgrades_discount == null ? '—' : benefitText('pct-', ben.upgrades_discount)} label="улучшения" /><Tile size={2} value={ben.income_boost == null ? '—' : benefitText('pct+', ben.income_boost)} label="доход" /><Tile size={2} value={ben.reduced_upgrade_times == null ? '—' : benefitText('pct-', ben.reduced_upgrade_times)} label="время улучшений" /></Box></Summary> : <Text sx={{ fontSize: 0, color: 'fg.muted', px: 1 }}>Бонусы ещё не загружены — нажмите «Обновить».</Text>}</Box>
+      <Box sx={{ ...guildCard, mb: 3, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}><Text sx={{ color: 'fg.muted', fontSize: 0, px: 1 }}>От имени</Text><Select aria-label="Аккаунт для действия" disabled={leaving || refreshing} value={String(selected.account_id)} onChange={e => { setActors(old => ({ ...old, [guild.id]: Number(e.target.value) })); setFeesOpen(false); }}>
+        {guild.members.map(m => <Select.Option key={m.account_id!} value={String(m.account_id)}>{m.account} · {roleName(m.role)}</Select.Option>)}
+      </Select><Text sx={{ ml: 'auto', color: 'fg.muted', fontSize: 0 }}>Личный баланс</Text><CoinValue value={coins == null ? '—' : fmt(coins)} /><CrystalValue value={crystals == null ? '—' : fmt(crystals)} /></Box>
+      <UnderlineNav aria-label="Разделы гильдии" sx={{ mb: 3 }}>{['Казна', 'Подарки', 'Участники', 'Почёт', 'Достижения', 'Настройки'].map(t => <UnderlineNav.Item key={t} href="#" icon={t === 'Подарки' ? GiftIcon : undefined} aria-current={tab === t ? 'page' : undefined} onSelect={e => { e.preventDefault(); setTab(t); }}>{t}</UnderlineNav.Item>)}</UnderlineNav>
+      <Box key={`${guild.id}:${selected.account_id}:${tab}:${reloadKey}`}>
+        {tab === 'Казна' ? <GuildTreasury accountId={selected.account_id!} coins={coins} crystals={crystals} onDeposit={currency => setDeposit({ row: selected, currency })} onFees={() => setFeesOpen(true)} /> : tab === 'Подарки' ? <GuildGifts accountId={selected.account_id!} /> : tab === 'Почёт' ? <RenownTab accountId={selected.account_id!} /> : tab === 'Достижения' ? <AchTab accountId={selected.account_id!} /> : tab === 'Участники' ? <Box sx={guildCard}>
+          <Text sx={{ fontWeight: 'semibold', px: 1 }}>Мои аккаунты в гильдии</Text>{guild.members.map(m => <Row key={m.account_id!} title={m.account} sub={roleName(m.role)} lead={<PeopleIcon />} />)}
+          {canManage && <Box sx={{ display: 'flex', gap: 2 }}><Button onClick={() => setMemGuild({ id: guild.id, title: guild.title, myRole: 'Leader' })}>Все участники</Button>{gtype === 'application' && <Button onClick={() => setAppsGuild({ id: guild.id, title: guild.title })}>Заявки на вступление</Button>}</Box>}
+        </Box> : <Box sx={guildCard}><Text sx={{ fontWeight: 'semibold' }}>Настройки гильдии</Text>{canManage ? <Button leadingVisual={GearIcon} onClick={() => setSetGuild({ id: guild.id, title: guild.title })}>Открыть настройки</Button> : <Text sx={{ color: 'fg.muted' }}>Для управления нужен свой аккаунт-лидер.</Text>}{ben && <><SumLine left="Скидка покупки зданий" right={ben.building_purchases_discount == null ? '—' : benefitText('pct-', ben.building_purchases_discount)} /><SumLine left="Дополнительное хранилище" right={ben.storage_cap_increase == null ? '—' : benefitText('time', ben.storage_cap_increase)} /></>}{duplicateLeaders.length > 1 && <Flash variant="warning">Несколько аккаунтов числятся лидером. Проверьте дубли.{duplicateLeaders.map(m => <Button key={m.account_id!} variant="danger" disabled={deletingId != null} loading={deletingId === m.account_id} onClick={() => removeDuplicate(m)}>Удалить «{m.account}»</Button>)}</Flash>}</Box>}
       </Box>
-      {tab === 'search' ? <GuildDiscovery onJoined={() => { void load(); }} /> : <>
-      {rows.some(r => r.account_id != null) && <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <Text sx={{ fontWeight: 'semibold' }}>Аккаунт гильдии</Text>
-        <Select aria-label="Аккаунт гильдии" disabled={leaving} value={feeAccount || String(rows.find(r => r.account_id != null)?.account_id ?? '')} onChange={e => setFeeAccount(e.target.value)}>
-          {rows.filter(r => r.account_id != null).map(r => <Select.Option key={r.account_id!} value={String(r.account_id)}>{r.account} · {r.guild_title}</Select.Option>)}
-        </Select>
-        <Button onClick={() => setFeesOpen(true)}>Проверить взнос</Button>
-        <Button onClick={() => setExtrasOpen(true)}>Казна, Почёт, достижения</Button>
-        <Button disabled={leaving || !selected} onClick={() => selected && setDeposit({ row: selected, currency: 'coins' })}>Внести монеты</Button>
-        <Button disabled={leaving || !selected} onClick={() => selected && setDeposit({ row: selected, currency: 'crystals' })}>Внести алмазы</Button>
-        <Button variant="danger" disabled={leaving || !selected} loading={leaving} onClick={leave}>Выйти из гильдии</Button>
-      </Box>}
-      {deposit && <GuildDepositModal row={deposit.row} currency={deposit.currency} onClose={() => setDeposit(null)} />}
-      {extrasOpen && (() => { const id = Number(feeAccount || rows.find(r => r.account_id != null)?.account_id); const r = rows.find(x => x.account_id === id); return <GuildExtrasModal key={id} accountId={id} title={`${r?.guild_title ?? ''} (${r?.account ?? ''})`} onClose={() => setExtrasOpen(false)} />; })()}
-      {feesOpen && <GuildFeesModal key={feeAccount || String(rows.find(r => r.account_id != null)?.account_id)} accountId={Number(feeAccount || rows.find(r => r.account_id != null)?.account_id)} accountName={rows.find(r => String(r.account_id) === feeAccount)?.account || rows.find(r => r.account_id != null)?.account || ''} onClose={() => setFeesOpen(false)} />}
-
-      {leaderGuilds.length === 0
-        ? <Text sx={{ color: 'fg.muted' }}>Нет сохранённых гильдий — нажмите «Обновить» или перейдите в поиск</Text>
-        : (
-            <Table.Container>
-              <DataTable
-                data={data}
-                initialSortColumn="title"
-                initialSortDirection="ASC"
-                columns={[
-                  {
-                    header: 'Гильдия', field: 'title', rowHeader: true, sortBy: 'alphanumeric',
-                    renderCell: r => <strong>{r.title}</strong>,
-                  },
-                  {
-                    header: 'Мои аккаунты', field: 'accountsStr', sortBy: 'alphanumeric',
-                    renderCell: r => (
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxWidth: 260 }}>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                          {r.accounts.map((a, i) => <Label key={i} variant="accent">{a}</Label>)}
-                        </Box>
-                        {r.duplicateLeaders.length > 1 && (
-                          <Box sx={{ fontSize: 0 }}>
-                            <Text sx={{ color: 'danger.fg', fontWeight: 'bold', display: 'block' }}>
-                              ⚠ У гильдии не может быть двух лидеров — один из этих аккаунтов задвоен в базе
-                            </Text>
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                              {r.duplicateLeaders.map(m => (
-                                <Button
-                                  key={m.account}
-                                  variant="danger"
-                                  loading={deletingId === m.account_id}
-                                  disabled={deletingId != null}
-                                  onClick={() => removeDuplicate(m.account_id, m.account)}
-                                >
-                                  Удалить «{m.account}»
-                                </Button>
-                              ))}
-                            </Box>
-                          </Box>
-                        )}
-                      </Box>
-                    ),
-                  },
-                  { header: 'Доход', field: 'income_boost', sortBy: 'basic', renderCell: r => benCell('pct+', r.income_boost) },
-                  { header: 'Улучшения', field: 'upgrades_discount', sortBy: 'basic', renderCell: r => benCell('pct-', r.upgrades_discount) },
-                  { header: 'Покупка зданий', field: 'building_purchases_discount', sortBy: 'basic', renderCell: r => benCell('pct-', r.building_purchases_discount) },
-                  { header: 'Время улучш.', field: 'reduced_upgrade_times', sortBy: 'basic', renderCell: r => benCell('pct-', r.reduced_upgrade_times) },
-                  { header: 'Хранилище', field: 'storage_cap_increase', sortBy: 'basic', renderCell: r => benCell('time', r.storage_cap_increase) },
-                  {
-                    header: '', id: 'actions', align: 'end',
-                    renderCell: r => (
-                      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        {r.canManage && <Button onClick={() => setSetGuild({ id: r.id, title: r.title })}>Настройки</Button>}
-                        {r.canManage && <Button onClick={() => setMemGuild({ id: r.id, title: r.title, myRole: 'Leader' })}>Участники</Button>}
-                        {r.canManage && r.gtype === 'application' && <Button variant="primary" onClick={() => setAppsGuild({ id: r.id, title: r.title })}>Заявки</Button>}
-                      </Box>
-                    ),
-                  },
-                ]}
-              />
-            </Table.Container>
-          )
-      }
-      </>}
-      {appsGuild && <ApplicationsModal guildId={appsGuild.id} title={appsGuild.title} onClose={() => setAppsGuild(null)} showFlash={showFlash} />}
-      {memGuild && <MembersModal guildId={memGuild.id} title={memGuild.title} myRole={memGuild.myRole} onClose={() => setMemGuild(null)} showFlash={showFlash} />}
-      {setGuild && <SettingsModal guildId={setGuild.id} title={setGuild.title} onClose={() => setSetGuild(null)} showFlash={showFlash} />}
-    </Box>
-  );
+      <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: 3 }}>Членство: снимок от {new Date(selected.updated_at).toLocaleString('ru')}</Text>
+    </>}
+  </>;
+  const depositAccount = accounts.find(a => a.id === deposit?.row.account_id);
+  return <><SidePage main={main} side={side} />
+    {deposit && <GuildDepositModal key={`${deposit.row.account_id}:${deposit.currency}`} row={deposit.row} currency={deposit.currency} coins={savedBalance(depositAccount, 'coins')} crystals={savedBalance(depositAccount, 'crystals')} onClose={() => setDeposit(null)} onChanged={changed} />}
+    {feesOpen && selected?.account_id != null && <GuildFeesModal key={selected.account_id} accountId={selected.account_id} accountName={selected.account} onClose={() => setFeesOpen(false)} />}
+    {appsGuild && <ApplicationsModal guildId={appsGuild.id} title={appsGuild.title} onClose={() => setAppsGuild(null)} showFlash={showFlash} />}
+    {memGuild && <MembersModal guildId={memGuild.id} title={memGuild.title} myRole={memGuild.myRole} onClose={() => setMemGuild(null)} showFlash={showFlash} />}
+    {setGuild && <SettingsModal guildId={setGuild.id} title={setGuild.title} onClose={() => setSetGuild(null)} showFlash={showFlash} />}
+  </>;
 }
