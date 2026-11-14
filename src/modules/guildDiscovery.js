@@ -1,6 +1,6 @@
 'use strict';
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-function guildId(value){const id=Number(value);if(!Number.isSafeInteger(id)||id<=0)throw fail('Некорректный ID гильдии');return id;}
+function guildId(value){const id=Number(value);if(!Number.isSafeInteger(id)||id===0)throw fail('Некорректный ID гильдии');return id;}
 async function detail(api,value){
   const id=guildId(value);
   const[g,s,my,metrics,me]=await Promise.all([api.get(`/guilds/${id}`),api.get(`/guilds/management/${id}`),api.get('/users/me/guild'),api.get('/progress/metrics'),api.get('/users/me/')]);
