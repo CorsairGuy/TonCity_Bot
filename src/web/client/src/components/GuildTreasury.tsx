@@ -66,7 +66,7 @@ function GuildTreasuryContent({ accountId, coins, crystals, onDeposit, onFees }:
             <Tile value={balance == null ? '—' : c === 'coins' ? <CoinValue value={fmt(balance)} /> : <CrystalValue value={fmtInt(balance)} />} label="в казне" size={3} />
             <SumLine left="На аккаунте" right={mine == null ? '—' : c === 'coins' ? <CoinValue value={fmt(mine)} /> : <CrystalValue value={fmtInt(mine)} />} />
           </Summary>
-          <Button block disabled={mine == null || mine <= 0} onClick={() => onDeposit(c)}>Внести {c === 'coins' ? 'монеты' : 'алмазы'}</Button>
+          <Button block onClick={() => onDeposit(c)}>Внести {c === 'coins' ? 'монеты' : 'алмазы'}</Button>
         </Box>;
       })}
     </Box>
