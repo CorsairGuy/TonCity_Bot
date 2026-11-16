@@ -69,7 +69,7 @@ function TreasuryTab({ accountId }: { accountId: number }) {
   );
 }
 
-export function RenownTab({ accountId }: { accountId: number }) {
+export function RenownTab({ accountId, onDeposit }: { accountId: number; onDeposit?: () => void }) {
   const st = useExtra<RenownState>('renown', accountId);
   const actions = useExtra<unknown>('renown-actions', accountId);
   const lb = useExtra<unknown>('renown-lb', accountId);
@@ -96,12 +96,12 @@ export function RenownTab({ accountId }: { accountId: number }) {
         <Box><Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>Казна Почёта гильдии</Text><Text sx={{ fontSize: 3, fontWeight: 'bold' }}><RenownValue value={fmtInt(st.data?.guild_balance ?? 0)} /></Text></Box>
         <Box><Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block' }}>Гильдия заработала</Text><Text sx={{ fontSize: 3, fontWeight: 'bold' }}>{fmtInt(st.data?.guild_earned ?? 0)}</Text></Box>
       </Box>
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 3, flexWrap: 'wrap' }}>
+      {onDeposit ? <Button variant="primary" sx={{ mb: 3 }} onClick={onDeposit}>Внести Почёт с аккаунтов гильдии</Button> : <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 3, flexWrap: 'wrap' }}>
         <TextInput type="number" placeholder="Сумма Почёта" value={amount} onChange={e => setAmount(e.target.value)} sx={{ width: 160 }} />
         <Button size="small" onClick={() => setAmount(String(Math.floor(balance / 2)))} disabled={!balance}>Половина</Button>
         <Button variant="primary" loading={busy} disabled={!(n > 0) || n > balance || !st.updatedAt} onClick={deposit}>Вложить в гильдию</Button>
         {n > balance && <Text sx={{ fontSize: 0, color: 'danger.fg' }}>Больше, чем есть</Text>}
-      </Box>
+      </Box>}
       <Text sx={{ fontWeight: 'bold', display: 'block', mb: 2 }}>Операции с казной Почёта</Text>
       <Rows empty="Операций нет">{listOf<RenownAction>(actions.data, 'actions').slice(0, 30).map((a, i) => (
         <Row key={i} i={i} left={<><Text sx={{ display: 'block' }}>{who(a)} <Label size="small" variant={a.type === 'deposit' ? 'success' : 'attention'}>{a.type === 'deposit' ? 'вклад' : 'трата'}</Label></Text><Text sx={{ fontSize: 0, color: 'fg.muted' }}>{when(a.created_at)}</Text></>}

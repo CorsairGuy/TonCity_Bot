@@ -32,7 +32,7 @@ const errText=e=>{const d=e?.response?.data;return(d&&(d.detail||d.error||d.mess
 module.exports=function(app,ctx){
   const{apiForAcc}=ctx;
   const db=()=>require('../../db/index');
-  const sendingGifts=new Set();
+  const sendingGifts=new Set(),depositingRenown=new Set();
   const bad=(message,status=400)=>Object.assign(new Error(message),{status});
   const admin=g=>['Superuser','Leader','Officer'].includes(g?.role);
   async function giftGuild(api,expected){
@@ -163,14 +163,31 @@ module.exports=function(app,ctx){
   // предпросмотр снятия политики: штраф (penalty) или null — изменяющий только по методу, состояние не трогает
   app.post('/api/extras/policy-unequip-preview',(req,res)=>act(req,res,(acc,api)=>api.post('/policies/unequip/preview',{instance_id:num(req.body.instance_id)})));
   // взнос личного Почёта в казну Почёта гильдии
-  app.post('/api/extras/renown-deposit',(req,res)=>act(req,res,async(acc,api)=>{
-    const amount=Math.floor(Number(req.body.amount));
-    if(!(amount>0))throw Object.assign(new Error('Сумма должна быть больше 0'),{status:400});
-    const gid=await guildOf(acc);
-    const r=await api.post(`/guilds/${gid}/renown/deposit`,{amount});
-    logger.info(`[${acc.name}] [renown] взнос ${amount} Почёта в гильдию ${gid}`);
-    return r;
-  }));
+  app.post('/api/extras/renown-deposit',async(req,res)=>{
+    let lock=null;
+    try{
+      const acc=await account(req.body?.account_id),amount=req.body?.amount;
+      if(!Number.isSafeInteger(amount)||amount<=0)throw bad('Укажите положительную целую сумму Почёта');
+      if(depositingRenown.has(acc.id))throw bad('Взнос Почёта уже выполняется',409);
+      depositingRenown.add(acc.id);lock=acc.id;
+      const api=apiForAcc(acc),guild=(await api.get('/users/me/guild'))?.guild;
+      if(!guild?.id)throw bad('Аккаунт не состоит в гильдии',409);
+      if(req.body.expected_guild_id!=null&&String(guild.id)!==String(req.body.expected_guild_id))throw bad('Гильдия изменилась — обновите данные и подтвердите заново',409);
+      const path=`/guilds/${guild.id}/renown`,before=await api.get(path),balance=Number(before?.balance);
+      if(before?.balance==null||!Number.isFinite(balance))throw bad('Игра не вернула баланс Почёта',502);
+      await writeCache(acc.id,'renown','',{...before,guild_id:String(guild.id)});
+      if(amount>balance)throw bad('Недостаточно Почёта для взноса',409);
+      let error=null,data=null;const refreshErrors=[];
+      try{await api.post(`${path}/deposit`,{amount});}catch(e){error=e;}
+      // Ровно один POST. Даже при обрыве сначала сохраняем свежие состояние и историю.
+      for(const[k,p]of [['renown',path],['renown-actions',`${path}/actions`],['renown-lb',`${path}/leaderboard`]]){
+        try{const value=await api.get(p),saved=k==='renown'?{...value,guild_id:String(guild.id)}:value;await writeCache(acc.id,k,'',saved);if(k==='renown')data=saved;}
+        catch(e){refreshErrors.push(`${k}: ${errText(e)}`);}
+      }
+      res.json({ok:!error,data,error:error?`${errText(error)}. Перед повтором проверьте историю Почёта.`:undefined,refresh_error:refreshErrors.join('; ')||undefined});
+    }catch(e){fail(res,e);}
+    finally{if(lock!=null)depositingRenown.delete(lock);}
+  });
   // гильдейские уведомления игры
   app.post('/api/extras/notifications-mark-read',(req,res)=>act(req,res,(acc,api)=>api.post('/guilds/management/notifications/mark-as-read',{})));
   app.post('/api/extras/notification-delete',(req,res)=>act(req,res,async(acc,api)=>{const gid=await guildOf(acc);return api.del(`/guilds/management/${gid}/notifications/${num(req.body.notification_id)}`);}));
