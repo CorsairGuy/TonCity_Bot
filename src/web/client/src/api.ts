@@ -203,11 +203,11 @@ export const api = {
   guildDeposit: (accountId: number, guildId: string, currency: 'coins' | 'crystals', amount: number) => req<{ ok: boolean; error?: string }>(`/api/guilds/${accountId}/deposit`, post({ expected_guild_id: guildId, currency, amount })),
   guildFees: (accountId: number) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}`),
   guildFeesPay: (accountId: number, state: GuildFeesState) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}/pay`, post({ expected_guild_id: state.guild_id, expected_amount: state.remaining, expected_currency: state.currency, expected_deadline: state.deadline })),
-  guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[] }>('/api/guild-quests'),
-  // живой перезапрос квестов по ВСЕМ аккаунтам (кнопка "Обновить"), в отличие от guildQuests(),
+  guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[]; error?: string }>('/api/guild-quests'),
+  // Один успешный читатель квестов на гильдию (кнопка «Обновить»), в отличие от guildQuests(),
   // которая только читает снимок из БД
   guildQuestsRefresh: () =>
-    req<{ ok: boolean; results: { name: string; ok: boolean; count?: number; error?: string }[]; error?: string }>('/api/guild-quests/refresh', post({})),
+    req<{ ok: boolean; results: { name: string; guild_id?: string; ok: boolean; count?: number; error?: string; status?: string; eligible_at?: string }[]; error?: string }>('/api/guild-quests/refresh', post({})),
   // quest — состояние квеста ПОСЛЕ ресинка, приходит и при ok, и при ошибке (страница обновляет
   // по нему строку, иначе на ошибке она залипает со старым is_collected). already:true — награда
   // уже была забрана (см. комментарий в web/routes/dashboards.js).
@@ -1570,16 +1570,24 @@ export interface GuildQuest {
   boost_cost_guild?: number | null;
   account_crystals?: number | null;
 }
+export interface GuildQuestAccount {
+  account: string;
+  account_id: number | null;
+  quests: GuildQuest[];
+  updated_at?: string;
+}
 export interface GuildQuestGroup {
   guild_id: string;
   guild_title: string;
-  // своя строка на (guild_id,account) — у каждого своего аккаунта в гильдии своё personal_progress
-  // (см. web/routes/dashboards.js), поэтому одна гильдия может встретиться несколько раз в списке
+  // Источник общего снимка; личный прогресс хранится отдельно для каждого своего участника.
   account?: string;
   account_id?: number | null;
   quests: GuildQuest[];
+  accounts?: GuildQuestAccount[];
   updated_at?: string;
   error?: string;
+  read_status?: 'ready' | 'membership_wait' | 'unavailable' | 'no_snapshot';
+  eligible_at?: string;
 }
 
 export interface SpecialBuildingRow {
