@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Box, Button, Flash, Heading, Spinner, Text, ToggleSwitch } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { AlertIcon, CheckIcon, GearIcon, SyncIcon } from '@primer/octicons-react';
-import { api, type GuildQuestGroup, type GuildQuest } from '../api';
+import { api, type GuildQuestGroup, type GuildQuest, type GuildQuestCollectAllResult } from '../api';
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
+import { LoadError } from '../components/LoadError';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
 import { RenownValue } from '../components/Icons';
@@ -96,7 +97,7 @@ function AutomationSettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// три колонки справа (галочка / время / почёт) — одинаковая фикс. ширина, чтобы ряды
+// Колонки времени и Почёта — одинаковая фиксированная ширина, чтобы ряды
 // выравнивались друг под другом независимо от длины текста времени
 const RIGHT_COL_WIDTH = 60;
 
@@ -132,20 +133,21 @@ function questText(loc: { en?: string; ru?: string }, vars: Record<string, strin
 // конкретного аккаунта; теперь одна кнопка "Выполнить" открывает список всех аккаунтов этой гильдии
 // с их прогрессом и персональной кнопкой Активировать/Комбинировать (тип действия — от типа квеста).
 // Данные берём из уже загруженного снимка (БД), живьём обновляем ответами на сами действия.
-type QuestAcc = { account: string; accountId: number | null; q: GuildQuest };
+type QuestAcc = { account: string; accountId: number | null; q: GuildQuest; updatedAt: string | undefined };
 
 // Типы квестов, по которым бот умеет выполнить условие сам (кнопка "Выполнить" + модалка).
 // Всё остальное — только заклейм по готовности.
 const ACTIONABLE_QUEST_TYPES = new Set(['booster_activate', 'booster_combine', 'guild_boost']);
 
-function QuestDoModal({ rows: initialRows, onClose, onChanged, claiming }: {
-  rows: QuestAcc[]; onClose: () => void; onChanged: (account: string, q: GuildQuest) => void; claiming: Set<string>;
+function QuestDoModal({ rows: initialRows, quest, missing, onClose, onChanged, claiming }: {
+  rows: QuestAcc[]; quest: GuildQuest; missing: { account: string; updated_at?: string }[]; onClose: () => void; onChanged: (account: string, q: GuildQuest) => void; claiming: Set<string>;
 }) {
   const [rows, setRows] = useState<QuestAcc[]>(initialRows);
   const [busy, setBusy] = useState<string | null>(null);
   const { flash, showFlash } = useFlash();
-  const first = rows[0]?.q;
-  if (!first) return null;
+  const busyRef = useRef(false);
+  useEffect(() => { if (!busyRef.current) setRows(initialRows); }, [initialRows]);
+  const first = quest;
   const isCombine = first.type === 'booster_combine';
   const isBooster = isCombine || first.type === 'booster_activate';
   const isGuildBoost = first.type === 'guild_boost';
@@ -158,8 +160,8 @@ function QuestDoModal({ rows: initialRows, onClose, onChanged, claiming }: {
 
   // заклейм — тоже здесь: у каждого аккаунта своя награда за один и тот же квест гильдии
   const collect = async (r: QuestAcc) => {
-    if (!r.accountId) return;
-    setBusy(r.account);
+    if (!r.accountId || busyRef.current) return;
+    busyRef.current = true; setBusy(r.account);
     try {
       const res = await api.guildQuestCollect(r.accountId, r.q.id);
       // строку обновляем по свежему квесту с сервера В ЛЮБОМ случае: на ошибке он тоже приходит,
@@ -169,12 +171,12 @@ function QuestDoModal({ rows: initialRows, onClose, onChanged, claiming }: {
       onChanged(r.account, done);
       if (res.ok) showFlash(`[${r.account}] ${res.already ? 'награда уже была забрана' : 'награда забрана'}`, true);
       else showFlash(`[${r.account}] ${res.error ?? 'ошибка заклейма'}`, false);
-    } catch (e) { showFlash(String(e), false); } finally { setBusy(null); }
+    } catch (e) { showFlash(String(e), false); } finally { busyRef.current = false; setBusy(null); }
   };
 
   const run = async (r: QuestAcc) => {
-    if (!r.accountId) return;
-    setBusy(r.account);
+    if (!r.accountId || busyRef.current) return;
+    busyRef.current = true; setBusy(r.account);
     try {
       const res = isGuildBoost
         ? await api.guildQuestGuildBoost(r.accountId, r.q.id)
@@ -201,17 +203,17 @@ function QuestDoModal({ rows: initialRows, onClose, onChanged, claiming }: {
           : { ...x, q: { ...x.q, guild_progress: fresh.guild_progress, guild_threshold: fresh.guild_threshold } }));
         showFlash(`[${r.account}] ${res.error ?? 'ошибка'}`, false);
       }
-    } catch (e) { showFlash(String(e), false); } finally { setBusy(null); }
+    } catch (e) { showFlash(String(e), false); } finally { busyRef.current = false; setBusy(null); }
   };
 
   return (
     <Dialog
       title={questText(first.name, first.description_variables)}
-      onClose={onClose}
+      onClose={busy ? () => {} : onClose}
       width="xlarge"
       position={{ narrow: 'bottom', regular: 'center' }}
     >
-      <Box>
+      <Box sx={{ p: 3 }}>
         <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mb: 2 }}>
           {questText(first.description, first.description_variables)}
         </Text>
@@ -243,6 +245,7 @@ function QuestDoModal({ rows: initialRows, onClose, onChanged, claiming }: {
                   <Text sx={{ fontSize: 0, color: done ? 'success.fg' : 'fg.muted', display: 'block' }}>
                     личное: {fmt(r.q.personal_progress)}/{fmt(r.q.personal_threshold)}
                   </Text>
+                  <Text sx={{ fontSize: 0, color: 'fg.subtle', display: 'block' }}>{r.updatedAt ? `Снимок от ${new Date(r.updatedAt).toLocaleString('ru')}` : 'Время личного снимка неизвестно'}</Text>
                 </Box>
                 {isBooster && !ready && (blocked
                   ? <Text sx={{ fontSize: 0, color: 'attention.fg', whiteSpace: 'nowrap' }}
@@ -280,61 +283,47 @@ function QuestDoModal({ rows: initialRows, onClose, onChanged, claiming }: {
               </Box>
             );
           })}
+          {missing.map(r => <Box key={r.account} sx={{ px: 2, py: 2, borderTop: '1px solid', borderColor: 'border.muted' }}><Text sx={{ display: 'block' }}>{r.account}</Text><Text sx={{ fontSize: 0, color: 'fg.muted' }}>Личный прогресс этого квеста не сохранён. Действия недоступны без собственного снимка аккаунта.</Text></Box>)}
+          {!rows.length && !missing.length && <Text sx={{ p: 2, color: 'fg.muted' }}>Нет личных снимков действующих участников для этого квеста.</Text>}
         </Box>
       </Box>
     </Dialog>
   );
 }
 
-function QuestRow({ q: qProp, accountId, account: ownAccount, onCollected, siblings, claiming, claimingNow }: {
-  q: GuildQuest; accountId?: number | null; account: string; onCollected: () => void;
-  siblings: QuestAcc[];          // все аккаунты этой гильдии по ЭТОМУ же квесту (для модалки "Выполнить")
-  claiming: Set<string>; claimingNow: boolean;
+function QuestRow({ q, guildId, onCollected, siblings, missing, claiming }: {
+  q: GuildQuest; guildId: string; onCollected: () => void; siblings: QuestAcc[];
+  missing: { account: string; updated_at?: string }[]; claiming: Set<string>;
 }) {
-  // Свежий квест, пришедший прямо в ответе на действие (активация/комбинирование): сервер ждёт,
-  // пока игра реально учтёт прогресс, и возвращает актуальный объект. Показываем его сразу, не
-  // дожидаясь перезагрузки списка — раньше прогресс обновлялся только со второго нажатия.
-  // Как только придёт свежий список сверху (qProp меняется) — оверлей сбрасывается.
-  const [fresh, setFresh] = useState<GuildQuest | null>(null);
-  useEffect(() => { setFresh(null); }, [qProp]);
-  const q = fresh ?? qProp;
   const meta = ITEMS_BY_ID[q.reward_item_id];
   const border = RARITY_BORDER[q.rarity] ?? '#6e7681';
   const t = timeLeft(q.expires_at);
   const name = questText(q.name, q.description_variables);
   const desc = questText(q.description, q.description_variables);
-  // оба условия выполнены, но сервер ещё не отметил is_collected
-  const readyToCollect = !q.is_collected && q.personal_progress >= q.personal_threshold && q.guild_progress >= q.guild_threshold;
-  // Модалка "Выполнить" имеет смысл ТОЛЬКО там, где боту реально есть что сделать: активировать
-  // ускоритель, скомбинировать ускорители, купить бусты гильдии. Остальные типы (реклама, рынок,
-  // приглашения, мини-игры и т.д.) закрываются в самой игре или другими страницами бота — им
-  // кнопка не нужна, у них только заклейм по готовности (прямо в строке, модалки нет).
-  const actionable = !q.is_collected && ACTIONABLE_QUEST_TYPES.has(q.type);
-  // Действия и остаток ускорителей — в модалке "Выполнить" (сразу по всем аккаунтам гильдии),
-  // в самой строке их не дублируем.
+  const ready = siblings.some(r => !r.q.is_collected && r.q.personal_progress >= r.q.personal_threshold && r.q.guild_progress >= r.q.guild_threshold);
+  const actionable = ACTIONABLE_QUEST_TYPES.has(q.type);
   const [doOpen, setDoOpen] = useState(false);
-  // заклейм в строке нужен только типам БЕЗ модалки (у остальных он внутри неё, по аккаунтам)
-  const [collecting, setCollecting] = useState(false);
-  const { flash, showFlash } = useFlash();
-  const collect = async () => {
-    if (!accountId) return;
-    setCollecting(true);
+  const claimingNow = siblings.some(r => claiming.has(`${r.account}:${q.id}`));
+  const collectingAllRef = useRef(false);
+  const [collectingAll, setCollectingAll] = useState(false);
+  const [batch, setBatch] = useState<GuildQuestCollectAllResult | null>(null);
+  const collectAll = async () => {
+    if (collectingAllRef.current || t.over) return;
+    collectingAllRef.current = true; setCollectingAll(true); setBatch(null);
     try {
-      const r = await api.guildQuestCollect(accountId, q.id);
-      // и при ошибке перечитываем список: сервер уже ресинкнул снимок, и квест мог оказаться
-      // собранным — тогда строка сама перестанет предлагать заклейм
-      onCollected();
-      if (!r.ok) showFlash(r.error ?? 'Ошибка заклейма', false);
-    } catch (e) { showFlash(String(e), false); } finally { setCollecting(false); }
+      const r = await api.guildQuestCollectAll(guildId, q.id);
+      setBatch({ ...r, results: r.results ?? [], total: r.total ?? 0, succeeded: r.succeeded ?? 0 });
+    } catch (e) { setBatch({ ok: false, error: String(e), total: 0, succeeded: 0, results: [] }); }
+    finally { onCollected(); collectingAllRef.current = false; setCollectingAll(false); }
   };
-
+  const batchFailed = batch?.results.some(r => !r.ok && !r.skipped);
+  const batchSkipped = batch?.results.some(r => (!r.ok && r.skipped) || r.refresh_error);
   return (
     // className quest-row* — раскладка для телефона (см. global.css): иконка и текст сверху,
     // таймер/почёт и кнопка — отдельной строкой снизу, чтобы кнопка не наезжала на описание
     <Box className="quest-row" sx={{
       display: 'flex', alignItems: 'center', gap: '12px', p: '8px', mb: '8px',
       border: '2px solid', borderColor: border, borderRadius: '21px', bg: 'canvas.default',
-      opacity: q.is_collected ? 0.55 : 1,
     }}>
       {/* награда: карточка предмета как на странице инвентаря (56px) */}
       <div className={`item-card__box${meta ? ` ic-${meta.tag}` : ' ic-common'}`} style={{ flexShrink: 0, width: 56, height: 56 }}>
@@ -349,44 +338,21 @@ function QuestRow({ q: qProp, accountId, account: ownAccount, onCollected, sibli
       <Box className="quest-row__text" sx={{ flex: 1, minWidth: 0 }}>
         <Text sx={{ fontWeight: 'bold', fontSize: 1, display: 'block' }}>{name}</Text>
         <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: '2px' }}>
-          {desc} [Личное: {fmt(q.personal_progress)}/{fmt(q.personal_threshold)}]
-          {q.guild_threshold > 1 && <> [Общее: {fmt(q.guild_progress)}/{fmt(q.guild_threshold)}]</>}
+          {desc} [Общее: {fmt(q.guild_progress)}/{fmt(q.guild_threshold)}]
         </Text>
-        {/* флеш нужен только для заклейма прямо в строке; результаты действий показывает модалка */}
-        {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mt: 1, fontSize: 0, py: 1 }}>{flash.msg}</Flash>}
+        {batch && <Flash variant={batchFailed || (!batch.ok && !batch.results.length) ? 'danger' : batchSkipped ? 'warning' : 'success'} sx={{ mt: 2, fontSize: 0 }}>
+          <Text sx={{ display: 'block' }}>Получено: {batch.succeeded}/{batch.total}{batch.error ? ` · ${batch.error}` : ''}</Text>
+          {!!batch.results.length && <Box as="details" sx={{ mt: 1 }}><Box as="summary" sx={{ cursor: 'pointer' }}>Результаты по аккаунтам ({batch.results.length})</Box><Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>{batch.results.map(r => <Text key={r.account_id}>{r.account}: {r.already ? 'награда уже получена' : r.ok ? 'награда получена' : `${r.skipped ? 'пропущено' : 'ошибка'}${r.error ? ` — ${r.error}` : ''}`}{r.refresh_error ? ` · снимок не обновлён: ${r.refresh_error}` : ''}</Text>)}</Box></Box>}
+        </Flash>}
       </Box>
+      <Box className="quest-row__btn" sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+        <Button size="small" variant={ready ? 'primary' : 'default'} loading={collectingAll} disabled={collectingAll || t.over} onClick={e => { if (e.detail < 2) void collectAll(); }}>Собрать со всех</Button>
+        <Button size="small" onClick={() => setDoOpen(true)}>{claimingNow ? 'Забираем…' : actionable ? 'Выполнить' : 'Личный прогресс'}</Button>
+      </Box>
+      {doOpen && <QuestDoModal quest={q} rows={siblings} missing={missing} claiming={claiming} onClose={() => setDoOpen(false)} onChanged={() => onCollected()} />}
 
-      {/* одна кнопка на квест: внутри — все аккаунты гильдии со своим прогрессом, действием
-          (Активировать/Комбинировать) и заклеймом. Остаток ускорителей и занятость слота тоже
-          показываются там — в строке квеста их намеренно нет, чтобы не дублировать */}
-      {actionable && (
-        <Button className="quest-row__btn" size="small" variant={readyToCollect ? 'primary' : 'default'} onClick={() => setDoOpen(true)}>
-          {claimingNow ? 'Забираем…' : 'Выполнить'}
-        </Button>
-      )}
-
-      {/* типы без действий бота: модалки у них нет, поэтому заклейм остаётся прямо в строке */}
-      {!actionable && readyToCollect && (
-        <Button className="quest-row__btn" size="small" variant="primary" loading={collecting || claimingNow}
-          disabled={collecting || claimingNow || !accountId} onClick={collect}>
-          {claimingNow ? 'Забираем…' : 'Заклеймить'}
-        </Button>
-      )}
-
-      {doOpen && (
-        <QuestDoModal
-          rows={siblings}
-          claiming={claiming}
-          onClose={() => setDoOpen(false)}
-          onChanged={(acc, fresh) => { if (acc === ownAccount) setFresh(fresh); onCollected(); }}
-        />
-      )}
-
-      {/* галочка (получено) / время / почёт — фикс. ширина, чтобы колонки выравнивались по рядам */}
+      {/* Время и Почёт относятся к общему квесту; личные отметки — только в окне аккаунтов. */}
       <Box className="quest-row__meta" sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', pr: '4px' }}>
-        <Box sx={{ width: RIGHT_COL_WIDTH, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-          {q.is_collected && <CheckIcon size={16} fill="var(--green)" />}
-        </Box>
         <Box sx={{ width: RIGHT_COL_WIDTH, flexShrink: 0, textAlign: 'center' }}>
           <Text className="mono" sx={{ fontSize: 1, fontWeight: 'bold', color: t.over ? 'fg.muted' : t.soon ? 'attention.fg' : 'success.fg' }}>{t.text}</Text>
         </Box>
@@ -406,6 +372,8 @@ export function Quests() {
   const [groups, setGroups] = useState<GuildQuestGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadSerial = useRef(0);
   const { flash, showFlash } = useFlash();
 
   // silent=true — обновление ПОСЛЕ действия на странице (заклейм/активация/комбинирование), список
@@ -413,14 +381,16 @@ export function Quests() {
   // (что и происходило раньше: setLoading(true) размонтировал весь список ради центрированного
   // спиннера на всю высоту, потом список монтировался заново — скролл сбрасывался наверх)
   const load = async (opts?: { silent?: boolean }) => {
+    const serial = ++loadSerial.current;
     if (!opts?.silent) setLoading(true);
     try {
       const d = await api.guildQuests();
-      if (d.ok) setGroups(d.guilds);
-      else showFlash('Ошибка загрузки', false);
-    } catch (e) { showFlash(String(e), false); } finally { if (!opts?.silent) setLoading(false); }
+      if (serial !== loadSerial.current) return false;
+      if (d.ok) { setGroups(d.guilds); setLoadError(null); return true; }
+      setLoadError(d.error ?? 'Ошибка чтения сохранённых квестов'); return false;
+    } catch (e) { if (serial === loadSerial.current) setLoadError(String(e)); return false; } finally { if (serial === loadSerial.current) setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); return () => { loadSerial.current++; }; }, []);
   const silentReload = () => { load({ silent: true }); };
 
   // Идущие ПРЯМО СЕЙЧАС автозаклеймы (после активации/комбинирования либо фоновым циклом) — по SSE,
@@ -445,7 +415,7 @@ export function Quests() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // "Обновить" — живой перезапрос по всем аккаунтам (раньше кнопка просто перечитывала снимок из
+  // «Обновить» — один успешный запрос списка на гильдию с выбором доступного участника. Список из
   // БД и по сути ничего не обновляла). Долгая операция, поэтому с loading-состоянием, как на
   // остальных страницах; переживает перезагрузку вкладки через useResumableRefresh.
   const [refreshing, setRefreshing] = useResumableRefresh('guildQuestsRefresh', () => load({ silent: true }));
@@ -455,8 +425,8 @@ export function Quests() {
       const d = await api.guildQuestsRefresh();
       if (d.ok) {
         const errs = (d.results ?? []).filter(r => !r.ok && r.error !== 'нет токена');
-        await load({ silent: true });
-        showFlash(errs.length ? `Обновлено, без квестов: ${errs.map(e => e.name).join(', ')}` : 'Обновлено', errs.length === 0);
+        if (!await load({ silent: true })) return;
+        showFlash(errs.length ? `Часть списков не обновлена: ${errs.map(e => `${e.name}: ${e.error ?? 'нет доступа'}`).join('; ')}` : 'Обновлено', errs.length === 0);
       } else showFlash(d.error || 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); } finally { setRefreshing(false); }
   };
@@ -474,46 +444,27 @@ export function Quests() {
         </Box>
       </Box>
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
+      {loadError && <LoadError error={loadError} onRetry={() => { void load({ silent: true }); }} />}
       {settingsOpen && <AutomationSettingsModal onClose={() => setSettingsOpen(false)} />}
 
-      {groups.length === 0
-        ? <Text sx={{ color: 'fg.muted' }}>Нет данных. Квесты собирает бот раз в день по каждому аккаунту — появятся после первого цикла.</Text>
-        : groups.map(g => (
-            // ключ включает аккаунт — своих аккаунтов в одной гильдии может быть несколько, у
-            // каждого своя строка (своё personal_progress)
-            <Box key={`${g.guild_id}:${g.account ?? ''}`} sx={{ mb: 4 }}>
-              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 2, mb: 2 }}>
-                <Text sx={{ fontWeight: 'bold', fontSize: 1, color: 'fg.muted' }}>{g.guild_title || g.guild_id}</Text>
-                {g.account && <Text sx={{ fontSize: 0, color: 'fg.subtle' }}>({g.account})</Text>}
-                {g.updated_at && <Text sx={{ fontSize: 0, color: 'fg.subtle' }}>обновлено {new Date(g.updated_at).toLocaleString()}</Text>}
-              </Box>
-              {g.error
-                ? <Text sx={{ fontSize: 0, color: 'danger.fg' }}>{g.error}</Text>
-                : g.quests.length === 0
-                  ? <Text sx={{ fontSize: 0, color: 'fg.muted' }}>Нет активных квестов</Text>
-                  // сортировка по id — игра НЕ гарантирует стабильный порядок квестов в ответе
-                  // между запросами; без сортировки после каждого действия (заклейм/активация/
-                  // комбинирование), которое перечитывает список заново, строки могли менять
-                  // порядок в DOM и визуально "прыгать"/переставляться, даже без единого reload
-                  : [...g.quests].sort((a, b) => a.id - b.id).map(q => (
-                      <QuestRow
-                        key={q.id}
-                        q={q}
-                        accountId={g.account_id}
-                        account={g.account ?? ''}
-                        onCollected={silentReload}
-                        claiming={claiming}
-                        claimingNow={claiming.has(`${g.account ?? ''}:${q.id}`)}
-                        // все свои аккаунты ЭТОЙ гильдии, у которых есть этот же квест (общее
-                        // условие у них общее, личное — у каждого своё)
-                        siblings={groups
-                          .filter(x => x.guild_id === g.guild_id)
-                          .map(x => ({ account: x.account ?? '', accountId: x.account_id ?? null, q: x.quests.find(y => y.id === q.id) }))
-                          .filter((x): x is QuestAcc => !!x.q)}
-                      />
-                    ))}
+      {!loadError && groups.length === 0
+        ? <Text sx={{ color: 'fg.muted' }}>Нет сохранённых квестов актуальных гильдий. Нажмите «Обновить».</Text>
+        : groups.map(g => {
+          const personal = g.accounts ?? (g.account ? [{ account: g.account, account_id: g.account_id ?? null, quests: g.quests, updated_at: g.updated_at }] : []);
+          return <Box key={g.guild_id} sx={{ mb: 4 }}>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+              <Text sx={{ fontWeight: 'bold', fontSize: 1, color: 'fg.muted' }}>{g.guild_title || g.guild_id}</Text>
+              {g.updated_at && <Text sx={{ fontSize: 0, color: 'fg.subtle' }}>обновлено {new Date(g.updated_at).toLocaleString()}</Text>}
             </Box>
-          ))}
+            {g.error && <Flash variant="warning" sx={{ mb: 2 }}>{g.error}{g.eligible_at && <> · доступ ожидается {new Date(g.eligible_at).toLocaleString('ru')}</>}</Flash>}
+            {!g.quests.length
+              ? !g.error && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{g.read_status === 'no_snapshot' ? 'Список ещё не сохранён — нажмите «Обновить»' : 'Нет активных квестов'}</Text>
+              : [...g.quests].sort((a, b) => a.id - b.id).map(q => <QuestRow key={q.id} q={q} guildId={g.guild_id} onCollected={silentReload} claiming={claiming}
+                siblings={personal.map(x => { const own = x.quests.find(y => y.id === q.id); return { account: x.account, accountId: x.account_id, updatedAt: x.updated_at, q: own ? { ...own, guild_progress: q.guild_progress, guild_threshold: q.guild_threshold } : undefined }; }).filter((x): x is QuestAcc => !!x.q)}
+                missing={personal.filter(x => !x.quests.some(y => y.id === q.id)).map(x => ({ account: x.account, updated_at: x.updated_at }))} />)}
+          </Box>;
+        })}
+
     </Box>
   );
 }

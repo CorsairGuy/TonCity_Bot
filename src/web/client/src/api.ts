@@ -203,16 +203,18 @@ export const api = {
   guildDeposit: (accountId: number, guildId: string, currency: 'coins' | 'crystals', amount: number) => req<{ ok: boolean; error?: string }>(`/api/guilds/${accountId}/deposit`, post({ expected_guild_id: guildId, currency, amount })),
   guildFees: (accountId: number) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}`),
   guildFeesPay: (accountId: number, state: GuildFeesState) => req<GuildFeesResponse>(`/api/guild-fees/${accountId}/pay`, post({ expected_guild_id: state.guild_id, expected_amount: state.remaining, expected_currency: state.currency, expected_deadline: state.deadline })),
-  guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[] }>('/api/guild-quests'),
-  // живой перезапрос квестов по ВСЕМ аккаунтам (кнопка "Обновить"), в отличие от guildQuests(),
+  guildQuests: () => req<{ ok: boolean; guilds: GuildQuestGroup[]; error?: string }>('/api/guild-quests'),
+  // Один успешный читатель квестов на гильдию (кнопка «Обновить»), в отличие от guildQuests(),
   // которая только читает снимок из БД
   guildQuestsRefresh: () =>
-    req<{ ok: boolean; results: { name: string; ok: boolean; count?: number; error?: string }[]; error?: string }>('/api/guild-quests/refresh', post({})),
+    req<{ ok: boolean; results: { name: string; guild_id?: string; ok: boolean; count?: number; error?: string; status?: string; eligible_at?: string }[]; error?: string }>('/api/guild-quests/refresh', post({})),
   // quest — состояние квеста ПОСЛЕ ресинка, приходит и при ok, и при ошибке (страница обновляет
   // по нему строку, иначе на ошибке она залипает со старым is_collected). already:true — награда
   // уже была забрана (см. комментарий в web/routes/dashboards.js).
   guildQuestCollect: (accountId: number, questId: number) =>
     req<{ ok: boolean; error?: string; already?: boolean; quest?: GuildQuest }>(`/api/guild-quests/${accountId}/collect`, post({ quest_id: questId })),
+  guildQuestCollectAll: (guildId: string, questId: number) =>
+    req<GuildQuestCollectAllResult>('/api/guild-quests/collect-all', post({ guild_id: guildId, quest_id: questId })),
   // ручная активация ускорителя под квест booster_activate (заменила автоматику, см.
   // modules/questAutomation.js) — соблюдает правило игры "пока активен другой тип — нельзя",
   // при блокировке вернёт ok:false с понятной причиной вместо тихой неудачи
@@ -1570,16 +1572,31 @@ export interface GuildQuest {
   boost_cost_guild?: number | null;
   account_crystals?: number | null;
 }
+export interface GuildQuestCollectAllResult {
+  ok: boolean;
+  error?: string;
+  total: number;
+  succeeded: number;
+  results: { account: string; account_id: number; ok: boolean; already?: boolean; skipped?: boolean; error?: string; refresh_error?: string }[];
+}
+export interface GuildQuestAccount {
+  account: string;
+  account_id: number | null;
+  quests: GuildQuest[];
+  updated_at?: string;
+}
 export interface GuildQuestGroup {
   guild_id: string;
   guild_title: string;
-  // своя строка на (guild_id,account) — у каждого своего аккаунта в гильдии своё personal_progress
-  // (см. web/routes/dashboards.js), поэтому одна гильдия может встретиться несколько раз в списке
+  // Источник общего снимка; личный прогресс хранится отдельно для каждого своего участника.
   account?: string;
   account_id?: number | null;
   quests: GuildQuest[];
+  accounts?: GuildQuestAccount[];
   updated_at?: string;
   error?: string;
+  read_status?: 'ready' | 'membership_wait' | 'unavailable' | 'no_snapshot';
+  eligible_at?: string;
 }
 
 export interface SpecialBuildingRow {

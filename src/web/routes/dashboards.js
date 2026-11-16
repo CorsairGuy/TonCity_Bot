@@ -266,43 +266,16 @@ module.exports=function(app,ctx){
     }catch(_){return q;}
   }
 
-  // гильдейские квесты: читаем из БД. Пишет modules/capital.js runCapital (теперь раз в день у
-  // КАЖДОГО аккаунта, не только у лидеров — см. bot.js) и runQuestLoop (непрерывно у лидера).
-  // Своя строка на (guild_id,account) — если в одной гильдии несколько СВОИХ аккаунтов, у каждого
-  // своё личное (personal_progress), поэтому один "guild" в ответе теперь может встретиться
-  // несколько раз, по разу на аккаунт.
+  // Одна гильдия на актуальное членство из БД. Личные снимки не смешиваются.
   app.get('/api/guild-quests',async(req,res)=>{
     try{
-      const{GuildQuestSnapshot,Account,Inventory}=require('../../db/index');
-      const rows=await GuildQuestSnapshot.findAll({order:[['guild_title','ASC'],['account','ASC']]});
-      const accs=await Account.findAll({attributes:['id','name','crystals']});
-      const idByName=new Map(accs.map(a=>[a.name,a.id]));
+      const{Inventory}=require('../../db/index');
+      const{groups,accounts}=await require('../../modules/guildQuestView').readGroups();
       const invRows=await Inventory.findAll({where:{type:'booster'},attributes:['account','name','marketable','booster_active_until','booster_currently_active','booster_active_limit']});
-      const invByAcc=new Map();
-      for(const r of invRows){
-        if(!invByAcc.has(r.account))invByAcc.set(r.account,[]);
-        invByAcc.get(r.account).push(r);
-      }
-      const crystalsByName=new Map(accs.map(a=>[a.name,Number(a.crystals)||0]));
-      const enrich=(quests,account)=>quests.map(q=>enrichQuest(q,{
-        rows2:invByAcc.get(account)||[],accId:idByName.get(account),crystals:crystalsByName.get(account)??null,
-      }));
-      const guilds=rows
-        // только гильдии, где есть ДЕЙСТВУЮЩИЙ аккаунт: снимок живёт своей жизнью и после удаления
-        // аккаунта его строка осталась бы висеть навсегда (кнопки в ней всё равно не работают —
-        // account_id null). Физически такие строки подчищает POST /api/guild-quests/refresh.
-        .filter(r=>idByName.has(r.account))
-        .map(r=>{
-          const quests=r.quests?JSON.parse(r.quests):[];
-          return{
-            guild_id:r.guild_id,
-            guild_title:r.guild_title,
-            account:r.account,
-            account_id:idByName.get(r.account)??null,
-            quests:enrich(quests,r.account),
-            updated_at:r.updated_at,
-          };
-        });
+      const byName=new Map(accounts.map(a=>[a.name,a])),inventory=new Map();
+      for(const row of invRows){if(!inventory.has(row.account))inventory.set(row.account,[]);inventory.get(row.account).push(row);}
+      const enrich=(quests,account)=>quests.map(q=>enrichQuest(q,{rows2:inventory.get(account)||[],accId:byName.get(account)?.id,crystals:byName.get(account)?.crystals??null}));
+      const guilds=groups.map(g=>({...g,quests:enrich(g.quests,g.account),accounts:g.accounts.map(a=>({...a,quests:enrich(a.quests,a.account)}))}));
       res.json({ok:true,guilds});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
@@ -388,37 +361,20 @@ module.exports=function(app,ctx){
     require('../lib/questClaimProgress').subscribe(res);
   });
 
-  // Кнопка "Обновить" на странице "Квесты" — тянет квесты ЖИВЬЁМ по всем аккаунтам с токеном
-  // (раньше кнопка перечитывала только снимок из БД, т.е. по сути ничего не обновляла, а свежесть
-  // зависела от фонового цикла — просьба пользователя 31.07.2026). Заодно чистит осиротевшие
-  // строки снимка: аккаунты, которых уже нет в списке актуальных, иначе на странице вечно висят
-  // гильдии «с мусором», куда бот больше не заходит.
+  // Явная сверка членства и один успешный читатель списка на гильдию.
   app.post('/api/guild-quests/refresh',async(req,res)=>{
     try{
-      const results=await opRegistry.run('guildQuestsRefresh',async()=>{
-        const{Account,GuildQuestSnapshot}=require('../../db/index');
-        const accs=await Account.findAll({order:[['id','ASC']]});
-        const out=[];
-        for(const acc of accs){
-          if(!acc.access_token||acc.access_token==='placeholder'){out.push({name:acc.name,ok:false,error:'нет токена'});continue;}
-          try{
-            const api=await makeApiForAccount(acc.id,{noLock:true});
-            const qData=await resyncGuildQuests(api,acc.name);
-            if(qData)out.push({name:acc.name,ok:true,count:(qData.quests||[]).length});
-            else out.push({name:acc.name,ok:false,error:'не в гильдии'});
-          }catch(e){out.push({name:acc.name,ok:false,error:e.message});}
-        }
-        // снимки аккаунтов, которых больше нет в БД аккаунтов — удаляем
-        try{
-          const live=new Set(accs.map(a=>a.name));
-          const rows=await GuildQuestSnapshot.findAll({attributes:['id','account']});
-          const stale=rows.filter(r=>!live.has(r.account)).map(r=>r.id);
-          if(stale.length)await GuildQuestSnapshot.destroy({where:{id:stale}});
-        }catch(e){logger.warn(`[quests] чистка осиротевших снимков: ${e.message}`);}
-        return out;
-      });
+      const results=await opRegistry.run('guildQuestsRefresh',()=>require('../../modules/guildQuestView').refreshGroups(makeApiForAccount));
       res.json({ok:true,results});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
+  app.post('/api/guild-quests/collect-all',async(req,res)=>{
+    try{
+      const{guild_id,quest_id}=req.body||{};
+      const result=await opRegistry.run(`guildQuestCollectAll:${guild_id}:${quest_id}`,()=>require('../../modules/guildQuestView').collectAll(makeApiForAccount,guild_id,quest_id));
+      res.json(result);
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
   });
 
   // общий ресинк снимка гильд-квестов после ручного действия (заклейм/активация ускорителя/
@@ -432,7 +388,8 @@ module.exports=function(app,ctx){
       const guildId=String(g?.guild?.id||'');
       if(!guildId)return null;
       const qData=await api.get(`/guild-quests/guild/${guildId}`).catch(()=>null);
-      if(qData)await GuildQuestSnapshot.upsert({guild_id:guildId,guild_title:g?.guild?.title||'',account:accountName,quests:JSON.stringify(qData.quests||[]),updated_at:new Date()},{conflictFields:['guild_id','account']});
+      if(!Array.isArray(qData?.quests))return null;
+      await GuildQuestSnapshot.upsert({guild_id:guildId,guild_title:g?.guild?.title||'',account:accountName,quests:JSON.stringify(qData.quests||[]),updated_at:new Date()},{conflictFields:['guild_id','account']});
       return qData;
     }catch(_){return null;}
   }
