@@ -4,7 +4,7 @@ import { SyncIcon, GiftIcon } from '@primer/octicons-react';
 import { api, type CivicDrawAccount, type PolicyGrantStatus } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { useResumableRefresh } from '../hooks/useResumableRefresh';
-import { itemImgSrc } from '../utils';
+import { ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { useItemCatalog, itemName } from '../hooks/useItemCatalog';
 import { ItemThumb } from '../components/ItemThumb';
 import { onServerEvent } from '../serverEvents';
@@ -70,18 +70,36 @@ function timeLeftText(ms: number): string {
   return m > 0 ? `${m}м` : `${Math.max(0, Math.ceil(ms / 1000))}с`;
 }
 
-function GrantRow({ grant, now }: { grant: PolicyGrantStatus; now: number }) {
-  const itemId = grant.kind === 'item' ? Number(grant.reward) : null;
-  const catalog = useItemCatalog(itemId != null && Number.isFinite(itemId) ? [itemId] : []);
+type GrantReward = { type: 'item'; itemId: number } | { type: 'shard'; rarity: string } | { type: 'unknown'; label: string };
+// Игра передаёт material grants по строковому ключу, а не только по числовому item_id.
+// entry 19491: item rewards masterplan/component, townhall: kind==='item' -> эта карта.
+export function policyGrantReward(grant: Pick<PolicyGrantStatus, 'kind' | 'reward'>): GrantReward {
+  const key = String(grant.reward ?? '').trim();
+  if (grant.kind === 'item') {
+    const fixed: Record<string, number> = { masterplan: 12, component: 13 };
+    const id = fixed[key] ?? (/^\d+$/.test(key) ? Number(key) : null);
+    if (id != null && Number.isSafeInteger(id) && id > 0) return { type: 'item', itemId: id };
+    return { type: 'unknown', label: key ? `Предмет «${key}»` : 'Неизвестный предмет' };
+  }
+  if (RARITY_ORDER.includes(key)) return { type: 'shard', rarity: key };
+  return { type: 'unknown', label: key ? `Награда «${key}»` : 'Неизвестная награда' };
+}
+
+export function GrantRow({ grant, now }: { grant: PolicyGrantStatus; now: number }) {
+  const reward = policyGrantReward(grant);
+  const itemId = reward.type === 'item' ? reward.itemId : null;
+  const catalog = useItemCatalog(itemId != null ? [itemId] : []);
+  const known = itemId != null ? ITEMS_BY_ID[itemId] : undefined;
+  const item = itemId != null ? catalog.get(itemId) ?? (known ? { item_id: itemId, type: 'consumable', name: known.tag, rarity: null, title: known.name, tag: known.tag } : undefined) : undefined;
   const ready = grant.ready > 0;
   const remaining = grant.ready_at ? Math.max(0, Date.parse(grant.ready_at) - now) : null;
-  const label = itemId != null ? itemName(itemId, catalog) : `${RARITY_NAME[String(grant.reward)] ?? grant.reward} осколки`;
+  const label = reward.type === 'item' ? itemName(reward.itemId, catalog) : reward.type === 'shard' ? `${RARITY_NAME[reward.rarity]} осколки` : reward.label;
   return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, p: 2, bg: 'canvas.subtle', borderRadius: 2 }}>
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-      {itemId != null ? <ItemThumb itemId={itemId} item={catalog.get(itemId)} size={32} /> : <Box as="img" src={itemImgSrc(`shard_${grant.reward}`)} alt="" sx={{ width: 32, height: 32 }} />}
+      {itemId != null ? <ItemThumb itemId={itemId} item={item} size={32} /> : reward.type === 'shard' ? <Box as="img" src={itemImgSrc(`shard_${reward.rarity}`)} alt="" sx={{ width: 32, height: 32 }} /> : <Box sx={{ width: 32, height: 32, display: 'grid', placeItems: 'center' }}><GiftIcon size={24} /></Box>}
       <Box>
         <Text sx={{ display: 'block', fontWeight: 'semibold' }}>{label} ×{grant.amount}</Text>
-        <Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted' }}>Политика {grant.def_id} · {ready ? `готово: ${grant.ready}` : remaining == null ? 'время неизвестно' : remaining === 0 ? 'Срок наступил'  : `через ${timeLeftText(remaining)}`}</Text>
+        <Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted' }}>Политика {grant.def_id} · {ready ? `готово: ${grant.ready}` : remaining == null ? 'время неизвестно' : remaining === 0 ? 'Срок наступил' : `через ${timeLeftText(remaining)}`}</Text>
       </Box>
     </Box>
   </Box>;
