@@ -213,6 +213,8 @@ export const api = {
   // уже была забрана (см. комментарий в web/routes/dashboards.js).
   guildQuestCollect: (accountId: number, questId: number) =>
     req<{ ok: boolean; error?: string; already?: boolean; quest?: GuildQuest }>(`/api/guild-quests/${accountId}/collect`, post({ quest_id: questId })),
+  guildQuestCollectAll: (guildId: string, questId: number) =>
+    req<GuildQuestCollectAllResult>('/api/guild-quests/collect-all', post({ guild_id: guildId, quest_id: questId })),
   // ручная активация ускорителя под квест booster_activate (заменила автоматику, см.
   // modules/questAutomation.js) — соблюдает правило игры "пока активен другой тип — нельзя",
   // при блокировке вернёт ok:false с понятной причиной вместо тихой неудачи
@@ -1569,6 +1571,13 @@ export interface GuildQuest {
   boost_cost_personal?: number | null;
   boost_cost_guild?: number | null;
   account_crystals?: number | null;
+}
+export interface GuildQuestCollectAllResult {
+  ok: boolean;
+  error?: string;
+  total: number;
+  succeeded: number;
+  results: { account: string; account_id: number; ok: boolean; already?: boolean; skipped?: boolean; error?: string }[];
 }
 export interface GuildQuestAccount {
   account: string;

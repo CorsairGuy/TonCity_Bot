@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Box, Button, Flash, Heading, Spinner, Text, ToggleSwitch } from '@primer/react';
 import { Dialog } from '@primer/react/experimental';
 import { AlertIcon, CheckIcon, GearIcon, SyncIcon } from '@primer/octicons-react';
-import { api, type GuildQuestGroup, type GuildQuest } from '../api';
+import { api, type GuildQuestGroup, type GuildQuest, type GuildQuestCollectAllResult } from '../api';
 import { fmt, ITEMS_BY_ID, itemImgSrc } from '../utils';
 import { LoadError } from '../components/LoadError';
 import { useFlash } from '../hooks/useFlash';
@@ -291,8 +291,8 @@ function QuestDoModal({ rows: initialRows, quest, missing, onClose, onChanged, c
   );
 }
 
-function QuestRow({ q, onCollected, siblings, missing, claiming }: {
-  q: GuildQuest; onCollected: () => void; siblings: QuestAcc[];
+function QuestRow({ q, guildId, onCollected, siblings, missing, claiming }: {
+  q: GuildQuest; guildId: string; onCollected: () => void; siblings: QuestAcc[];
   missing: { account: string; updated_at?: string }[]; claiming: Set<string>;
 }) {
   const meta = ITEMS_BY_ID[q.reward_item_id];
@@ -304,6 +304,20 @@ function QuestRow({ q, onCollected, siblings, missing, claiming }: {
   const actionable = ACTIONABLE_QUEST_TYPES.has(q.type);
   const [doOpen, setDoOpen] = useState(false);
   const claimingNow = siblings.some(r => claiming.has(`${r.account}:${q.id}`));
+  const collectingAllRef = useRef(false);
+  const [collectingAll, setCollectingAll] = useState(false);
+  const [batch, setBatch] = useState<GuildQuestCollectAllResult | null>(null);
+  const collectAll = async () => {
+    if (collectingAllRef.current || t.over) return;
+    collectingAllRef.current = true; setCollectingAll(true); setBatch(null);
+    try {
+      const r = await api.guildQuestCollectAll(guildId, q.id);
+      setBatch({ ...r, results: r.results ?? [], total: r.total ?? 0, succeeded: r.succeeded ?? 0 });
+    } catch (e) { setBatch({ ok: false, error: String(e), total: 0, succeeded: 0, results: [] }); }
+    finally { onCollected(); collectingAllRef.current = false; setCollectingAll(false); }
+  };
+  const batchFailed = batch?.results.some(r => !r.ok && !r.skipped);
+  const batchSkipped = batch?.results.some(r => !r.ok && r.skipped);
   return (
     // className quest-row* — раскладка для телефона (см. global.css): иконка и текст сверху,
     // таймер/почёт и кнопка — отдельной строкой снизу, чтобы кнопка не наезжала на описание
@@ -326,10 +340,15 @@ function QuestRow({ q, onCollected, siblings, missing, claiming }: {
         <Text sx={{ fontSize: 0, color: 'fg.muted', display: 'block', mt: '2px' }}>
           {desc} [Общее: {fmt(q.guild_progress)}/{fmt(q.guild_threshold)}]
         </Text>
+        {batch && <Flash variant={batchFailed || (!batch.ok && !batch.results.length) ? 'danger' : batchSkipped ? 'warning' : 'success'} sx={{ mt: 2, fontSize: 0 }}>
+          <Text sx={{ display: 'block' }}>Получено: {batch.succeeded}/{batch.total}{batch.error ? ` · ${batch.error}` : ''}</Text>
+          {!!batch.results.length && <Box as="details" sx={{ mt: 1 }}><Box as="summary" sx={{ cursor: 'pointer' }}>Результаты по аккаунтам ({batch.results.length})</Box><Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>{batch.results.map(r => <Text key={r.account_id}>{r.account}: {r.already ? 'награда уже получена' : r.ok ? 'награда получена' : `${r.skipped ? 'пропущено' : 'ошибка'}${r.error ? ` — ${r.error}` : ''}`}</Text>)}</Box></Box>}
+        </Flash>}
       </Box>
-      <Button className="quest-row__btn" size="small" variant={ready ? 'primary' : 'default'} onClick={() => setDoOpen(true)}>
-        {claimingNow ? 'Забираем…' : ready ? 'Забрать награды' : actionable ? 'Выполнить' : 'Личный прогресс'}
-      </Button>
+      <Box className="quest-row__btn" sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+        <Button size="small" variant={ready ? 'primary' : 'default'} loading={collectingAll} disabled={collectingAll || t.over} onClick={e => { if (e.detail < 2) void collectAll(); }}>Собрать со всех</Button>
+        <Button size="small" onClick={() => setDoOpen(true)}>{claimingNow ? 'Забираем…' : actionable ? 'Выполнить' : 'Личный прогресс'}</Button>
+      </Box>
       {doOpen && <QuestDoModal quest={q} rows={siblings} missing={missing} claiming={claiming} onClose={() => setDoOpen(false)} onChanged={() => onCollected()} />}
 
       {/* Время и Почёт относятся к общему квесту; личные отметки — только в окне аккаунтов. */}
@@ -440,7 +459,7 @@ export function Quests() {
             {g.error && <Flash variant="warning" sx={{ mb: 2 }}>{g.error}{g.eligible_at && <> · доступ ожидается {new Date(g.eligible_at).toLocaleString('ru')}</>}</Flash>}
             {!g.quests.length
               ? !g.error && <Text sx={{ fontSize: 0, color: 'fg.muted' }}>{g.read_status === 'no_snapshot' ? 'Список ещё не сохранён — нажмите «Обновить»' : 'Нет активных квестов'}</Text>
-              : [...g.quests].sort((a, b) => a.id - b.id).map(q => <QuestRow key={q.id} q={q} onCollected={silentReload} claiming={claiming}
+              : [...g.quests].sort((a, b) => a.id - b.id).map(q => <QuestRow key={q.id} q={q} guildId={g.guild_id} onCollected={silentReload} claiming={claiming}
                 siblings={personal.map(x => { const own = x.quests.find(y => y.id === q.id); return { account: x.account, accountId: x.account_id, updatedAt: x.updated_at, q: own ? { ...own, guild_progress: q.guild_progress, guild_threshold: q.guild_threshold } : undefined }; }).filter((x): x is QuestAcc => !!x.q)}
                 missing={personal.filter(x => !x.quests.some(y => y.id === q.id)).map(x => ({ account: x.account, updated_at: x.updated_at }))} />)}
           </Box>;
