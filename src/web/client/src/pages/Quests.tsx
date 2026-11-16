@@ -317,7 +317,7 @@ function QuestRow({ q, guildId, onCollected, siblings, missing, claiming }: {
     finally { onCollected(); collectingAllRef.current = false; setCollectingAll(false); }
   };
   const batchFailed = batch?.results.some(r => !r.ok && !r.skipped);
-  const batchSkipped = batch?.results.some(r => !r.ok && r.skipped);
+  const batchSkipped = batch?.results.some(r => (!r.ok && r.skipped) || r.refresh_error);
   return (
     // className quest-row* — раскладка для телефона (см. global.css): иконка и текст сверху,
     // таймер/почёт и кнопка — отдельной строкой снизу, чтобы кнопка не наезжала на описание
@@ -342,7 +342,7 @@ function QuestRow({ q, guildId, onCollected, siblings, missing, claiming }: {
         </Text>
         {batch && <Flash variant={batchFailed || (!batch.ok && !batch.results.length) ? 'danger' : batchSkipped ? 'warning' : 'success'} sx={{ mt: 2, fontSize: 0 }}>
           <Text sx={{ display: 'block' }}>Получено: {batch.succeeded}/{batch.total}{batch.error ? ` · ${batch.error}` : ''}</Text>
-          {!!batch.results.length && <Box as="details" sx={{ mt: 1 }}><Box as="summary" sx={{ cursor: 'pointer' }}>Результаты по аккаунтам ({batch.results.length})</Box><Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>{batch.results.map(r => <Text key={r.account_id}>{r.account}: {r.already ? 'награда уже получена' : r.ok ? 'награда получена' : `${r.skipped ? 'пропущено' : 'ошибка'}${r.error ? ` — ${r.error}` : ''}`}</Text>)}</Box></Box>}
+          {!!batch.results.length && <Box as="details" sx={{ mt: 1 }}><Box as="summary" sx={{ cursor: 'pointer' }}>Результаты по аккаунтам ({batch.results.length})</Box><Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>{batch.results.map(r => <Text key={r.account_id}>{r.account}: {r.already ? 'награда уже получена' : r.ok ? 'награда получена' : `${r.skipped ? 'пропущено' : 'ошибка'}${r.error ? ` — ${r.error}` : ''}`}{r.refresh_error ? ` · снимок не обновлён: ${r.refresh_error}` : ''}</Text>)}</Box></Box>}
         </Flash>}
       </Box>
       <Box className="quest-row__btn" sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>

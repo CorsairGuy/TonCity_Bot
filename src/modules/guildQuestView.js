@@ -50,8 +50,14 @@ async function readGroups(){
   return{groups:buildGroups(accounts,memberships,snapshots,statuses),accounts};
 }
 function readyAt(guild){const joined=millis(guild?.joined_at);return Number.isFinite(joined)?joined+DAY:null;}
+async function saveMembership(db,acc,guild,previous){
+  if(!guild?.id){await db.GuildSnapshot.destroy({where:{account:acc.name}});return;}
+  const gid=String(guild.id),same=previous.filter(s=>s.account===acc.name&&String(s.guild_id)===gid).sort((a,b)=>stamp(b)-stamp(a))[0];
+  await db.GuildSnapshot.upsert({account:acc.name,guild_id:gid,guild_title:guild.title||'',role:guild.role||'',benefits:same?.benefits??null,updated_at:new Date()},{conflictFields:['account','guild_id']});
+  await db.GuildSnapshot.destroy({where:{account:acc.name,guild_id:{[require('sequelize').Op.ne]:gid}}});
+}
 async function refreshGroups(makeApiForAccount){
-  const db=require('../db/index'),{Op}=require('sequelize');
+  const db=require('../db/index');
   const accounts=await db.Account.findAll({order:[['id','ASC']]}),before=await db.GuildSnapshot.findAll();
   const confirmed=new Map(),clients=new Map(),failures=[];
   // Членство проверяем у каждого аккаунта: иначе невозможно обнаружить выход последнего участника.
@@ -62,10 +68,7 @@ async function refreshGroups(makeApiForAccount){
       const response=await api.get('/users/me/guild');
       if(!response||!Object.prototype.hasOwnProperty.call(response,'guild'))throw new Error('Сервер не вернул членство');
       const guild=response.guild;
-      if(!guild?.id){await db.GuildSnapshot.destroy({where:{account:acc.name}});confirmed.set(acc.name,null);continue;}
-      const gid=String(guild.id),same=before.filter(s=>s.account===acc.name&&String(s.guild_id)===gid).sort((a,b)=>stamp(b)-stamp(a))[0];
-      await db.GuildSnapshot.upsert({account:acc.name,guild_id:gid,guild_title:guild.title||'',role:guild.role||'',benefits:same?.benefits??null,updated_at:new Date()},{conflictFields:['account','guild_id']});
-      await db.GuildSnapshot.destroy({where:{account:acc.name,guild_id:{[Op.ne]:gid}}});
+      await saveMembership(db,acc,guild,before);
       confirmed.set(acc.name,guild);
     }catch(e){failures.push({name:acc.name,ok:false,error:`Не удалось проверить членство: ${e.message}`});logger.warn(`[${acc.name}] [quests] membership: ${e.message}`);}
   }
@@ -114,4 +117,39 @@ async function refreshGroups(makeApiForAccount){
   // Исторические квесты могут остаться для диагностики; выдача фильтруется по текущему членству.
   return[...results,...failures];
 }
-module.exports={latestMemberships,buildGroups,readGroups,refreshGroups,readyAt};
+// Явная кнопка сбора: пробуем каждого своего участника, не полагаясь на личный кэш.
+async function collectAll(makeApiForAccount,guildId,questId){
+  const gid=Number(guildId),qid=Number(questId);
+  if(!Number.isSafeInteger(gid)||gid===0||!Number.isSafeInteger(qid)||qid<=0)throw Object.assign(new Error('Некорректная гильдия или квест'),{status:400});
+  const db=require('../db/index');
+  const[accounts,memberships]=await Promise.all([db.Account.findAll({order:[['id','ASC']]}),db.GuildSnapshot.findAll()]);
+  const current=latestMemberships(accounts,memberships),results=[];
+  for(const acc of accounts.filter(a=>String(current.get(a.name)?.guild_id??'')===String(gid))){
+    const result={account:acc.name,account_id:acc.id,ok:false};
+    if(!acc.access_token||acc.access_token==='placeholder'){results.push({...result,skipped:true,error:'Нет токена'});continue;}
+    try{
+      const api=await makeApiForAccount(acc.id,{noLock:true}),membership=await api.get('/users/me/guild');
+      if(!membership||!Object.prototype.hasOwnProperty.call(membership,'guild'))throw new Error('Не удалось проверить членство');
+      await saveMembership(db,acc,membership.guild,memberships);
+      if(String(membership.guild?.id??'')!==String(gid)){results.push({...result,skipped:true,error:'Аккаунт больше не состоит в этой гильдии'});continue;}
+      if(readyAt(membership.guild)>Date.now()){results.push({...result,skipped:true,error:'После вступления ещё не прошло 24 часа'});continue;}
+      let error=null,claimResult=null;
+      try{
+        // Общий lock с автоматикой/одиночной кнопкой; наш POST ровно один, без ретрая.
+        claimResult=await require('../web/lib/questClaimProgress').track(acc.name,qid,'manual-all',async()=>({result:await api.post(`/guild-quests/collect/${qid}`,{})}));
+      }catch(e){error=e;}
+      let fresh=null;
+      try{
+        const data=await api.get(`/guild-quests/guild/${gid}`);
+        if(Array.isArray(data?.quests)){
+          fresh=data.quests.find(q=>String(q.id)===String(qid));
+          await db.GuildQuestSnapshot.upsert({guild_id:String(gid),guild_title:membership.guild.title||'',account:acc.name,quests:JSON.stringify(data.quests),updated_at:new Date()},{conflictFields:['guild_id','account']});
+        }else result.refresh_error='Сервер не вернул новый список квестов';
+      }catch(e){result.refresh_error=e.message;}
+      const already=!!claimResult?.already||!!error&&!!fresh?.is_collected;
+      results.push({...result,ok:!error||already,already,error:error&&!already?(error?.response?.data?.error||error.message):undefined});
+    }catch(e){results.push({...result,error:e.message});}
+  }
+  return{ok:results.length>0,error:results.length?undefined:'В этой гильдии нет своих аккаунтов',results,total:results.length,succeeded:results.filter(r=>r.ok).length};
+}
+module.exports={latestMemberships,buildGroups,readGroups,refreshGroups,readyAt,collectAll};

@@ -1577,7 +1577,7 @@ export interface GuildQuestCollectAllResult {
   error?: string;
   total: number;
   succeeded: number;
-  results: { account: string; account_id: number; ok: boolean; already?: boolean; skipped?: boolean; error?: string }[];
+  results: { account: string; account_id: number; ok: boolean; already?: boolean; skipped?: boolean; error?: string; refresh_error?: string }[];
 }
 export interface GuildQuestAccount {
   account: string;

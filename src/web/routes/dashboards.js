@@ -369,6 +369,14 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  app.post('/api/guild-quests/collect-all',async(req,res)=>{
+    try{
+      const{guild_id,quest_id}=req.body||{};
+      const result=await opRegistry.run(`guildQuestCollectAll:${guild_id}:${quest_id}`,()=>require('../../modules/guildQuestView').collectAll(makeApiForAccount,guild_id,quest_id));
+      res.json(result);
+    }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  });
+
   // общий ресинк снимка гильд-квестов после ручного действия (заклейм/активация ускорителя/
   // комбинирование) — переиспользуется всеми тремя роутами ниже. Возвращает свежий qData (или
   // null при ошибке), чтобы вызывающий код мог проверить, действительно ли personal_progress
