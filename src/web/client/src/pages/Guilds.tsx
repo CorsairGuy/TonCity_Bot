@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { GuildDiscovery } from '../components/GuildDiscovery';
+import { GuildRenownDepositModal } from '../components/GuildRenownDepositModal';
 import { RenownTab, AchTab } from '../components/GuildExtrasModal';
 import { GuildGifts } from '../components/GuildGifts';
 import { GuildTreasury } from '../components/GuildTreasury';
@@ -520,6 +521,7 @@ export function Guilds() {
   const [loading, setLoading] = useState(true);
   const [feesOpen, setFeesOpen] = useState(false);
   const [deposit, setDeposit] = useState<{ guildId: string; currency: 'coins' | 'crystals' } | null>(null);
+  const [renownGuild, setRenownGuild] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [appsGuild, setAppsGuild] = useState<{ id: string; title: string } | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -623,7 +625,7 @@ export function Guilds() {
       </Select><Text sx={{ ml: 'auto', color: 'fg.muted', fontSize: 0 }}>Личный баланс</Text><CoinValue value={coins == null ? '—' : fmt(coins)} /><CrystalValue value={crystals == null ? '—' : fmt(crystals)} /></Box>
       <UnderlineNav aria-label="Разделы гильдии" sx={{ mb: 3 }}>{['Казна', 'Подарки', 'Участники', 'Почёт', 'Достижения', 'Настройки'].map(t => <UnderlineNav.Item key={t} href="#" icon={t === 'Подарки' ? GiftIcon : undefined} aria-current={tab === t ? 'page' : undefined} onSelect={e => { e.preventDefault(); setTab(t); }}>{t}</UnderlineNav.Item>)}</UnderlineNav>
       <Box key={`${guild.id}:${selected.account_id}:${tab}:${reloadKey}`}>
-        {tab === 'Казна' ? <GuildTreasury accountId={selected.account_id!} coins={coins} crystals={crystals} onDeposit={currency => setDeposit({ guildId: guild.id, currency })} onFees={() => setFeesOpen(true)} /> : tab === 'Подарки' ? <GuildGifts accountId={selected.account_id!} /> : tab === 'Почёт' ? <RenownTab accountId={selected.account_id!} /> : tab === 'Достижения' ? <AchTab accountId={selected.account_id!} /> : tab === 'Участники' ? <Box sx={guildCard}>
+        {tab === 'Казна' ? <GuildTreasury accountId={selected.account_id!} coins={coins} crystals={crystals} onDeposit={currency => setDeposit({ guildId: guild.id, currency })} onFees={() => setFeesOpen(true)} /> : tab === 'Подарки' ? <GuildGifts accountId={selected.account_id!} /> : tab === 'Почёт' ? <RenownTab accountId={selected.account_id!} onDeposit={() => setRenownGuild(guild.id)} /> : tab === 'Достижения' ? <AchTab accountId={selected.account_id!} /> : tab === 'Участники' ? <Box sx={guildCard}>
           {canManage ? <GuildMembersPanel key={`${guild.id}:${selected.account_id}`} guildId={guild.id} accountId={selected.account_id!} myRole={selected.role} showFlash={showFlash} /> : <>
             <Text sx={{ fontWeight: 'semibold', px: 1 }}>Мои аккаунты в гильдии</Text>{guild.members.map(m => <Row key={m.account_id!} title={m.account} sub={roleName(m.role)} lead={<PeopleIcon />} />)}
             <Text sx={{ color: 'fg.muted', fontSize: 0 }}>Полный список участников доступен выбранному лидеру или офицеру.</Text>
@@ -642,6 +644,7 @@ export function Guilds() {
   </>;
   return <><SidePage main={main} side={side} />
     {deposit && <GuildDepositModal key={`${deposit.guildId}:${deposit.currency}`} rows={guilds.find(g => g.id === deposit.guildId)?.members ?? []} accounts={accounts} currency={deposit.currency} onClose={() => setDeposit(null)} onChanged={changed} />}
+    {renownGuild && <GuildRenownDepositModal key={renownGuild} rows={guilds.find(g => g.id === renownGuild)?.members ?? []} onClose={() => setRenownGuild(null)} onChanged={changed} />}
     {feesOpen && selected?.account_id != null && <GuildFeesModal key={selected.account_id} accountId={selected.account_id} accountName={selected.account} onClose={() => setFeesOpen(false)} />}
     {appsGuild && selected?.account_id != null && <ApplicationsModal key={selected.account_id} guildId={appsGuild.id} accountId={selected.account_id} title={appsGuild.title} onClose={() => setAppsGuild(null)} showFlash={showFlash} />}
   </>;
