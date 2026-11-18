@@ -1,0 +1,10 @@
+'use strict';
+const assert=require('node:assert/strict'),Module=require('node:module'),load=Module._load;
+const member={id:2,name:'Member',access_token:'fixture'};
+const db={GuildSnapshot:{findAll:async()=>[{account:'Member',role:'Member',guild_id:'7'}]},Account:{findAll:async()=>[member]},MidSnapshot:{findOne:async()=>null,upsert:async()=>{}}};
+Module._load=function(name,parent,...args){if(name==='../../db/index'&&/routes[\\/]guilds\.js$/.test(parent?.filename||''))return db;return load.call(this,name,parent,...args);};
+const handlers={},app={get:(p,f)=>handlers[`GET ${p}`]=f,post:(p,f)=>handlers[`POST ${p}`]=f,put(){},patch(){},delete(){}};
+let posts=0;const game={get:async p=>{if(p==='/users/me/guild')return{guild:{id:7}};if(p==='/guild-campaigns/overview')return{active:[{id:10}],recent:[]};throw Object.assign(Error('not allowed'),{status:403});},post:async()=>{posts++;}};
+require('../../src/web/routes/guilds')(app,{apiForAcc:()=>game,makeApiForAccount:async()=>game});
+const res={statusCode:200,status(n){this.statusCode=n;return this;},json(v){this.body=v;return this;}};
+(async()=>{await handlers['POST /api/mid-live/:guildId/refresh']({params:{guildId:'7'}},res);assert.equal(res.body.ok,true);assert.equal(res.body.campaigns.active[0].id,10);assert.equal(res.body.alliances,null);assert.equal(posts,0);console.log('PASS mid: member can refresh campaigns without leader or diplomatic access');})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -792,6 +792,7 @@ function AllyCallCard({ guildId, call, isAdmin, onRefresh, onFlash }: { guildId:
 interface CampaignsSectionProps {
   guildId: string;
   campaigns: MidLiveData['campaigns'];
+  canManage: boolean;
   onRefresh: () => void;
   onFlash: (msg: string, ok: boolean) => void;
 }
@@ -833,7 +834,7 @@ function DeployDialog({ guildId, campaign, onClose, onRefresh }: { guildId: stri
   </Dialog>;
 }
 
-function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsSectionProps) {
+function CampaignsSection({ guildId, campaigns, canManage, onRefresh, onFlash }: CampaignsSectionProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedGuild, setSelectedGuild] = useState<MidSearchGuild | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -880,9 +881,9 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
           <Text sx={{ fontWeight: 'bold', fontSize: 2 }}>Кампании</Text>
           <Label variant="default" sx={{ fontSize: 0 }}>{active.length} активных</Label>
         </Box>
-        <Button variant="danger" leadingVisual={PlusIcon} disabled={!campaigns} onClick={() => setPickerOpen(true)}>
+        {canManage && <Button variant="danger" leadingVisual={PlusIcon} disabled={!campaigns} onClick={() => setPickerOpen(true)}>
           Начать кампанию
-        </Button>
+        </Button>}
       </Box>
 
       <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -920,7 +921,7 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
                   >
                     {c.my_side === 'defender' ? 'Встать на защиту' : 'Вступить в атаку'}
                   </Button>
-                  {c.my_side === 'defender' && (
+                  {canManage && c.my_side === 'defender' && (
                     <Button
                       leadingVisual={MegaphoneIcon}
                       loading={calling === c.id} disabled={c.can_call_to_arms === false} onClick={() => handleCallToArms(c)}
@@ -928,7 +929,7 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
                       Призвать союзников
                     </Button>
                   )}
-                  {campaigns?.is_admin && (
+                  {canManage && campaigns?.is_admin && (
                     <Button leadingVisual={PeopleIcon} onClick={() => setNotifyFor(c)}>Оповестить участников</Button>
                   )}
                 </Box>
@@ -988,6 +989,7 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
 interface MidGuildData {
   guildId: string;
   guildTitle: string;
+  isLeader: boolean;
   data: (MidLiveData & { updated_at?: string }) | null;
   loading: boolean;
   refreshing: boolean;
@@ -1000,45 +1002,41 @@ export function Mid() {
   const [scanning, setScanning] = useState(false);
   const { flash, showFlash } = useFlash();
 
-  const loadFromDb = useCallback(async (guildId: string, guildTitle: string): Promise<MidGuildData> => {
+  const loadFromDb = useCallback(async (guildId: string, guildTitle: string, isLeader: boolean): Promise<MidGuildData> => {
     try {
       const data = await api.midOverview(guildId);
-      return { guildId, guildTitle, data: data.ok ? data : null, loading: false, refreshing: false, error: data.ok ? undefined : data.error };
+      return { guildId, guildTitle, isLeader, data: data.ok ? data : null, loading: false, refreshing: false, error: data.ok ? undefined : data.error };
     } catch (e) {
-      return { guildId, guildTitle, data: null, loading: false, refreshing: false, error: String(e) };
+      return { guildId, guildTitle, isLeader, data: null, loading: false, refreshing: false, error: String(e) };
     }
   }, []);
 
   const load = useCallback(async () => {
     setPageLoading(true);
     try {
-      const [g, sb] = await Promise.all([api.guilds(), api.specialBuildings()]);
+      const g = await api.guilds();
       if (!g.ok) return;
-      // показываем только гильдии, где есть здание МИД (определяется через /capitals/progress)
-      const ministrySet = new Set((sb.ok ? sb.rows : []).filter(r => r.ministry_level != null).map(r => r.guild_id));
-      const leaderGuilds = g.rows.filter(r => r.role === 'Leader' && ministrySet.has(r.guild_id));
-      setGuilds(leaderGuilds.map(r => ({ guildId: r.guild_id, guildTitle: r.guild_title, data: null, loading: true, refreshing: false })));
+      // Гильдия показывается и без лидера в этом экземпляре; право участия проверяет игра.
+      const leaderGuilds = [...new Map(g.rows.filter(r => r.account_id != null && r.guild_id).map(r => [r.guild_id, { ...r, isLeader: g.rows.some(x => x.guild_id === r.guild_id && x.account_id != null && x.role === 'Leader') }])).values()];
+      setGuilds(leaderGuilds.map(r => ({ guildId: r.guild_id, guildTitle: r.guild_title, isLeader: r.isLeader, data: null, loading: true, refreshing: false })));
       setPageLoading(false);
       await Promise.all(leaderGuilds.map(async r => {
-        const res = await loadFromDb(r.guild_id, r.guild_title);
+        const res = await loadFromDb(r.guild_id, r.guild_title, r.isLeader);
         setGuilds(prev => prev.map(x => x.guildId === r.guild_id ? res : x));
       }));
     } finally { setPageLoading(false); }
   }, [loadFromDb]);
 
-  // верхняя «Обновить»: 1) пересканировать наличие зданий (/capitals/progress),
-  // 2) запросить полные данные МИД с игры по всем найденным гильдиям.
+  // Верхняя «Обновить» запрашивает данные кампаний для каждой локальной гильдии.
   const scanAndLoad = useCallback(async () => {
     setScanning(true);
     try {
-      await api.specialBuildingsRefresh().catch(() => {});
-      const [g, sb] = await Promise.all([api.guilds(), api.specialBuildings()]);
+      const g = await api.guilds();
       if (!g.ok) return;
-      const ministrySet = new Set((sb.ok ? sb.rows : []).filter(r => r.ministry_level != null).map(r => r.guild_id));
-      const leaderGuilds = g.rows.filter(r => r.role === 'Leader' && ministrySet.has(r.guild_id));
+      const leaderGuilds = [...new Map(g.rows.filter(r => r.account_id != null && r.guild_id).map(r => [r.guild_id, { ...r, isLeader: g.rows.some(x => x.guild_id === r.guild_id && x.account_id != null && x.role === 'Leader') }])).values()];
       // показать гильдии со спиннерами загрузки
       setPageLoading(false);
-      setGuilds(leaderGuilds.map(r => ({ guildId: r.guild_id, guildTitle: r.guild_title, data: null, loading: true, refreshing: false })));
+      setGuilds(leaderGuilds.map(r => ({ guildId: r.guild_id, guildTitle: r.guild_title, isLeader: r.isLeader, data: null, loading: true, refreshing: false })));
       // полные данные МИД с сервера игры — обновляем каждую гильдию по мере ответа
       await Promise.all(leaderGuilds.map(async r => {
         try {
@@ -1114,7 +1112,7 @@ export function Mid() {
       {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
 
       {guilds.length === 0 && (
-        <Text sx={{ color: 'fg.muted' }}>Нет гильдий с МИД. Нажмите «Обновить», чтобы определить наличие здания с сервера игры.</Text>
+        <Text sx={{ color: 'fg.muted' }}>Нет гильдий среди локальных аккаунтов. Обновите данные гильдий.</Text>
       )}
 
       {guilds.map(g => (
@@ -1141,24 +1139,25 @@ export function Mid() {
             </Text>
           )}
 
-          {!g.loading && g.data?.ok && g.data.alliances && g.data.enemies && (
+          {!g.loading && g.data?.ok && (
             <>
-              <AllianceSection
+              {g.isLeader && g.data.alliances && <AllianceSection
                 guildId={g.guildId}
                 alliances={g.data.alliances}
                 requests={g.data.requests}
                 onRefresh={() => { void refreshGuild(g.guildId, g.guildTitle); }}
                 onFlash={showFlash}
-              />
-              <EnemySection
+              />}
+              {g.isLeader && g.data.enemies && <EnemySection
                 guildId={g.guildId}
                 enemies={g.data.enemies}
                 onRefresh={() => { void refreshGuild(g.guildId, g.guildTitle); }}
                 onFlash={showFlash}
-              />
+              />}
               <CampaignsSection
                 guildId={g.guildId}
                 campaigns={g.data.campaigns}
+                canManage={g.isLeader}
                 onRefresh={() => { void refreshGuild(g.guildId, g.guildTitle); }}
                 onFlash={showFlash}
               />

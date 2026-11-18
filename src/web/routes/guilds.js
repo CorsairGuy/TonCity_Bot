@@ -179,13 +179,16 @@ module.exports=function(app,ctx){
             const gameApi=apiForAcc(acc);
             // scouting удалён из игры (обновление 06.07.2026), заменён Кампаниями Гильдий
             // (/guild-campaigns/overview — реверснуто из chunks/foreign_ministry-*.js + CampaignCard-*.js)
-            const[overview,alliances,requests,enemies,invitations,campaigns]=await Promise.all([
-              gameApi.get(`/foreign-ministry/overview?guild_id=${guildId}`),
-              gameApi.get(`/foreign-ministry/alliances?guild_id=${guildId}`),
-              gameApi.get(`/foreign-ministry/alliances/requests?guild_id=${guildId}`),
-              gameApi.get(`/foreign-ministry/enemies?guild_id=${guildId}`),
+            const membership=await gameApi.get('/users/me/guild');
+            if(String(membership?.guild?.id??'')!==String(guildId))continue;
+            const campaigns=await gameApi.get('/guild-campaigns/overview');
+            if(!Array.isArray(campaigns?.active))throw new Error('Игра не вернула список кампаний');
+            const[overview,alliances,requests,enemies,invitations]=await Promise.all([
+              gameApi.get(`/foreign-ministry/overview?guild_id=${guildId}`).catch(()=>null),
+              gameApi.get(`/foreign-ministry/alliances?guild_id=${guildId}`).catch(()=>null),
+              gameApi.get(`/foreign-ministry/alliances/requests?guild_id=${guildId}`).catch(()=>null),
+              gameApi.get(`/foreign-ministry/enemies?guild_id=${guildId}`).catch(()=>null),
               gameApi.get(`/foreign-ministry/invitations?guild_id=${guildId}`).catch(()=>null),
-              gameApi.get(`/guild-campaigns/overview`).catch(()=>null),
             ]);
             result={overview,alliances,requests,enemies,invitations,campaigns};
             break;
