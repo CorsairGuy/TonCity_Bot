@@ -14,10 +14,11 @@ import { PageHeader } from '../components/PageHeader';
 // ширине экрана. Источник данных — только БД (см. web/routes/dashboards.js /api/daily), ни одного
 // живого запроса при открытии: снимок уже обновляет суточный цикл бота и кнопка "Обновить".
 function DayCard({ day }: { day: DailyRewardDay }) {
-  const isItem = day.reward_type === 'item' && day.item_id != null;
-  const meta = isItem ? (ITEMS_BY_ID[Number(day.item_id)] ?? null) : null;
+  const isItem = day.reward_type === 'item';
+  const meta = isItem && day.item_id != null ? (ITEMS_BY_ID[Number(day.item_id)] ?? null) : null;
+  const quantity = day.amount == null ? NaN : Number(day.amount);
   const label = day.source === 'actual' ? 'получено' : day.source === 'estimated' ? 'оценка (забрано в игре)' : 'ожидается';
-  const tooltip = `День ${day.day} — ${label}`;
+  const tooltip = `День ${day.day} — ${label}${isItem && Number.isFinite(quantity) ? ` · ${quantity} шт.` : ''}`;
   // 15.10.2026: сегодня — мягкий ореол цвета редкости, прошедшие дни — обычные карточки,
   // будущие — приглушены (как «прожектор»), см. .dr-today/.dr-future в global.css
   const future = day.source === 'upcoming' && !day.is_today;
@@ -34,13 +35,14 @@ function DayCard({ day }: { day: DailyRewardDay }) {
               // раньше здесь был произвольный height:44, из-за чего иконка выглядела не как везде
               ? <img className="item-card__img" src={itemImgSrc(meta.tag)} alt={meta.name} style={{ scale: String(meta.scale) }}
                   onError={e => { (e.target as HTMLImageElement).style.opacity = '.3'; }} />
-              : <span style={{ fontSize: 9 }}>#{day.item_id}</span>)
+              : <span style={{ fontSize: 9 }}>{day.item_id == null ? 'Предмет' : `#${day.item_id}`}</span>)
             // монеты/кристаллы — иконка над суммой на полупрозрачной подложке своего цвета (как у
             // редкостей): читается и на светлой, и на тёмной теме, длинные суммы не обрезаются
             : <>
               {day.reward_type === 'crystals' ? <CrystalIcon size={26} /> : <CoinIcon size={26} />}
               <span className="dr-amount">{fmt(day.amount)}</span>
             </>}
+          {isItem && Number.isFinite(quantity) && quantity > 0 && <span className="item-card__count">{quantity}</span>}
         </div>
         <span style={{ fontSize: 10, color: day.is_today ? 'var(--accent)' : 'var(--fg-muted)', fontWeight: day.is_today ? 700 : 400 }}>
           День {day.day}
