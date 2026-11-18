@@ -14,6 +14,7 @@ const fs=require('fs'),path=require('path');
 const logger=require('./logger');
 
 const LIVE_FILE=path.join(process.cwd(),'config','buildings-live.json');
+const OBSERVED_FILE=path.join(process.cwd(),'config','buildings-observed.json');
 const TTL_MS=6*60*60*1000;      // как часто переспрашивать игру
 let inFlight=null;
 
@@ -21,6 +22,21 @@ function liveAgeMs(){
   try{return Date.now()-fs.statSync(LIVE_FILE).mtimeMs;}catch(_){return Infinity;}
 }
 function liveFile(){return LIVE_FILE;}
+
+// Ответы каталога могут различаться: сохраняем ранее увиденные записи отдельно от
+// действующего каталога цен и доступности. Последний ответ имеет приоритет по совпадающим id.
+function mergeObserved(...lists){
+  const map=new Map();
+  for(const list of lists)if(Array.isArray(list))for(const item of list)if(item&&typeof item.id==='string')map.set(item.id,item);
+  return [...map.values()];
+}
+function readList(file){try{const data=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(data)?data:[];}catch(_){return[];}}
+function statisticsFallback(live){
+  const fallback=readList(path.join(process.cwd(),'config','buildings.txt'));
+  const observed=readList(OBSERVED_FILE);
+  const ids=new Set((Array.isArray(live)?live:[]).map(b=>b.id));
+  return mergeObserved(fallback,observed).filter(b=>!ids.has(b.id));
+}
 
 // Ответ игры: либо массив зданий, либо {buildings:[...], factors:{...}} — принимаем оба вида и
 // проверяем, что это действительно каталог (есть id и base_price), чтобы не затереть фолбэк мусором.
@@ -40,6 +56,14 @@ async function refresh(api){
   const raw=await api.get('/buildings/');
   const list=extractList(raw);
   if(!list)throw new Error('ответ /buildings не похож на каталог зданий');
+  // Не затираем повреждённый архив: его можно восстановить вручную.
+  let previous=[];
+  if(fs.existsSync(OBSERVED_FILE)){
+    previous=JSON.parse(fs.readFileSync(OBSERVED_FILE,'utf8'));
+    if(!Array.isArray(previous))throw new Error('повреждён архив каталога зданий');
+  }
+  const observed=mergeObserved(previous,readList(LIVE_FILE),list);
+  fs.writeFileSync(OBSERVED_FILE,JSON.stringify(observed,null,1),'utf8');
   fs.writeFileSync(LIVE_FILE,JSON.stringify(list,null,1),'utf8');
   require('../web/cityStats').invalidateBuildingsMap();
   const sample=list.find(b=>b.base_price>0);
@@ -47,13 +71,10 @@ async function refresh(api){
   return list.length;
 }
 
-// Каталог обновляется ПО КНОПКЕ «Обновить» (web/routes/refresh.js, модуль buildings) и хранится
-// локально в config/buildings-live.json. Автоматически он больше не перезапрашивается: цены
-// меняются событиями, а не ежеминутно, и дёргать /buildings/ на каждом проходе прокачки/открытии
-// карты города — лишний трафик и лишняя нагрузка на игру (жалоба 21.08.2026).
-//
-// Единственное исключение — ensureExists ниже: если локального файла нет ВООБЩЕ (свежая установка),
-// один раз тянем его сам, иначе бот считал бы по досоытийному buildings.txt до первого нажатия.
+// Каталог обновляется кнопкой и автоматическим ensureFresh из цикла прокачки.
+
+// ensureExists получает каталог при первом запуске без файла.
+
 async function ensureExists(api){
   if(liveAgeMs()!==Infinity)return false;      // файл есть — ничего не делаем
   if(inFlight)return inFlight;
@@ -77,4 +98,4 @@ async function ensureFresh(api){
   return inFlight;
 }
 
-module.exports={refresh,ensureExists,ensureFresh,liveFile,liveAgeMs};
+module.exports={refresh,ensureExists,ensureFresh,liveFile,liveAgeMs,mergeObserved,statisticsFallback};

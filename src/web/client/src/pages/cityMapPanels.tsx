@@ -398,7 +398,7 @@ export function WalletTop({ w }: { w?: Wallet }) {
     </Summary>
   );
 }
-export function StatsPanel({ raw, s, projected, mods, wallet }: { raw: CityStats; s: CityStats; projected: CityStats; mods: CityStatsMods; wallet?: Wallet }) {
+export function StatsPanel({ raw, s, projected, mods, wallet, missingBuildings = [] }: { raw: CityStats; s: CityStats; projected: CityStats; mods: CityStatsMods; wallet?: Wallet; missingBuildings?: string[] }) {
   const base = raw.profit * raw.happiness;
   const guild = mods.incomeBoost ?? 0;
   const policyMult = raw.profit > 0 ? (s.profit / raw.profit) * (mods.globalIncomeMult ?? 1) : (mods.globalIncomeMult ?? 1);
@@ -420,6 +420,7 @@ export function StatsPanel({ raw, s, projected, mods, wallet }: { raw: CityStats
   ];
   return (
     <>
+      {missingBuildings.length > 0 && <Text sx={{ color: 'attention.fg', fontSize: 0 }}>Нет данных для зданий: {missingBuildings.join(', ')}. Показатели могут быть неполными; обновите каталог зданий.</Text>}
       <WalletTop w={wallet} />
       <Summary tone="accent">
         <Box sx={{ display: 'flex', gap: 2 }}>

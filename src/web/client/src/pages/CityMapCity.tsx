@@ -16,7 +16,7 @@ import { DayNightMenu } from '../components/DayNightMenu';
 import type { DayNightMode } from '../components/mapNight';
 import { fmt } from '../utils';
 import { CoinValue } from '../components/Icons';
-import { upgradeStep, reconstructYieldAt, renovationComponentsAt, computeCityStats, type CityStatsMods } from '../cityStats';
+import { upgradeStep, reconstructYieldAt, renovationComponentsAt, computeCityStats, statsCatalog, type CityStatsMods } from '../cityStats';
 import { MapPalette, MapBrushLevel, PanelShell, BuildItem, Val, fmtUp, StatsPanel, PlanPanel, PlanSaveButton, FooterButton, CancelButton, QueuePanel, PendingList, MovePanel, DemolishPanel, ReconstructPanel, RenovatePanel, BoostersPanel, type DemolishTile, type RenovItem, LogPanel, ForecastPanel, Empty, fmtTimeLeft, Caption, Row, Thumb, fillOf, FILL_ATTENTION, type PanelMode, type ReconGroup } from './cityMapPanels';
 import { useAsk } from '../hooks/useAsk';
 import { useNarrow } from '../hooks/useNarrow';
@@ -409,6 +409,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const [loading, setLoading] = useState(true);
   const [dataDone, setDataDone] = useState(0); // сколько запросов загрузки страницы уже ответило
   const [buildingsCatalog, setBuildingsCatalog] = useState<BuildingDef[]>([]);
+  const [statisticsFallback, setStatisticsFallback] = useState<BuildingDef[]>([]);
   const [targets, setTargets] = useState<CityStrategyTarget[]>([]);
   const [manualQueue, setManualQueue] = useState<CityStrategyQueueItem[]>([]);
   // сохранённые на сервере цели и очередь — к ним возвращает «Отменить»
@@ -557,7 +558,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
       if (stale) return;
       if (c.ok) setRows(prev => c.rows.map(row => ({ ...row, unlockedSections: mergeUnlockedSections((prev as CityRow[]).find(old => old.account === row.account)?.unlockedSections, row.unlockedSections) })));
       else setLoadErr((c as { error?: string }).error || 'снимок города не загрузился');
-      if (b.ok) setBuildingsCatalog(b.buildings);
+      if (b.ok) { setBuildingsCatalog(b.buildings); setStatisticsFallback(b.statistics_fallback ?? []); }
       if (t.ok) { setTargets(t.targets); setSavedTargets(t.targets); setPlanRemoved(new Set()); const freshQueue = queueEventRef.current ?? t.queue ?? []; setManualQueue(freshQueue); setSavedManualQueue(freshQueue); setReconstructPlan(t.reconstructPlan ?? []); setBuildPlan(t.buildPlan ?? []); }
       setCoordsSet(new Set((co.coords ?? []).map((cc: any) => `${cc.x}_${cc.y}`)));
       const accRow = accs.ok ? accs.accounts.find(a => a.name === account) : undefined;
@@ -621,6 +622,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
         // «Обновить» переписал в БД и бонусы гильдии с условиями построек — перечитываем их
         api.cityGuildBenefits(account).then(g => { if (g.ok && accountRef.current === account) { setGuildDisc({ build: g.building_purchases_discount, upgrade: g.upgrades_discount }); setGuildIncomeBoost(g.income_boost); } }).catch(() => {});
         api.cityBuildCriteria(account).then(c => { if (c.ok && accountRef.current === account) setBuildCriteria(c.criteria); }).catch(() => {});
+        api.cityDiversity(account).then(d => { if (d.ok && accountRef.current === account) setDiversityIncomeBoost(d.income_bonus); }).catch(() => {});
       } else showFlash(r.error ?? 'Ошибка', false);
     } catch (e) { showFlash(String(e), false); } finally { setLiveRefreshing(false); }
   };
@@ -656,6 +658,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   // в том числе внутри filter/map по всем зданиям города — это O(зданий × каталога) на каждый
   // рендер страницы карты. С Map те же выборки стали линейными.
   const buildingParamMap = useMemo(() => new Map(buildingsCatalog.map(b => [b.id, b])), [buildingsCatalog]);
+  const statsParamMap = useMemo(() => statsCatalog(buildingsCatalog, statisticsFallback), [buildingsCatalog, statisticsFallback]);
   const displayBuildings = useMemo(() => applyQueue(owned, queue, buildingsCatalog), [owned, queue, buildingsCatalog]);
 
   const labelFor = (id: string) => { const b = buildingParamMap.get(id); return b ? buildingName(b) : id; };
@@ -676,13 +679,13 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     () => buildCityStatsMods(policyCabinet, guildIncomeBoost, diversityIncomeBoost, buildCostMultiplier, upgradeCostMultiplier),
     [policyCabinet, guildIncomeBoost, diversityIncomeBoost, buildCostMultiplier, upgradeCostMultiplier],
   );
-  const currentStats = useMemo(() => computeCityStats(owned, buildingParamMap, cityStatsMods), [owned, buildingParamMap, cityStatsMods]);
+  const currentStats = useMemo(() => computeCityStats(owned, statsParamMap, cityStatsMods), [owned, statsParamMap, cityStatsMods]);
   // БЕЗ модификаторов вообще — эмпирически подтверждено: именно ЭТО игра показывает как "Базовый
   // доход" на экране "Обзор доходов" (category_income/building_type_income у нас иначе сворачиваются
   // в per-building сумму ДО happiness — их эффект теперь явно выделяется в "Политики %", см. statsBlock)
-  const currentStatsRaw = useMemo(() => computeCityStats(owned, buildingParamMap), [owned, buildingParamMap]);
+  const currentStatsRaw = useMemo(() => computeCityStats(owned, statsParamMap), [owned, statsParamMap]);
   const projectedBuildings = useMemo(() => projectBuildings(owned, targets, manualQueue, globalPlan), [owned, targets, manualQueue, globalPlan]);
-  const projectedStats = useMemo(() => computeCityStats(projectedBuildings, buildingParamMap, cityStatsMods), [projectedBuildings, buildingParamMap, cityStatsMods]);
+  const projectedStats = useMemo(() => computeCityStats(projectedBuildings, statsParamMap, cityStatsMods), [projectedBuildings, statsParamMap, cityStatsMods]);
   const boosterLabelFor = (id: string) => { const b = boosters.find(x => x.name === id); return b ? b.label : `#${id}`; };
 
   function switchMode(m: CityActionMode) {
@@ -1095,11 +1098,11 @@ export function CityMapCity(props: CityMapCityProps = {}) {
     const keys = queue.flatMap(a => a.kind === 'demolish' ? [`${a.x},${a.y}`] : []);
     const per = new Map<string, number>();
     if (!keys.length) return { loss: 0, pop: 0, per };
-    const without = (gone: Set<string>) => computeCityStats(owned.filter(b => !gone.has(`${b.x},${b.y}`)), buildingParamMap, cityStatsMods);
+    const without = (gone: Set<string>) => computeCityStats(owned.filter(b => !gone.has(`${b.x},${b.y}`)), statsParamMap, cityStatsMods);
     for (const k of keys) per.set(k, Math.max(0, currentStats.profitFinal - without(new Set([k])).profitFinal));
     const left = without(new Set(keys));
     return { loss: Math.max(0, currentStats.profitFinal - left.profitFinal), pop: Math.max(0, currentStats.population - left.population), per };
-  }, [queue, owned, buildingParamMap, cityStatsMods, currentStats]);
+  }, [queue, owned, statsParamMap, cityStatsMods, currentStats]);
   const demolishTiles = queue.flatMap(a => {
     if (a.kind !== 'demolish') return [];
     const b = ownedAt(a.x, a.y);
@@ -1270,7 +1273,7 @@ export function CityMapCity(props: CityMapCityProps = {}) {
   const sidePanel = (
     <PanelShell mode={panelMode} hint={HINT[panelMode] ?? ''} actions={<>{headActions}{props.slots ? props.panelActions : panelToggle}</>} footer={footer} gap={mode === 'build' ? 3 : 2}
       busy={mode === 'forecast' ? forecastLoading : mode === 'boosters' ? boostersLoading && boosters.length === 0 : mode === 'log' ? actionLogLoading && actionLog.length === 0 : false}>
-      {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} wallet={{ coins: balance, ...walletRest, income: currentStats.profitFinal }} />}
+      {mode === 'view' && <StatsPanel raw={currentStatsRaw} s={currentStats} projected={projectedStats} mods={cityStatsMods} missingBuildings={[...new Set(owned.filter(b => !statsParamMap.has(b.id)).map(b => b.id))]} wallet={{ coins: balance, ...walletRest, income: currentStats.profitFinal }} />}
 
       {mode === 'upgrade' && (
         <PlanPanel targets={targets} owned={owned} labelFor={labelFor} sortKey={planSortKey}

@@ -15,7 +15,7 @@ import {
 } from './cityMapPanels';
 import { MapPanelWindow } from '../components/MapPanelWindow';
 import { CoinValue } from '../components/Icons';
-import { upgradeStep, type BuildingParam } from '../cityStats';
+import { upgradeStep, statsCatalog, type BuildingParam } from '../cityStats';
 import { LoadError } from '../components/LoadError';
 import { MapLoader, DATA_SHARE } from '../components/MapLoader';
 import { useFlash } from '../hooks/useFlash';
@@ -139,6 +139,7 @@ export function CityWorld() {
     else setStartupProgress(prev => prev.pct === state.pct && prev.text === state.text ? prev : state);
   }, [startupReady]);
   const [catalog, setCatalog] = useState<BuildingDef[]>([]);
+  const [statisticsFallback, setStatisticsFallback] = useState<BuildingDef[]>([]);
   const [cabinets, setCabinets] = useState<Record<string, PolicyCabinet | undefined>>({});
   const [globalPlan, setGlobalPlan] = useState<GlobalUpgradeRule[]>([]);
   const [sections, setSections] = useState<MapSection[]>([]);
@@ -158,7 +159,7 @@ export function CityWorld() {
       if (!d.ok) throw new Error(d.error || 'города не загрузились');
       if (!b.ok || !g.ok || !sec.ok || !pol.ok) throw new Error('Не удалось загрузить справочники карты');
       startTransition(() => {
-        setRows(d.rows); setOrder(d.order ?? []); setCatalog(b.buildings); setGlobalPlan(g.plan); setSections(sec.sections);
+        setRows(d.rows); setOrder(d.order ?? []); setCatalog(b.buildings); setStatisticsFallback(b.statistics_fallback ?? []); setGlobalPlan(g.plan); setSections(sec.sections);
         setCabinets(Object.fromEntries(Object.entries(pol.byAccount).map(([a, v]) => [a, v.cabinet])));
         setLoaded(true); setResourcesLoaded(true); setDataPending(false);
       });
@@ -203,10 +204,11 @@ export function CityWorld() {
   };
 
   const catMap = useMemo(() => new Map(catalog.map(b => [b.id, b])), [catalog, district]);
+  const statsMap = useMemo(() => statsCatalog(catalog, statisticsFallback), [catalog, statisticsFallback]);
   // «Показатели» каждого города по снимку и данным из БД — при наведении и пока город грузится его не ждём
   const statsByCity = useMemo(() => new Map(catalog.length ? cities.map(r => [r.account,
-    cityStatsFor(r.buildings, catMap, cabinets[r.account], r.guild, r.diversity ?? 0, r.targets, r.queue, globalPlan)] as const) : []),
-  [cities, catMap, cabinets, globalPlan]);
+    cityStatsFor(r.buildings, statsMap, cabinets[r.account], r.guild, r.diversity ?? 0, r.targets, r.queue, globalPlan)] as const) : []),
+  [cities, statsMap, cabinets, globalPlan]);
   const labelFor = (id: string) => { const b = catMap.get(id); return b ? buildingName(b) : id; };
 
   // ── раскладка: город i в общей сетке стоит со сдвигом (col·STEP, row·STEP) ──────────────────
@@ -1022,7 +1024,7 @@ export function CityWorld() {
   const hoveredStats = hovered ? statsByCity.get(hovered.account) : undefined;
   if (hovered && hoveredStats) {
     // наведение на город (ПК): в сайдбаре его «Показатели» целиком, как у открытого города; увели курсор — снова все города
-    side = <StatsPanel raw={hoveredStats.raw} s={hoveredStats.s} projected={hoveredStats.projected} mods={hoveredStats.mods} wallet={walletOf(hovered, hoveredStats.s.profitFinal)} />;
+    side = <StatsPanel raw={hoveredStats.raw} s={hoveredStats.s} projected={hoveredStats.projected} mods={hoveredStats.mods} missingBuildings={[...new Set(hovered.buildings.filter(b => !statsMap.has(b.id)).map(b => b.id))]} wallet={walletOf(hovered, hoveredStats.s.profitFinal)} />;
   } else if (mode === 'view') {
     side = <>
       <WalletTop w={walletAll} />
@@ -1313,7 +1315,7 @@ export function CityWorld() {
             {/* «Показатели» считаются по снимку сразу — вместо спиннера; остальным вкладкам нужны данные города */}
             {mode === 'view' && curStats
               ? <PanelShell mode={panelMode} hint={HINT_VIEW} actions={panelToggle}>
-                  <StatsPanel raw={curStats.raw} s={curStats.s} projected={curStats.projected} mods={curStats.mods} wallet={curRow && walletOf(curRow, curStats.s.profitFinal)} />
+                  <StatsPanel raw={curStats.raw} s={curStats.s} projected={curStats.projected} mods={curStats.mods} missingBuildings={curRow ? [...new Set(curRow.buildings.filter(b => !statsMap.has(b.id)).map(b => b.id))] : []} wallet={curRow && walletOf(curRow, curStats.s.profitFinal)} />
                 </PanelShell>
               : <PanelShell mode={panelMode} hint={FAR_HINT[panelMode] ?? ''} actions={panelToggle} busy />}
           </Box>}

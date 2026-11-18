@@ -48,7 +48,10 @@ module.exports=function(app,ctx){
       // СТОЛИЦА: свой формат; живой каталог /capitals/buildings/ (utils/capitalCatalog.js), фолбэк — capital_buildings.txt.
       if(req.query.type==='capital')return res.json({ok:true,buildings:require('../../utils/capitalCatalog').list()});
       const map=require('../cityStats').buildingsMap();
-      res.json({ok:true,buildings:[...map.values()]});
+      // Старый живой каталог может не содержать звёздные здания. Резервные определения
+      // передаём отдельно только для расчёта показателей, не для цен и действий.
+      const statistics_fallback=require('../../utils/buildingCatalog').statisticsFallback([...map.values()]);
+      res.json({ok:true,buildings:[...map.values()],statistics_fallback});
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 

@@ -283,7 +283,7 @@ export const api = {
 
   // Действия по городу (страница "Города" → "Действия") — заменяет автоматику по эталонному плану
   buildingsList: (type: 'city' | 'capital' = 'city') =>
-    req<{ ok: boolean; buildings: BuildingDef[] }>(`/api/buildingslist?type=${type}`),
+    req<{ ok: boolean; buildings: BuildingDef[]; statistics_fallback?: BuildingDef[] }>(`/api/buildingslist?type=${type}`),
   cityStrategy: (account: string) =>
     req<{ ok: boolean; targets: CityStrategyTarget[]; queue: CityStrategyQueueItem[]; reconstructPlan: CityStrategyQueueItem[]; buildPlan?: { x: number; y: number; family_id: string }[]; error?: string }>(`/api/city-strategy/${encodeURIComponent(account)}`),
   saveCityStrategy: (account: string, targets: CityStrategyTarget[]) =>

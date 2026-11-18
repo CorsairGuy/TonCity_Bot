@@ -40,8 +40,8 @@ module.exports=function(app,ctx){
         townhall:require('../../modules/townhall').runTownhall,
         shop:require('../../modules/shop').runShop,
         // каталог зданий (цены) — на событиях игра меняет их прямо в каталоге, см.
-        // utils/buildingCatalog.js. Достаточно одного аккаунта, но проход по всем безвреден:
-        // повторные вызовы просто перезапишут файл теми же числами.
+        // utils/buildingCatalog.js. Ответы могут различаться; уже полученные определения
+        // сохраняются отдельно для статистики, текущие цены — из последнего ответа.
         buildings:async(api)=>{
           const n=await require('../../utils/buildingCatalog').refresh(api);
           // каталог столицы — той же кнопкой; его сбой не ломает обновление каталога города

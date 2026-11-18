@@ -2,6 +2,10 @@
 const logger=require('../utils/logger');
 const {TownhallAirdrop,TownhallDiversity,CivicDrawStatus}=require('../db/index');
 const {wake}=require('../utils/cityWake');
+async function saveDiversity(name,diversity,now=new Date()){
+  if(diversity?.score==null)throw new Error('Игра не вернула показатели разнообразия');
+  await TownhallDiversity.upsert({account:name,score:diversity.score,variety_score:diversity.variety_score??null,profit_score:diversity.profit_score??null,unique_types:diversity.unique_types??null,total_buildings:diversity.total_buildings??null,income_bonus:diversity.income_bonus??null,updated_at:now},{conflictFields:['account']});
+}
 async function runTownhall(api,name){
   try{
     const [airdrop,diversity]=await Promise.all([
@@ -13,12 +17,7 @@ async function runTownhall(api,name){
       const al=airdrop.allocation;
       await TownhallAirdrop.upsert({account:name,city:al.city??null,activity:al.activity??null,friends:al.friends??null,transactions:al.transactions??null,achievements:al.achievements??null,percentile:airdrop.percentile??null,updated_at:now},{conflictFields:['account']});
     }
-    if(diversity?.score!=null){
-      // "Бонус к доходу" пуст ("—" на странице), пока население города < 1,000,000 — эффект
-      // разнообразия ещё не разблокирован игрой (подтверждено самой игрой, не баг), см.
-      // reference_game_formulas.md. income_bonus придёт настоящим числом сам, как только откроется.
-      await TownhallDiversity.upsert({account:name,score:diversity.score,variety_score:diversity.variety_score??null,profit_score:diversity.profit_score??null,unique_types:diversity.unique_types??null,total_buildings:diversity.total_buildings??null,income_bonus:diversity.income_bonus??null,updated_at:now},{conflictFields:['account']});
-    }
+    if(diversity?.score!=null)await saveDiversity(name,diversity,now);
     if(diversity?.civic_draw)await saveCivicDraw(name,diversity.civic_draw,now);
     logger.info(`[${name}] [townhall] score: ${airdrop?.allocation?Object.entries(airdrop.allocation).filter(([k,v])=>typeof v==='number'&&k!=='user_id').reduce((a,[,v])=>a+v,0).toFixed(2):'—'}, diversity: ${diversity?.score?.toFixed(1)||'—'}%`);
   }catch(e){logger.error(`[${name}] [townhall]: ${e.message}`);}
@@ -128,4 +127,4 @@ async function collectCivicRewards(api,name,{draws=true,grants=true}={}){
     return{ok:got>0&&!error,got,draws:drawCount,grants:grantCount,notReady:!got&&!error,ambiguous,refreshed:!!cd,error:error||(!got?'Награды ещё не готовы — состояние обновлено':undefined),result:results.find(r=>r.kind==='draw')?.result,cd};
   });
 }
-module.exports={collectCivicRewards,runTownhall,saveCivicDraw,fetchCivicDraw,withClaimLock,claimPolicyGrant,normalizeGrants,exactReadyAt};
+module.exports={collectCivicRewards,runTownhall,saveDiversity,saveCivicDraw,fetchCivicDraw,withClaimLock,claimPolicyGrant,normalizeGrants,exactReadyAt};

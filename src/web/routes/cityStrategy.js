@@ -99,6 +99,11 @@ module.exports=function(app,ctx){
         const live=require('../../utils/cityLiveData');
         await live.syncBuildCriteria(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [refresh] критерии построек: ${e.message}`));
         await live.syncGuildBenefits(api,acc.name).catch(e=>logger.warn(`[${acc.name}] [refresh] бонусы гильдии: ${e.message}`));
+        try{
+          const diversity=await api.get('/progress/diversity');
+          await require('../../modules/townhall').saveDiversity(acc.name,diversity);
+        }catch(e){logger.warn(`[${acc.name}] [refresh] разнообразие: ${e.message}`);}
+
         return{status:200,body:{ok:true,buildings:result.buildings,unlockedSections:result.unlockedSections}};
       });
       res.status(result.status).json(result.body);

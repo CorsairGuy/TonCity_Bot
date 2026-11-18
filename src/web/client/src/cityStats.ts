@@ -23,6 +23,12 @@ export interface BuildingParam {
   star_lvl: number | null;
 }
 
+// Резервные определения служат только для статистики уже построенных зданий;
+// живой каталог всегда имеет приоритет и используется для цен/действий отдельно.
+export function statsCatalog<T extends { id: string }>(live: T[], fallback: T[]): Map<string, T> {
+  return new Map([...fallback, ...live].map(item => [item.id, item]));
+}
+
 const SERVICE_FACTORS: Record<ServiceCat, number> = { 'fire-station': 0.3, 'police-station': 0.3, hospital: 0.3, park: 0.1 };
 const SERVICE_CATS: ServiceCat[] = ['hospital', 'police-station', 'fire-station', 'park'];
 const isStar = (o: BuildingParam) => o.star_lvl !== null && o.star_lvl !== undefined;
