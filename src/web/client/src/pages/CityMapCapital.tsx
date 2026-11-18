@@ -246,7 +246,7 @@ export function CityMapCapital({ account: guildTitle }: Props) {
     displayBuildings.filter(b => catalogMap.get(b.id)?.is_upgradable === true).map(b => `${b.x}_${b.y}`)
   ), [displayBuildings, catalogMap]);
   const removableSet = useMemo(() => new Set(
-    displayBuildings.filter(b => catalogMap.get(b.id)?.is_removable !== false).map(b => `${b.x}_${b.y}`)
+    displayBuildings.filter(b => b.id === 'CAP_SPE_foreign_ministry.png' || catalogMap.get(b.id)?.is_removable !== false).map(b => `${b.x}_${b.y}`)
   ), [displayBuildings, catalogMap]);
   // ускорение доступно только для зданий, которые СЕЙЧАС строятся (реверс бандла — qp.skipUpgrade
   // требует isUnderConstruction), уже выставленные в очередь клетки исключаем — повторно ускорять
