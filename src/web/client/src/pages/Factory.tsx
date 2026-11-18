@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { Box, Button, Flash, Heading, IconButton, Label, Select, Text, TextInput, ActionMenu, ActionList, UnderlineNav } from '@primer/react';
-import { SyncIcon, XIcon, PlusIcon, LockIcon, UnlockIcon, ClockIcon, PeopleIcon, StopIcon, TriangleUpIcon } from '@primer/octicons-react';
+import { Box, Button, Flash, Heading, IconButton, Label, Select, Text, TextInput, UnderlineNav } from '@primer/react';
+import { SyncIcon, XIcon, PlusIcon, LockIcon, UnlockIcon, ClockIcon, StopIcon, TriangleUpIcon } from '@primer/octicons-react';
 import {
   api, type TechFactoryOverview, type TechFactoryCategory, type TechFactoryMachine, type TechFactoryTier,
   type TechFactorySummaryRow, type LocText,
@@ -107,15 +107,14 @@ function QueueList({ data, accountId, onChanged, onFlash }: { data: TechFactoryO
 }
 
 // ── карточка станка ─────────────────────────────────────────────────────────────
-function MachineCard({ m, cat, data, accountId, accounts, onChanged, onFlash }: {
-  m: TechFactoryMachine; cat: string; data: TechFactoryOverview; accountId: number; accounts: TechFactorySummaryRow[];
+function MachineCard({ m, cat, data, accountId, onChanged, onFlash }: {
+  m: TechFactoryMachine; cat: string; data: TechFactoryOverview; accountId: number;
   onChanged: () => void; onFlash: (msg: string, ok: boolean) => void;
 }) {
   const unlocked = m.tiers.filter(t => t.unlocked);
   const [level, setLevel] = useState(unlocked[unlocked.length - 1]?.level ?? m.tiers[0]?.level ?? 1);
   const tier = m.tiers.find(t => t.level === level) ?? m.tiers[0];
   const [busy, setBusy] = useState<string | null>(null);
-  const [others, setOthers] = useState<Set<number>>(new Set());
   if (!tier) return null;
   const idle = !data.job;
   const limited = tier.unlocked && !tier.limit_available;
@@ -133,15 +132,6 @@ function MachineCard({ m, cat, data, accountId, accounts, onChanged, onFlash }: 
   const start = () => idle
     ? run('go', api.techFactoryStart(accountId, m.id, tier.level), 'Переработка запущена')
     : run('go', api.techFactoryQueueAdd(accountId, m.id, tier.level), 'Добавлено в очередь');
-  // тот же рецепт в очередь других аккаунтов: проверку тира и лимита делает бот при запуске
-  const addOthers = async () => {
-    const ids = [...others]; if (!ids.length) return;
-    setBusy('others');
-    let fail = 0;
-    for (const id of ids) { const r = await api.techFactoryQueueAdd(id, m.id, tier.level); if (!r.ok) fail++; }
-    setBusy(null); setOthers(new Set());
-    onFlash(fail ? `Добавлено: ${ids.length - fail}, ошибок: ${fail}` : `Добавлено в очередь ${ids.length} акк.`, !fail);
-  };
   const canAffordUnlock = tier.upgrade_crystals != null && data.guild_crystal_balance != null && data.guild_crystal_balance >= tier.upgrade_crystals;
   return (
     <Box sx={{ p: 2, borderRadius: '12px', border: '1px solid', borderColor: 'border.default', bg: 'canvas.default', display: 'flex', flexDirection: 'column', gap: 2, opacity: limited ? 0.65 : 1 }}>
@@ -178,26 +168,6 @@ function MachineCard({ m, cat, data, accountId, accounts, onChanged, onFlash }: 
               {limited ? 'Лимит исчерпан' : short ? 'Не хватает сырья' : idle ? 'Запустить' : 'В очередь'}
             </Button>
           </Box>
-          {accounts.length > 1 && (
-            <ActionMenu>
-              <ActionMenu.Anchor><IconButton sx={{ flexShrink: 0 }} icon={PeopleIcon} aria-label="Тот же рецепт другим аккаунтам" disabled={!!busy} /></ActionMenu.Anchor>
-              <ActionMenu.Overlay width="medium">
-                <ActionList selectionVariant="multiple">
-                  <ActionList.Group title="Тот же рецепт в очередь">
-                    {accounts.filter(a => a.id !== accountId).map(a => (
-                      <ActionList.Item key={a.id} selected={others.has(a.id)}
-                        onSelect={e => { e.preventDefault(); setOthers(s => { const n = new Set(s); if (n.has(a.id)) n.delete(a.id); else n.add(a.id); return n; }); }}>
-                        {a.name}
-                        <ActionList.TrailingVisual>{a.job ? `после ${a.queue.length + 1}` : 'сразу'}</ActionList.TrailingVisual>
-                      </ActionList.Item>
-                    ))}
-                  </ActionList.Group>
-                  <ActionList.Divider />
-                  <ActionList.Item disabled={!others.size} onSelect={addOthers}>Добавить ({others.size})</ActionList.Item>
-                </ActionList>
-              </ActionMenu.Overlay>
-            </ActionMenu>
-          )}
         </Box>
       </>}
     </Box>
@@ -345,7 +315,7 @@ export function Factory() {
             return <>
               {machines.length > 0 && (
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 3, mb: 3 }}>
-                  {machines.map(({ m, c }) => <MachineCard key={`${acc.id}:${m.id}`} m={m} cat={loc(c.name) || c.code} data={data} accountId={acc.id} accounts={all} onChanged={changed} onFlash={showFlash} />)}
+                  {machines.map(({ m, c }) => <MachineCard key={`${acc.id}:${m.id}`} m={m} cat={loc(c.name) || c.code} data={data} accountId={acc.id} onChanged={changed} onFlash={showFlash} />)}
                 </Box>
               )}
               {cat !== 0 && shownCats.filter(c => !c.unlocked).map(c => <Box key={c.id} sx={{ mb: 3, maxWidth: 640 }}><LockedCategory c={c} accountId={acc.id} onChanged={changed} onFlash={showFlash} /></Box>)}

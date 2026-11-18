@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Text, Link, Button, CounterLabel, ConfirmationDialog, Spinner, ProgressBar } from '@primer/react';
-import { SyncIcon, PinIcon, DownloadIcon, CheckCircleFillIcon, XCircleFillIcon, ClockFillIcon, AlertFillIcon, QuestionIcon } from '@primer/octicons-react';
+import { SyncIcon, CheckIcon, XIcon, PinIcon, DownloadIcon, CheckCircleFillIcon, XCircleFillIcon, ClockFillIcon, AlertFillIcon, QuestionIcon } from '@primer/octicons-react';
 import { api, VersionInfo } from '../api';
-import { useSelfUpdate, checkNote } from '../hooks/useSelfUpdate';
+import { useSelfUpdate } from '../hooks/useSelfUpdate';
 import { useBuildState } from '../hooks/useBuildWatcher';
 import { onServerEvent } from '../serverEvents';
 import { updateStageView, ProgressRing } from './UpdateProgress';
@@ -33,7 +33,10 @@ const ext = (href: string, text: string) => <Link href={href} target="_blank" re
 export function VersionBadge() {
   const [v, setV] = useState<VersionInfo | null>(null);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
+  const [checkState, setCheckState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [checkMessage, setCheckMessage] = useState('');
+  const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (checkTimer.current) clearTimeout(checkTimer.current); }, []);
   const [confirm, setConfirm] = useState(false);
   const upd = useSelfUpdate();
   // прилипший блок: затухание над ним тает на последних 24px прокрутки меню и у самого низа
@@ -59,15 +62,23 @@ export function VersionBadge() {
 
   const load = async (force = false) => {
     setBusy(true);
-    if (force) setNote(null);
+    if (force) {
+      if (checkTimer.current) clearTimeout(checkTimer.current);
+      setCheckMessage(''); setCheckState('loading');
+    }
     try {
       const d = await api.version(force);
       if (d && d.ok) {
         setV(d);
-        if (force) { setNote(checkNote(d)); setTimeout(() => setNote(null), 6000); }
+        if (force) { setCheckState(d.error ? 'error' : 'success'); setCheckMessage(d.error || (d.cached ? 'Данные из кэша' : 'Проверка завершена')); }
+      } else if (force) {
+        setCheckState('error'); setCheckMessage(d?.error || 'Не удалось проверить обновления');
       }
-    } catch { if (force) setNote('Панель не отвечает'); }
-    finally { setBusy(false); }
+    } catch { if (force) { setCheckState('error'); setCheckMessage('Панель не отвечает'); } }
+    finally {
+      setBusy(false);
+      if (force) checkTimer.current = setTimeout(() => { setCheckState('idle'); setCheckMessage(''); }, 2500);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -150,13 +161,19 @@ export function VersionBadge() {
           </Box>
           {!updating && (
             <Box sx={{ width: 16, height: 18, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Box as="button" type="button" title={`Проверить обновления (проверено в ${checked})`} aria-label="Проверить обновления"
+              <Box as="button" type="button" title={checkMessage || `Проверить обновления (проверено в ${checked})`} aria-label={checkMessage || 'Проверить обновления'}
                 disabled={busy} onClick={() => load(true)}
                 sx={{ width: 22, height: 22, p: 0, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   border: 0, borderRadius: '6px', bg: 'transparent', color: 'fg.muted', cursor: 'pointer',
                   ':hover:not(:disabled)': { color: 'fg.default', bg: 'neutral.muted' }, ':disabled': { opacity: 0.5, cursor: 'default' } }}>
-                {busy ? <Spinner size="small" sx={{ width: 14, height: 14 }} /> : <SyncIcon size={14} />}
+                <span className="version-check-icons" aria-hidden="true">
+                  <span className={`version-check-icon${checkState === 'idle' ? ' active' : ''}`}><SyncIcon size={14} /></span>
+                  <span className={`version-check-icon${checkState === 'loading' ? ' active' : ''}`}><Spinner size="small" sx={{ width: 14, height: 14 }} /></span>
+                  <span className={`version-check-icon version-check-success${checkState === 'success' ? ' active' : ''}`}><CheckIcon size={14} /></span>
+                  <span className={`version-check-icon version-check-error${checkState === 'error' ? ' active' : ''}`}><XIcon size={14} /></span>
+                </span>
               </Box>
+              <span role="status" aria-live="polite" className="version-check-announcement">{checkMessage}</span>
             </Box>
           )}
         </Box>
@@ -184,9 +201,8 @@ export function VersionBadge() {
         {pinned && !!v.newerReleases && <Button as={RouterLink} to="/settings#updates" block sx={{ mx: '-8px', width: 'auto' }}>Выбрать версию</Button>}
         </Box>
         )}
-        {(note || upd.msg || v.error || outdated) && (
+        {(upd.msg || v.error || outdated) && (
           <Box sx={{ pl: '24px', display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {note && <Text sx={{ color: 'fg.subtle' }}>{note}</Text>}
             {upd.msg && <Text sx={{ color: 'attention.fg' }}>{upd.msg}</Text>}
             {outdated && <Link as={RouterLink} to="/settings#updates" sx={{ color: 'attention.fg' }}>Обновлятель устарел, обновите его один раз вручную: как — в Настройки → Обновления</Link>}
             {v.error && <Text sx={{ color: 'attention.fg' }}>Нет связи с GitHub: {v.error}</Text>}
