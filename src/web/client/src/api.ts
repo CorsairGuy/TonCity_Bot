@@ -407,6 +407,9 @@ export const api = {
     ),
   stakingStake: (accountId: number, currency: 'coins' | 'crystals', amount: number, duration: number) =>
     req<{ ok: boolean; error?: string }>('/api/staking/stake', post({ account_id: accountId, currency, amount, duration })),
+  stakingSnapshot: (accountId: number) => req<ReserveSnapshot>(`/api/staking/${accountId}/snapshot`),
+  stakingRefreshAccount: (accountId: number) => req<ReserveSnapshot>(`/api/staking/${accountId}/refresh`, post({})),
+  stakingCollect: (entryId: number) => req<{ ok: boolean; error?: string }>('/api/staking/collect', post({ entry_id: entryId })),
   stakingCancel: (entryId: number) =>
     req<{ ok: boolean; error?: string; result?: { amount?: number } }>('/api/staking/cancel', post({ entry_id: entryId })),
 
@@ -441,6 +444,10 @@ export const api = {
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/start`, post({ target_guild_id: targetGuildId, duration_hours: durationHours })),
   midCampaignsDeploy: (guildId: string, campaignId: number) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/deploy`, post({ campaign_id: campaignId })),
+  midCampaignsDeployCandidates: (guildId: string, campaignId: number) =>
+    req<{ ok: boolean; accounts?: MidDeployAccount[]; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/deploy-candidates?campaign_id=${campaignId}`),
+  midCampaignsDeploySelected: (guildId: string, campaignId: number, ids: number[]) =>
+    req<{ ok: boolean; results?: MidDeployAccount[]; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/deploy-selected`, post({ campaign_id: campaignId, account_ids: ids })),
   midCampaignsVolunteer: (guildId: string, campaignId: number, withdraw = false) =>
     req<{ ok: boolean; error?: string }>(`/api/mid-live/${encodeURIComponent(guildId)}/campaigns/volunteer${withdraw ? '/withdraw' : ''}`, post({ campaign_id: campaignId })),
   midCampaignsDecide: (guildId: string, campaignId: number, userId: number, approve: boolean) =>
@@ -710,6 +717,11 @@ export interface StakingAccountInfo {
   crystals: number;
   coin_slots: number;
   crystal_slots: number;
+}
+export interface ReserveEntry { id: number; currency: 'coins' | 'crystals'; amount_staked: number; amount_to_collect: number; created_at: string | null; can_collect_at: string | null; collect_in_seconds?: number; whale_rarity?: string | null }
+export interface ReserveSnapshot {
+  ok: boolean; error?: string; updated_at?: string; balance?: { coins: number; crystals: number };
+  data?: { entries: ReserveEntry[]; stakes_per_currency: number; staking_rate_multiplier: number; coin_amounts: number[]; crystal_amounts: number[]; coin_terms: { days: number; rate: number }[]; crystal_terms: { days: number; rate: number }[]; whale_slots?: { rarity: string; amount: number; in_use: boolean }[]; reserve_grade?: { grade: number; gold_rush_progress?: number; grade_floor?: number; next_grade_at?: number | null; next_grade_tier?: number | null } };
 }
 
 export interface StakingEntryRow {
@@ -1267,6 +1279,7 @@ export interface MidAllyCall {
   is_admin?: boolean;
 }
 export interface MidNotifyTarget { user_id: number; name?: string; notified?: boolean; deployed?: boolean }
+export interface MidDeployAccount { id: number; name: string; eligible?: boolean; deployed?: boolean; ok?: boolean; reason?: string }
 export interface MidCampaignsData {
   active: MidCampaign[];
   recent: MidCampaignRecent[];

@@ -10,7 +10,7 @@ import {
 import {
   api,
   type MidLiveData, type MidAlliance, type MidEnemy,
-  type MidCampaign, type MidCampaignConfig, type MidAllyCall, type MidNotifyTarget, type MidSearchGuild, type MidAllianceRequest,
+  type MidCampaign, type MidCampaignConfig, type MidAllyCall, type MidNotifyTarget, type MidSearchGuild, type MidAllianceRequest, type MidDeployAccount,
 } from '../api';
 import { useFlash } from '../hooks/useFlash';
 import { fmt } from '../utils';
@@ -796,12 +796,49 @@ interface CampaignsSectionProps {
   onFlash: (msg: string, ok: boolean) => void;
 }
 
+function DeployDialog({ guildId, campaign, onClose, onRefresh }: { guildId: string; campaign: MidCampaign; onClose: () => void; onRefresh: () => void }) {
+  const [accounts, setAccounts] = useState<MidDeployAccount[] | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [results, setResults] = useState<MidDeployAccount[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    api.midCampaignsDeployCandidates(guildId, campaign.id).then(r => {
+      if (!active) return;
+      if (!r.ok) { setError(r.error ?? 'Ошибка проверки'); return; }
+      setAccounts(r.accounts ?? []);
+    });
+    return () => { active = false; };
+  }, [guildId, campaign.id]);
+  const submit = async () => {
+    setBusy(true);
+    const r = await api.midCampaignsDeploySelected(guildId, campaign.id, [...selected]);
+    setBusy(false);
+    if (!r.ok) { setError(r.error ?? 'Ошибка'); return; }
+    setResults(r.results ?? []); setSelected(new Set()); onRefresh();
+  };
+  return <Dialog title={campaign.my_side === 'defender' ? 'Встать на защиту' : 'Вступить в атаку'} onClose={onClose} width="medium" position={{ narrow: 'bottom', regular: 'center' }}
+    footerButtons={[{ content: 'Закрыть', onClick: onClose, disabled: busy }, ...(!results ? [{ content: `Вступить (${selected.size})`, buttonType: 'primary' as const, onClick: submit, disabled: busy || !selected.size, loading: busy }] : [])]}>
+    <Text sx={{ display: 'block', mb: 2 }}>До конца боя выбранные аккаунты будут мобилизованы: доход снижается, выход из гильдии и изменение военных политик ограничены.</Text>
+    {error && <Flash variant="danger" sx={{ mb: 2 }}>{error}</Flash>}
+    {results ? results.map(a => <Text key={a.id} sx={{ display: 'block', mb: 1 }}>{a.name}: {a.ok ? 'в кампании' : a.reason ?? 'не удалось подтвердить'}</Text>) : !accounts ? (!error && <Spinner size="small" />) : <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {!accounts.length && <Text>Аккаунты не найдены.</Text>}
+      <Button size="small" onClick={() => setSelected(new Set(accounts.filter(a => a.eligible).map(a => a.id)))}>Выбрать доступные</Button>
+      {accounts.map(a => <FormControl key={a.id} disabled={!a.eligible}>
+        <Checkbox checked={selected.has(a.id)} onChange={e => setSelected(s => { const n = new Set(s); if (e.target.checked) n.add(a.id); else n.delete(a.id); return n; })} />
+        <FormControl.Label>{a.name}{a.reason ? ` — ${a.reason}` : ''}</FormControl.Label>
+      </FormControl>)}
+    </Box>}
+  </Dialog>;
+}
+
 function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsSectionProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedGuild, setSelectedGuild] = useState<MidSearchGuild | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [deploying, setDeploying] = useState<number | null>(null);
+  const [deployFor, setDeployFor] = useState<MidCampaign | null>(null);
   const [calling, setCalling] = useState<number | null>(null);
   const [notifyFor, setNotifyFor] = useState<MidCampaign | null>(null);
 
@@ -820,16 +857,6 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
       else onFlash(r.error ?? 'Ошибка', false);
     } catch (e) { onFlash(String(e), false); }
     finally { setStarting(false); }
-  };
-
-  const handleDeploy = async (c: MidCampaign) => {
-    setDeploying(c.id);
-    try {
-      const r = await api.midCampaignsDeploy(guildId, c.id);
-      if (r.ok) { onFlash('Вы участвуете в кампании', true); onRefresh(); }
-      else onFlash(r.error ?? 'Ошибка', false);
-    } catch (e) { onFlash(String(e), false); }
-    finally { setDeploying(null); }
   };
 
   const handleCallToArms = async (c: MidCampaign) => {
@@ -889,10 +916,9 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
                 </Text>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Button
-                    variant={c.my_deployed ? 'default' : 'primary'} leadingVisual={RocketIcon}
-                    loading={deploying === c.id} disabled={!!c.my_deployed || c.can_deploy === false} onClick={() => handleDeploy(c)}
+                    variant="primary" leadingVisual={RocketIcon} onClick={() => setDeployFor(c)}
                   >
-                    {c.my_deployed ? 'Вы уже в бою' : 'Вступить в бой'}
+                    {c.my_side === 'defender' ? 'Встать на защиту' : 'Вступить в атаку'}
                   </Button>
                   {c.my_side === 'defender' && (
                     <Button
@@ -924,6 +950,7 @@ function CampaignsSection({ guildId, campaigns, onRefresh, onFlash }: CampaignsS
         </>
       )}
       {notifyFor && <NotifyDialog guildId={guildId} campaign={notifyFor} onClose={() => setNotifyFor(null)} onFlash={onFlash} />}
+      {deployFor && <DeployDialog guildId={guildId} campaign={deployFor} onClose={() => setDeployFor(null)} onRefresh={onRefresh} />}
 
       {recent.length > 0 && (
         <>

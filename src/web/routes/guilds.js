@@ -311,6 +311,36 @@ module.exports=function(app,ctx){
       res.json({ok:true,data});
     }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
   });
+  app.get('/api/mid-live/:guildId/campaigns/deploy-candidates',async(req,res)=>{
+    try{
+      const id=Number(req.query.campaign_id);
+      if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({ok:false,error:'campaign_id обязателен'});
+      const accounts=await midReadCandidates(req.params.guildId),svc=require('../../modules/campaignDeploy'),results=[];
+      for(const acc of accounts){
+        try{results.push({id:acc.id,name:acc.name,...await svc.inspect(apiForAcc(acc),req.params.guildId,id)});}
+        catch(e){results.push({id:acc.id,name:acc.name,eligible:false,reason:`Не удалось проверить: ${midErr(e)}`});}
+      }
+      res.json({ok:true,accounts:results});
+    }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
+  });
+  app.post('/api/mid-live/:guildId/campaigns/deploy-selected',async(req,res)=>{
+    try{
+      const id=Number(req.body?.campaign_id),ids=req.body?.account_ids;
+      if(!Number.isSafeInteger(id)||id<=0||!Array.isArray(ids)||!ids.length||ids.some(n=>!Number.isSafeInteger(n)||n<=0)||new Set(ids).size!==ids.length)return res.status(400).json({ok:false,error:'Выберите аккаунты и кампанию'});
+      const candidates=await midReadCandidates(req.params.guildId),byId=new Map(candidates.map(a=>[a.id,a]));
+      if(ids.some(n=>!byId.has(n)))return res.status(400).json({ok:false,error:'Аккаунт не найден среди участников гильдии'});
+      const svc=require('../../modules/campaignDeploy'),results=[];
+      for(const accountId of ids){
+        const acc=byId.get(accountId);
+        try{
+          const result=await opRegistry.run(`campaignDeploy:${accountId}`,async()=>({campaignId:id,...await svc.deploy(apiForAcc(acc),req.params.guildId,id)}));
+          results.push({id:acc.id,name:acc.name,...(result.campaignId===id?result:{ok:false,reason:'Аккаунт уже обрабатывается в другой кампании'})});
+        }
+        catch(e){results.push({id:acc.id,name:acc.name,ok:false,reason:midErr(e)});}
+      }
+      res.json({ok:true,results});
+    }catch(e){res.status(500).json({ok:false,error:midErr(e)});}
+  });
   app.post('/api/mid-live/:guildId/campaigns/call-to-arms',async(req,res)=>{
     try{
       const api=await midApi(req.params.guildId);

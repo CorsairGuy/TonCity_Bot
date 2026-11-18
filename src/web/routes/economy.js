@@ -367,24 +367,62 @@ module.exports=function(app,ctx){
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 
+  const reserveSnapshotPath=id=>path.join(process.cwd(),'config','staking-snapshots',`${id}.json`);
+  app.get('/api/staking/:accountId/snapshot',async(req,res)=>{
+    try{
+      const id=Number(req.params.accountId);
+      if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({ok:false,error:'Неверный аккаунт'});
+      const data=JSON.parse(await fs.promises.readFile(reserveSnapshotPath(id),'utf8'));
+      res.json({ok:true,...data});
+    }catch(e){if(e.code==='ENOENT')return res.json({ok:false,error:'Нет снимка — нажмите «Обновить»'});res.status(500).json({ok:false,error:e.message});}
+  });
+  app.post('/api/staking/:accountId/refresh',async(req,res)=>{
+    try{
+      const id=Number(req.params.accountId),{Account}=require('../../db/index');
+      if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({ok:false,error:'Неверный аккаунт'});
+      const acc=await Account.findByPk(id);
+      if(!acc?.access_token)return res.status(404).json({ok:false,error:'Аккаунт не найден'});
+      const api=await makeApiForAccount(id);
+      const data=await api.get('/federal-reserve/staking',{},{timeout:15000});
+      if(!Array.isArray(data?.entries)||data.entries.some(e=>!e||e.id==null))throw new Error('Игра не вернула список вкладов');
+      const receivedAt=Date.now();
+      const entries=data.entries.map(e=>({...e,can_collect_at:e.can_collect_at??(typeof e.collect_in_seconds==='number'&&Number.isFinite(e.collect_in_seconds)&&e.collect_in_seconds>=0?new Date(receivedAt+e.collect_in_seconds*1000).toISOString():null)}));
+      await require('../../modules/staking').saveEntriesToDb(acc.name,entries);
+      const snapshot={data:{...data,entries},balance:{coins:Number(acc.balance)||0,crystals:Number(acc.crystals)||0},updated_at:new Date(receivedAt)};
+      const file=reserveSnapshotPath(id);await fs.promises.mkdir(path.dirname(file),{recursive:true});
+      await fs.promises.writeFile(file,JSON.stringify(snapshot));
+      res.json({ok:true,...snapshot});
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
   app.post('/api/staking/stake',async(req,res)=>{
     try{
       const{account_id,currency,amount,duration}=req.body;
       if(!account_id||!currency||!amount||!duration)return res.status(400).json({ok:false,error:'missing fields'});
       const{Account}=require('../../db/index');
-      const ApiClient=require('../../api/client');
       const acc=await Account.findByPk(account_id);
       if(!acc?.access_token)return res.status(404).json({ok:false,error:'account not found'});
       const api=await makeApiForAccount(account_id);
-      const r=await api.post('/federal-reserve/staking',{currency,amount:Number(amount),duration:Number(duration)});
-      if(r?.success){
-        // Параллельно: обновить вклады в БД + получить актуальный баланс
-        const{saveEntriesToDb}=require('../../modules/staking');
-        const[sd,prog]=await Promise.all([
-          api.get('/federal-reserve/staking').catch(()=>null),
-          api.get('/progress/').catch(()=>null),
-        ]);
-        if(sd?.entries)await saveEntriesToDb(acc.name,sd.entries);
+      const n=Number(amount),days=Number(duration);
+      if(!['coins','crystals'].includes(currency)||!Number.isSafeInteger(n)||n<=0||!Number.isSafeInteger(days)||days<=0)return res.status(400).json({ok:false,error:'Неверные условия вклада'});
+      const result=await opRegistry.run(`stakingStake:${account_id}`,async()=>{
+        const before=await api.get('/federal-reserve/staking',{},{timeout:15000});
+        if(!Array.isArray(before?.entries)||before.entries.some(e=>e?.id==null))throw new Error('Не удалось проверить вклады');
+        const amounts=before[currency==='coins'?'coin_amounts':'crystal_amounts'],terms=before[currency==='coins'?'coin_terms':'crystal_terms'];
+        const whale=currency==='coins'&&Array.isArray(before.whale_slots)&&before.whale_slots.some(s=>s.amount===n&&s.in_use===false);
+        if(!Array.isArray(amounts)||!Array.isArray(terms)||!Number.isSafeInteger(before.stakes_per_currency)||(!amounts.includes(n)&&!whale)||!terms.some(t=>t.days===days)||before.entries.filter(e=>e.currency===currency).length>=before.stakes_per_currency)throw new Error('Сумма, срок или ячейка больше недоступны — обновите страницу');
+        let postError=null,response;
+        try{response=await api.post('/federal-reserve/staking',{currency,amount:n,duration:days});}catch(e){postError=e;}
+        let after=null;try{after=await api.get('/federal-reserve/staking',{},{timeout:15000});}catch(_){}
+        if(Array.isArray(after?.entries)&&after.entries.every(e=>e?.id!=null)){
+          await require('../../modules/staking').saveEntriesToDb(acc.name,after.entries);
+          const ids=new Set(before.entries.map(e=>String(e.id)));
+          if(after.entries.some(e=>!ids.has(String(e.id))&&e.currency===currency&&Number(e.amount_staked)===n))return{ok:true,response};
+        }
+        return{ok:false,error:`Результат создания не подтверждён${postError?`: ${postError.message}`:''}. Обновите страницу перед повтором`};
+      });
+      if(result.ok){
+        const prog=await api.get('/progress/').catch(()=>null);
         // Записать точный баланс из ответа игры
         if(prog?.progress?.data){
           const d=prog.progress.data;
@@ -393,10 +431,38 @@ module.exports=function(app,ctx){
           if(d.crystals!=null)upd.crystals=d.crystals;
           if(Object.keys(upd).length)await acc.update(upd).catch(()=>{});
         }
-        res.json({ok:true,result:r});
+        res.json({ok:true,result:result.response});
       } else {
-        res.json({ok:false,error:JSON.stringify(r)});
+        res.json({ok:false,error:result.error});
       }
+    }catch(e){res.status(500).json({ok:false,error:e.message});}
+  });
+
+  app.post('/api/staking/collect',async(req,res)=>{
+    try{
+      const id=Number(req.body?.entry_id),{StakingEntry,Account}=require('../../db/index');
+      if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({ok:false,error:'Неверный вклад'});
+      const row=await StakingEntry.findOne({where:{entry_id:id,collected:false}});
+      if(!row)return res.json({ok:false,error:'Вклад не найден — обновите страницу'});
+      const acc=await Account.findOne({where:{name:row.account}});
+      if(!acc?.access_token)throw new Error('Аккаунт не найден');
+      const result=await opRegistry.run(`stakingCollect:${id}`,async()=>{
+        const api=await makeApiForAccount(acc.id),before=await api.get('/federal-reserve/staking',{},{timeout:15000});
+        if(!Array.isArray(before?.entries)||before.entries.some(e=>e?.id==null))throw new Error('Не удалось проверить вклады');
+        const entry=before.entries.find(e=>String(e.id)===String(id));
+        if(!entry)throw new Error('Вклад уже отсутствует — обновите страницу');
+        const deadline=entry.can_collect_at==null?NaN:new Date(entry.can_collect_at).getTime();
+        const due=typeof entry.collect_in_seconds==='number'&&entry.collect_in_seconds===0||Number.isFinite(deadline)&&deadline<=Date.now();
+        if(!due)throw new Error('Вклад ещё не готов к сбору');
+        let postError=null,response;try{response=await api.post('/federal-reserve/staking/collect',{entry_id:id});}catch(e){postError=e;}
+        let after;try{after=await api.get('/federal-reserve/staking',{},{timeout:15000});}catch(_){}
+        if(Array.isArray(after?.entries)&&after.entries.every(e=>e?.id!=null)){
+          await require('../../modules/staking').saveEntriesToDb(acc.name,after.entries);
+          if(!after.entries.some(e=>String(e.id)===String(id)))return{ok:true,result:response};
+        }
+        return{ok:false,error:`Результат сбора не подтверждён${postError?`: ${postError.message}`:''}. Обновите страницу перед повтором`};
+      });
+      res.json(result);
     }catch(e){res.status(500).json({ok:false,error:e.message});}
   });
 

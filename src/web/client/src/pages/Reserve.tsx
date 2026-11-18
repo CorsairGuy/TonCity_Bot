@@ -1,549 +1,128 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Box, Button, Flash, Spinner, Text, ToggleSwitch, Label,
-  SegmentedControl, Checkbox, ConfirmationDialog, ProgressBar,
-} from '@primer/react';
-import { DataTable, Table, Dialog } from '@primer/react/experimental';
-import {
-  SyncIcon, CheckIcon, ClockIcon, AlertIcon, PlusCircleIcon, ZapIcon, XCircleIcon, DatabaseIcon,
-} from '@primer/octicons-react';
-import { api, type StakingEntryRow, type StakingAccountInfo } from '../api';
-import { fmt, fmtDate } from '../utils';
-import { StatCard } from '../components/StatCard';
-import { useFlash } from '../hooks/useFlash';
-import { useResumableRefresh } from '../hooks/useResumableRefresh';
+import { useCallback, useEffect, useState } from 'react';
+import { Box, Button, Flash, Heading, Label, Spinner, Text, TextInput } from '@primer/react';
+import { DatabaseIcon, SyncIcon } from '@primer/octicons-react';
+import { api, type ReserveEntry, type ReserveSnapshot, type StakingAccountInfo, type StakingEntryRow } from '../api';
+import { SidePage, CatTabs, SELECTED_RING } from '../components/SidePage';
+import { PanelShell, Row, Summary, Tile, SumLine } from './cityMapPanels';
 import { CoinValue, CrystalValue } from '../components/Icons';
-import { PageHeader } from '../components/PageHeader';
-import { useNarrow } from '../hooks/useNarrow';
-import { richHeader, RichBody, RichFooter, SectionLabel, PickRow } from '../components/RichDialog';
-
-// ── Конфиг ставок ────────────────────────────────────────────────────────────
+import { useAsk } from '../hooks/useAsk';
+import { fmt, fmtDate } from '../utils';
 
 type Currency = 'coins' | 'crystals';
-
-const AMOUNTS: Record<Currency, number[]> = {
-  coins:    [1e8, 1e9, 1e10, 1e11, 1e12],
-  crystals: [100, 500, 2e3, 1e4, 1e5],
-};
-const DURATIONS: Record<Currency, number[]> = {
-  coins:    [2, 7, 14, 30],
-  crystals: [7, 14, 30],
-};
-const RATES: Record<Currency, Record<number, number>> = {
-  coins:    { 2: 0.01, 7: 0.05, 14: 0.15, 30: 0.50 },
-  crystals: { 7: 0.01, 14: 0.04, 30: 0.10 },
-};
-
-function getRate(currency: Currency, duration: number) {
-  return RATES[currency][duration] ?? 0;
+const panel = { bg: 'canvas.default', border: '1px solid', borderColor: 'border.default', borderRadius: 2, p: 3 } as const;
+const value = (amount: number, currency: Currency) => currency === 'coins' ? <CoinValue value={fmt(amount)} /> : <CrystalValue value={fmt(amount)} />;
+function remaining(date: string | null) {
+  if (!date || !Number.isFinite(new Date(date).getTime())) return 'Срок неизвестен';
+  const ms = new Date(date).getTime() - Date.now();
+  if (ms <= 0) return 'Готов к сбору';
+  const h = Math.floor(ms / 3600000), d = Math.floor(h / 24);
+  return d ? `${d} дн. ${h % 24} ч.` : `${h} ч. ${Math.floor(ms % 3600000 / 60000)} мин.`;
 }
-
-function fmtAmt(n: number, currency: Currency) {
-  return currency === 'coins' ? fmt(n) : String(n >= 1000 ? fmt(n) : n);
-}
-
-// ── Вспомогательные компоненты ───────────────────────────────────────────────
-
-function StatusBadge({ canCollectAt, collected }: { canCollectAt: string; collected: boolean }) {
-  if (collected) return <Label variant="success"><CheckIcon size={12} /> Собрано</Label>;
-  const ms = new Date(canCollectAt).getTime() - Date.now();
-  if (ms <= 0) return <Label variant="attention"><AlertIcon size={12} /> Готово</Label>;
-  const h = Math.floor(ms / 3600000);
-  const d = Math.floor(h / 24);
-  const left = d > 0 ? `${d}д ${h % 24}ч` : `${h}ч ${Math.floor((ms % 3600000) / 60000)}м`;
-  return <Label><ClockIcon size={12} /> {left}</Label>;
-}
-
-// ── Модалка стейкинга ─────────────────────────────────────────────────────────
-
-function StakeModal({
-  accounts,
-  onClose,
-  onStaked,
-}: {
-  accounts: StakingAccountInfo[];
-  onClose: () => void;
-  onStaked: () => void;
-}) {
-  const [currency, setCurrency] = useState<Currency>('coins');
-  // По умолчанию — первые сумма и срок: SegmentedControl Primer без selected сам подсвечивает первую кнопку,
-  // поэтому null в состоянии выглядел как выбор, но аккаунты считались недоступными
-  const [amount, setAmount]     = useState<number | null>(AMOUNTS.coins[0]);
-  const [duration, setDuration] = useState<number | null>(DURATIONS.coins[0]);
-  // снятые галочки (по умолчанию выбраны все подходящие аккаунты)
-  const [unpicked, setUnpicked] = useState<Set<number>>(new Set());
-  const [stakingAll, setStakingAll] = useState(false);
-  const [results, setResults]   = useState<Record<number, { ok: boolean; error?: string }>>({});
-  const { flash, showFlash }    = useFlash();
-  const prevAccountsRef = useRef(accounts);
-  if (prevAccountsRef.current !== accounts) {
-    prevAccountsRef.current = accounts;
-    // Сбрасываем успешные результаты когда обновились данные аккаунтов
-    const hasSuccess = Object.values(results).some(r => r.ok);
-    if (hasSuccess) setResults(r => Object.fromEntries(Object.entries(r).filter(([, v]) => !v.ok)));
-  }
-
-  const rate    = amount && duration ? getRate(currency, duration) : null;
-  const profit  = rate != null && amount ? Math.floor(amount * rate) : null;
-
-  // Сбросить выбор при смене валюты
-  const switchCurrency = (c: Currency) => {
-    setCurrency(c);
-    setAmount(AMOUNTS[c][0]);
-    setDuration(DURATIONS[c][0]);
-    setUnpicked(new Set());
-    setResults({});
-  };
-
-  const slots = (acc: StakingAccountInfo) =>
-    currency === 'coins' ? acc.coin_slots : acc.crystal_slots;
-
-  const balance = (acc: StakingAccountInfo) =>
-    currency === 'coins' ? acc.coins : acc.crystals;
-
-  const canStake = (acc: StakingAccountInfo) =>
-    amount != null && duration != null && slots(acc) < 3 && balance(acc) >= amount;
-
-  const eligible = accounts.filter(canStake);
-  const picked = eligible.filter(a => !unpicked.has(a.id));
-  const togglePick = (id: number) => setUnpicked(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const allPicked = picked.length === eligible.length;
-
-  const stakeOne = async (acc: StakingAccountInfo) => {
-    if (!amount || !duration) return { ok: false };
-    const r = await api.stakingStake(acc.id, currency, amount, duration);
-    setResults(s => ({ ...s, [acc.id]: r }));
-    return r;
-  };
-
-  const stakePicked = async () => {
-    if (!picked.length) return;
-    setStakingAll(true);
-    try {
-      const rs = await Promise.allSettled(picked.map(stakeOne));
-      const ok = rs.filter(r => r.status === 'fulfilled' && r.value.ok).length;
-      showFlash(ok === picked.length ? `Вложено на ${ok} акк.` : `Вложено на ${ok} из ${picked.length} акк.`, ok === picked.length);
-      onStaked();
-    } finally { setStakingAll(false); }
-  };
-
-  const Val = ({ v }: { v: number }) => currency === 'coins' ? <CoinValue value={fmt(v)} /> : <CrystalValue value={fmt(v)} />;
-  const n = picked.length;
-  const summary = !amount || !duration
-    ? 'Выберите сумму и срок'
-    : n === 0 ? 'Нет подходящих аккаунтов'
-    : <>{n} акк. · <b><Val v={amount * n} /></b> → <b style={{ color: 'var(--green)' }}><Val v={(amount + (profit ?? 0)) * n} /></b> через {duration} дн.</>;
-
-  return (
-    <Dialog
-      title="Новый вклад"
-      subtitle="Федеральный резерв · вклад вернётся с процентом в конце срока"
-      renderHeader={richHeader(DatabaseIcon)}
-      onClose={onClose}
-      width="xlarge"
-      position={{ narrow: 'bottom', regular: 'center' }}
-      renderFooter={() => (
-        <RichFooter summary={summary}>
-          <Button onClick={onClose}>Отмена</Button>
-          <Button variant="primary" leadingVisual={ZapIcon} disabled={!amount || !duration || n === 0 || stakingAll}
-            loading={stakingAll} onClick={stakePicked}>
-            {n > 0 ? `Вложить в ${n}` : 'Вложить'}
-          </Button>
-        </RichFooter>
-      )}
-    >
-      <RichBody>
-        {flash && <Flash variant={flash.ok ? 'success' : 'danger'}>{flash.msg}</Flash>}
-
-        <SegmentedControl fullWidth aria-label="Валюта" onChange={i => switchCurrency(i === 0 ? 'coins' : 'crystals')}>
-          <SegmentedControl.Button selected={currency === 'coins'}>Монеты</SegmentedControl.Button>
-          <SegmentedControl.Button selected={currency === 'crystals'}>Кристаллы</SegmentedControl.Button>
-        </SegmentedControl>
-
-        <Box sx={{ display: 'grid', gap: 3 }}>
-          <Box>
-            <SectionLabel>Сумма на аккаунт</SectionLabel>
-            <SegmentedControl fullWidth size="small" aria-label="Сумма" onChange={i => setAmount(AMOUNTS[currency][i])}>
-              {AMOUNTS[currency].map(v => (
-                <SegmentedControl.Button key={v} selected={amount === v}>{fmtAmt(v, currency)}</SegmentedControl.Button>
-              ))}
-            </SegmentedControl>
-          </Box>
-          <Box>
-            <SectionLabel>Срок и доход</SectionLabel>
-            <SegmentedControl fullWidth size="small" aria-label="Срок" onChange={i => setDuration(DURATIONS[currency][i])}>
-              {DURATIONS[currency].map(d => (
-                <SegmentedControl.Button key={d} selected={duration === d}>{`${d}д · ${(getRate(currency, d) * 100).toFixed(0)}%`}</SegmentedControl.Button>
-              ))}
-            </SegmentedControl>
-          </Box>
-        </Box>
-
-        <Box>
-          <SectionLabel action={eligible.length > 0 && (
-            <Button size="small" variant="invisible" onClick={() => setUnpicked(allPicked ? new Set(eligible.map(a => a.id)) : new Set())}>
-              {allPicked ? 'Снять все' : 'Выбрать все подходящие'}
-            </Button>
-          )}>
-            {amount && duration ? `Аккаунты · выбрано ${n} из ${eligible.length}` : 'Аккаунты'}
-          </SectionLabel>
-          <div className="rdlg-list">
-            {accounts.map(acc => {
-              const free = Math.max(0, 3 - slots(acc)); // slots() — занятые слоты, показываем свободные
-              const ok = canStake(acc);
-              const on = ok && !unpicked.has(acc.id);
-              const res = results[acc.id];
-              const why = res && !res.ok ? 'ошибка'
-                : res?.ok ? 'вложено'
-                : free === 0 ? 'нет слотов'
-                : amount != null && balance(acc) < amount ? (currency === 'coins' ? 'мало монет' : 'мало кристаллов')
-                : `слоты ${free}/3`;
-              return (
-                <PickRow key={acc.id} on={on} off={!ok} onClick={() => togglePick(acc.id)}>
-                  <Checkbox checked={on} disabled={!ok} onChange={() => togglePick(acc.id)} onClick={e => e.stopPropagation()} aria-label={acc.name} />
-                  <b style={{ fontWeight: 600 }}>{acc.name}</b>
-                  <span className="num"><Val v={balance(acc)} /></span>
-                  <span className="why" style={res?.ok ? { color: 'var(--green)' } : res && !res.ok ? { color: 'var(--red)' } : undefined}
-                    title={res?.error}>{why}</span>
-                </PickRow>
-              );
-            })}
-          </div>
-        </Box>
-      </RichBody>
-    </Dialog>
-  );
-}
-
-// ── Основная страница ─────────────────────────────────────────────────────────
+const ready = (date: string | null) => !!date && Number.isFinite(new Date(date).getTime()) && new Date(date).getTime() <= Date.now();
 
 export function Reserve() {
-  const narrow = useNarrow();
-  const [entries, setEntries]     = useState<StakingEntryRow[]>([]);
-  const [accounts, setAccounts]   = useState<StakingAccountInfo[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [refreshing, setRefreshing] = useResumableRefresh('refresh:staking', () => load());
-  const [showCollected, setShowCollected] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  // отмена вклада: сначала окно подтверждения (как расформирование политик), потом запрос
-  const [confirmCancel, setConfirmCancel] = useState<StakingEntryRow | null>(null);
-  const [cancelling, setCancelling] = useState<Record<number, boolean>>({});
-  const { flash, showFlash }      = useFlash();
-  const openBtnRef = useRef<HTMLButtonElement | null>(null);
-
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const d = await api.staking(showCollected);
-      if (d.ok) { setEntries(d.entries); setAccounts(d.accounts ?? []); }
-    } finally { if (!silent) setLoading(false); }
-  }, [showCollected]);
-
-  const refresh = async () => {
-    setRefreshing(true);
-    try { await api.refresh('staking'); await load(); showFlash('Обновлено', true); }
-    catch { showFlash('Ошибка', false); }
-    finally { setRefreshing(false); }
+  const [accounts, setAccounts] = useState<StakingAccountInfo[]>([]);
+  const [rows, setRows] = useState<StakingEntryRow[]>([]);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [snapshot, setSnapshot] = useState<ReserveSnapshot | null>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState(0);
+  const [currency, setCurrency] = useState<Currency>('coins');
+  const [amount, setAmount] = useState<number | null>(null);
+  const [days, setDays] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [history, setHistory] = useState(false);
+  const ask = useAsk();
+  const load = useCallback(async () => {
+    const result = await api.staking(true);
+    if (!result.ok) { setError('Не удалось загрузить вклады'); setLoading(false); return; }
+    setAccounts(result.accounts ?? []); setRows(result.entries ?? []);
+    setSelected(s => s != null && result.accounts.some(a => a.id === s) ? s : result.accounts[0]?.id ?? null);
+    setLoading(false);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    setSnapshot(null); setAmount(null); setDays(null); setError(''); setNotice('');
+    if (selected != null) api.stakingSnapshot(selected).then(r => { if (active) { setSnapshot(r.ok ? r : null); if (!r.ok) setError(r.error ?? 'Нет снимка'); } });
+    return () => { active = false; };
+  }, [selected]);
+  const refresh = async (id: number) => {
+    setBusy(true); setError('');
+    const r = await api.stakingRefreshAccount(id);
+    if (r.ok) { if (id === selected) setSnapshot(r); await load(); }
+    else if (id === selected) setError(r.error ?? 'Не удалось обновить данные игры');
+    setBusy(false);
+    return r.ok;
   };
-
-  useEffect(() => { load(); }, [load]);
-
-  const cancelOne = async (e: StakingEntryRow) => {
-    setCancelling(s => ({ ...s, [e.entry_id]: true }));
-    try {
-      const r = await api.stakingCancel(e.entry_id);
-      if (r.ok) {
-        // игра в ответе отдаёт amount — сколько вернула на баланс
-        const back = r.result?.amount;
-        showFlash(`Вклад ${e.account} отменён${back != null ? `, возвращено ${fmt(back)}` : ''}`, true);
-        await load(true);
-      }
-      else showFlash(`Вклад ${e.account} не отменён: ${r.error ?? 'ошибка'}`, false);
-    } catch (err) {
-      showFlash(`Вклад ${e.account} не отменён: ${(err as Error).message}`, false);
-    } finally {
-      setCancelling(s => ({ ...s, [e.entry_id]: false }));
-    }
+  const acc = accounts.find(a => a.id === selected);
+  const allActive = rows.filter(e => !e.collected);
+  const dbEntries = allActive.filter(e => e.account === acc?.name);
+  const data = snapshot?.data;
+  const entries: ReserveEntry[] = data?.entries ?? dbEntries.map(e => ({ id: e.entry_id, currency: e.currency, amount_staked: e.amount_staked, amount_to_collect: e.amount_to_collect, created_at: e.created_at, can_collect_at: e.can_collect_at }));
+  const per = data?.stakes_per_currency;
+  const terms = (currency === 'coins' ? data?.coin_terms : data?.crystal_terms) ?? [];
+  const amounts = (currency === 'coins' ? data?.coin_amounts : data?.crystal_amounts) ?? [];
+  const whale = currency === 'coins' ? data?.whale_slots ?? [] : [];
+  const term = terms.find(t => t.days === days);
+  const multiplier = data?.staking_rate_multiplier;
+  const payout = amount != null && term && multiplier != null ? Math.floor(amount * (1 + term.rate * multiplier)) : null;
+  const count = (c: Currency) => entries.filter(e => e.currency === c).length;
+  const balance = snapshot?.balance?.[currency] ?? acc?.[currency] ?? 0;
+  const validAmount = amount != null && (amounts.includes(amount) || whale.some(w => w.amount === amount && !w.in_use));
+  const canStake = !!data && Number.isSafeInteger(per) && count(currency) < (per ?? 0) && validAmount && days != null && !!term && payout != null && amount != null && amount <= balance;
+  const current = accounts.filter(a => {
+    const active = allActive.filter(e => e.account === a.name);
+    return a.name.toLowerCase().includes(query.toLowerCase()) && (filter === 0 || (filter === 1 ? active.length > 0 : active.some(e => ready(e.can_collect_at))));
+  });
+  const perform = async (kind: 'stake' | 'collect' | 'cancel', entry?: ReserveEntry) => {
+    if (!acc) return;
+    const message = kind === 'stake' ? `Создать вклад ${fmt(amount!)} на ${days} дней для ${acc.name}?` : kind === 'collect' ? 'Забрать созревший вклад?' : 'Досрочно закрыть монетный вклад без процентов?';
+    if (!await ask(kind === 'cancel' ? 'Отменить вклад?' : kind === 'collect' ? 'Забрать вклад?' : 'Создать вклад?', message, { danger: kind === 'cancel', ok: kind === 'cancel' ? 'Отменить вклад' : kind === 'collect' ? 'Забрать' : 'Вложить' })) return;
+    setBusy(true); setError(''); setNotice('');
+    const r = kind === 'stake' ? await api.stakingStake(acc.id, currency, amount!, days!) : kind === 'collect' ? await api.stakingCollect(entry!.id) : await api.stakingCancel(entry!.id);
+    if (!r.ok) { setError(r.error ?? 'Действие не подтверждено'); setBusy(false); return; }
+    setNotice(kind === 'stake' ? 'Вклад создан' : kind === 'collect' ? 'Вклад собран' : 'Вклад отменён');
+    setAmount(null); setDays(null); await refresh(acc.id);
   };
-
-  const active  = entries.filter(e => !e.collected);
-  const coins   = active.filter(e => e.currency === 'coins');
-  const crysts  = active.filter(e => e.currency === 'crystals');
-  const ready   = active.filter(e => new Date(e.can_collect_at).getTime() <= Date.now());
-
-  const sum = (arr: StakingEntryRow[], field: keyof StakingEntryRow) =>
-    arr.reduce((s, e) => s + Number(e[field] ?? 0), 0);
-
-  const totalStakedCoins   = sum(coins, 'amount_staked');
-  const totalStakedCrysts  = sum(crysts, 'amount_staked');
-  const totalCollectCoins  = sum(coins, 'amount_to_collect');
-  const totalCollectCrysts = sum(crysts, 'amount_to_collect');
-
-  // переключатель «Собранные» показывает в таблице ТОЛЬКО собранные вклады; сводка сверху
-  // по-прежнему считается по активным (сервер с ?collected=1 отдаёт и те, и другие)
-  const data = entries
-    .filter(e => e.collected === showCollected)
-    .sort((a, b) => {
-      if (a.collected !== b.collected) return a.collected ? 1 : -1;
-      const aReady = new Date(a.can_collect_at).getTime() <= Date.now();
-      const bReady = new Date(b.can_collect_at).getTime() <= Date.now();
-      if (aReady !== bReady) return aReady ? -1 : 1;
-      return new Date(a.can_collect_at).getTime() - new Date(b.can_collect_at).getTime();
-    })
-    .map((e, i) => ({
-      ...e,
-      id: i,
-      _dur: Math.round((new Date(e.can_collect_at).getTime() - new Date(e.created_at).getTime()) / 86400000),
-      _profit: e.amount_to_collect - e.amount_staked,
-      _ready: !e.collected && new Date(e.can_collect_at).getTime() <= Date.now(),
-    }));
-
-  if (loading) return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - var(--header-h))' }}><Spinner /></Box>;
-
-  return (
-    <Box sx={{ p: 3 }}>
-      <PageHeader title="Стейкинг" actions={<>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 1 }}>
-          <Text sx={{ fontSize: 1, color: 'fg.muted' }}>Собранные</Text>
-          {/* Primer ToggleSwitch в управляемом режиме (передан checked) реагирует на клик через
-              onClick, а не onChange — onChange там только эффект на смену checked ИЗВНЕ. С onChange
-              клик визуально ничего не делал (не менял showCollected) — переключатель "не работал". */}
-          <ToggleSwitch size="small" checked={showCollected} onClick={() => setShowCollected(v => !v)} aria-label="Показать собранные" />
-        </Box>
-        {ready.length > 0 && (
-          <Label variant="attention" sx={{ mr: 1 }}>
-            <AlertIcon size={14} /> {ready.length} {ready.length === 1 ? 'вклад' : 'вклада'} готово
-          </Label>
-        )}
-        <Button leadingVisual={SyncIcon} loading={refreshing} disabled={refreshing} onClick={refresh}>
-          Обновить
-        </Button>
-        <Button ref={openBtnRef} leadingVisual={PlusCircleIcon} variant="primary" onClick={() => setModalOpen(true)}>
-          Новый вклад
-        </Button>
-      </>} />
-      {flash && <Flash variant={flash.ok ? 'success' : 'danger'} sx={{ mb: 3 }}>{flash.msg}</Flash>}
-
-
-      <>
-          {active.length > 0 && (
-            <div className="stat-grid stat-grid--reserve">
-              <StatCard label="Стейк монет" color="ton">
-                <div style={{ fontSize: 20, fontWeight: 700 }}><CoinValue value={fmt(totalStakedCoins)} /></div>
-                <div style={{ fontSize: 11, marginTop: 4, color: 'var(--fg-muted)' }}>{coins.length} из 3 слотов</div>
-              </StatCard>
-              <StatCard label="К получению монет" color="cyan">
-                <div style={{ fontSize: 20, fontWeight: 700 }}><CoinValue value={fmt(totalCollectCoins)} /></div>
-                <div style={{ fontSize: 11, marginTop: 4, color: 'var(--green)' }}>
-                  +<CoinValue value={fmt(totalCollectCoins - totalStakedCoins)} />
-                </div>
-              </StatCard>
-              <StatCard label="Стейк кристаллов" color="purple">
-                <div style={{ fontSize: 20, fontWeight: 700 }}><CrystalValue value={fmt(totalStakedCrysts)} /></div>
-                <div style={{ fontSize: 11, marginTop: 4, color: 'var(--fg-muted)' }}>{crysts.length} из 3 слотов</div>
-              </StatCard>
-              <StatCard label="К получению крист." color="purple">
-                <div style={{ fontSize: 20, fontWeight: 700 }}><CrystalValue value={fmt(totalCollectCrysts)} /></div>
-                <div style={{ fontSize: 11, marginTop: 4, color: 'var(--green)' }}>
-                  +<CrystalValue value={fmt(totalCollectCrysts - totalStakedCrysts)} />
-                </div>
-              </StatCard>
-            </div>
-          )}
-
-          {narrow && data.length > 0 ? (
-            <Box>
-              <Text as="h3" sx={{ fontSize: 2, fontWeight: 'bold', mb: 2 }}>{showCollected ? 'Собранные вклады' : 'Активные вклады'}</Text>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {data.map(row => {
-                  const Val = row.currency === 'coins' ? CoinValue : CrystalValue;
-                  const start = new Date(row.created_at).getTime(), end = new Date(row.can_collect_at).getTime();
-                  const pct = row.collected || row._ready ? 100 : Math.max(0, Math.min(100, ((Date.now() - start) / Math.max(1, end - start)) * 100));
-                  const canCancel = row.currency === 'coins' && !row.collected && !row._ready;
-                  return (
-                    <Box key={row.entry_id} sx={{ border: '1px solid', borderColor: row._ready ? 'attention.muted' : 'border.default', borderRadius: 2, p: 2, px: 3, bg: 'canvas.default' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Text sx={{ fontWeight: 'bold', color: row._ready ? 'success.fg' : undefined }}>{row.account}</Text>
-                        <Text className="mono" sx={{ fontSize: 0, color: 'fg.muted' }}>{row._dur}д</Text>
-                        <Box sx={{ ml: 'auto' }}><StatusBadge canCollectAt={row.can_collect_at} collected={row.collected} /></Box>
-                      </Box>
-                      <Box className="mono" sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 2, fontSize: 1, minHeight: 28 }}>
-                        <Val value={fmt(row.amount_staked)} />
-                        <Text sx={{ color: 'fg.subtle' }}>→</Text>
-                        <Text sx={{ fontWeight: 600 }}><Val value={fmt(row.amount_to_collect)} /></Text>
-                        {canCancel && (
-                          <Button size="small" variant="invisible" sx={{ ml: 'auto', color: 'danger.fg' }}
-                            loading={!!cancelling[row.entry_id]} disabled={!!cancelling[row.entry_id]}
-                            onClick={() => setConfirmCancel(row)}>
-                            Отменить
-                          </Button>
-                        )}
-                      </Box>
-                      <ProgressBar progress={pct} barSize="small" bg={row._ready || row.collected ? 'success.emphasis' : 'accent.emphasis'} aria-label="До сбора" />
-                    </Box>
-                  );
-                })}
-              </Box>
-            </Box>
-          ) : (
-          <Table.Container>
-            <Table.Title as="h3" id="staking-table">
-              {showCollected ? 'Собранные вклады' : 'Активные вклады'}
-            </Table.Title>
-            {data.length === 0 ? (
-              <Box sx={{ p: 4, textAlign: 'center', color: 'fg.muted' }}>
-                <Text>Нет вкладов</Text>
-              </Box>
-            ) : (
-              <DataTable
-                aria-labelledby="staking-table"
-                data={data}
-                columns={[
-                  {
-                    header: 'Аккаунт',
-                    field: 'account',
-                    rowHeader: true,
-                    sortBy: 'alphanumeric',
-                    renderCell: row => (
-                      <strong style={{ color: row._ready ? 'var(--green)' : undefined }}>
-                        {row.account}
-                      </strong>
-                    ),
-                  },
-                  {
-                    header: 'Срок',
-                    field: '_dur',
-                    sortBy: 'basic',
-                    renderCell: row => <span className="mono">{row._dur}д</span>,
-                  },
-                  {
-                    header: 'Вложено',
-                    field: 'amount_staked',
-                    sortBy: 'basic',
-                    renderCell: row => (
-                      <span className="mono" style={{ display: 'flex', alignItems: 'center', alignContent: 'center', gap: 3 }}>
-                        {row.currency === 'coins'
-                          ? <CoinValue value={fmt(row.amount_staked)} />
-                          : <CrystalValue value={fmt(row.amount_staked)} />}
-                      </span>
-                    ),
-                  },
-                  {
-                    header: 'Прибыль',
-                    field: '_profit',
-                    sortBy: 'basic',
-                    renderCell: row => (
-                      <span className="mono" style={{ display: 'flex', alignItems: 'center', alignContent: 'center', gap: 3, color: 'var(--green)' }}>
-                        +{row.currency === 'coins'
-                          ? <CoinValue value={fmt(row._profit)} />
-                          : <CrystalValue value={fmt(row._profit)} />}
-                      </span>
-                    ),
-                  },
-                  {
-                    header: 'К получению',
-                    field: 'amount_to_collect',
-                    sortBy: 'basic',
-                    renderCell: row => (
-                      <span className="mono" style={{ display: 'flex', alignItems: 'center', alignContent: 'center', gap: 3, fontWeight: 600 }}>
-                        {row.currency === 'coins'
-                          ? <CoinValue value={fmt(row.amount_to_collect)} />
-                          : <CrystalValue value={fmt(row.amount_to_collect)} />}
-                      </span>
-                    ),
-                  },
-                  {
-                    header: 'Дата вклада',
-                    field: 'created_at',
-                    sortBy: 'alphanumeric',
-                    renderCell: row => (
-                      <span className="mono" style={{ color: 'var(--fg-muted)', fontSize: 12, lineHeight: '20px', height: 18 }}>
-                        {fmtDate(row.created_at)}
-                      </span>
-                    ),
-                  },
-                  {
-                    header: 'Дата сбора',
-                    field: 'can_collect_at',
-                    sortBy: 'alphanumeric',
-                    renderCell: row => (
-                      <span className="mono" style={{ fontSize: 12, lineHeight: '20px', height: 18 }}>
-                        {fmtDate(row.can_collect_at)}
-                      </span>
-                    ),
-                  },
-                  {
-                    header: 'Статус',
-                    field: 'collected',
-                    sortBy: 'basic',
-                    renderCell: row => (
-                      <StatusBadge canCollectAt={row.can_collect_at} collected={row.collected} />
-                    ),
-                  },
-                  {
-                    header: '',
-                    id: 'actions',
-                    align: 'end',
-                    // отменять можно только идущий МОНЕТНЫЙ вклад: созревший забирается, собранного уже
-                    // нет, кристальный игра отменить не даёт (в её клиенте кнопки нет)
-                    renderCell: row => (row.currency === 'coins' && !row.collected && !row._ready) ? (
-                      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <Button
-                        size="small"
-                        variant="danger"
-                        leadingVisual={XCircleIcon}
-                        loading={!!cancelling[row.entry_id]}
-                        disabled={!!cancelling[row.entry_id]}
-                        onClick={() => setConfirmCancel(row)}
-                      >
-                        Отменить
-                      </Button>
-                      </Box>
-                    ) : null,
-                  },
-                ]}
-              />
-            )}
-          </Table.Container>
-          )}
-        </>
-
-      {confirmCancel && (
-        <ConfirmationDialog
-          title="Отменить вклад?"
-          cancelButtonContent="Не отменять"
-          confirmButtonContent="Отменить вклад"
-          confirmButtonType="danger"
-          onClose={(gesture) => {
-            const e = confirmCancel;
-            setConfirmCancel(null);
-            if (gesture === 'confirm') cancelOne(e);
-          }}
-        >
-          <Text as="p" sx={{ mt: 0 }}>
-            Аккаунт <strong>{confirmCancel.account}</strong>: вклад{' '}
-            {confirmCancel.currency === 'coins'
-              ? <CoinValue value={fmt(confirmCancel.amount_staked)} />
-              : <CrystalValue value={fmt(confirmCancel.amount_staked)} />}
-            {' '}до {fmtDate(confirmCancel.can_collect_at)}.
-          </Text>
-          <Text as="p" sx={{ mb: 0, color: 'danger.fg' }}>
-            Вклад будет закрыт досрочно, обещанная прибыль{' '}
-            {confirmCancel.currency === 'coins'
-              ? <CoinValue value={fmt(confirmCancel.amount_to_collect - confirmCancel.amount_staked)} />
-              : <CrystalValue value={fmt(confirmCancel.amount_to_collect - confirmCancel.amount_staked)} />}
-            {' '}не будет получена. Действие необратимо.
-          </Text>
-        </ConfirmationDialog>
-      )}
-
-      {modalOpen && (
-        <StakeModal
-          accounts={accounts}
-          onClose={() => setModalOpen(false)}
-          onStaked={() => { load(true); }}
-        />
-      )}
-    </Box>
-  );
+  const side = <PanelShell mode="view" title="Аккаунты" busy={loading} hint="Выберите аккаунт. Данные не загружаются из игры до нажатия «Обновить».">
+    <Summary tone="accent"><Box sx={{ display: 'flex', gap: 2 }}><Tile size={2} value={accounts.length} label="аккаунтов" color="accent.fg"/><Tile size={2} value={allActive.filter(e => ready(e.can_collect_at)).length} label="готово" color="success.fg"/></Box><SumLine left={`вкладов ${allActive.length}`} right="локальные данные"/></Summary>
+    <TextInput placeholder="Поиск" value={query} onChange={e => setQuery(e.target.value)} block/><CatTabs tabs={['Все','Активные','Готово']} value={filter} onChange={setFilter}/>
+    {current.map(a => { const own=allActive.filter(e => e.account === a.name), n=own.filter(e => ready(e.can_collect_at)).length; return <Row key={a.id} onClick={() => { if (!busy) setSelected(a.id); }} sx={selected === a.id ? SELECTED_RING : undefined} lead={<Box sx={{ width: 36, height: 36, borderRadius: 2, bg: 'accent.subtle', display: 'grid', placeItems: 'center', color: 'accent.fg' }}><DatabaseIcon/></Box>} title={a.name} sub={own.length ? `вкладов: ${own.length}` : 'нет вкладов'} trail={<Text sx={{ fontSize: 0, color: n ? 'success.fg' : 'fg.muted' }}>{n ? `готово ${n}` : '—'}</Text>}/>; })}
+  </PanelShell>;
+  const grade = data?.reserve_grade;
+  const start = Number(grade?.grade_floor ?? 0), next = Number(grade?.next_grade_at ?? 0), progress = Number(grade?.gold_rush_progress ?? 0);
+  const pct = next > start ? Math.max(0, Math.min(100, (progress - start) / (next - start) * 100)) : 0;
+  const cell = (entry: ReserveEntry) => <Box key={entry.id} sx={{ ...panel, p: 2, borderLeft: '4px solid', borderLeftColor: entry.currency === 'coins' ? 'attention.emphasis' : 'accent.emphasis', minWidth: 0 }}>
+    <Text sx={{ fontWeight: 'bold', display: 'block' }}>{value(entry.amount_staked, entry.currency)}</Text>
+    <Text sx={{ fontSize: 0, color: 'success.fg', display: 'block', mt: 1 }}>+{value(entry.amount_to_collect - entry.amount_staked, entry.currency)}</Text>
+    <Text sx={{ fontSize: 0, color: ready(entry.can_collect_at) ? 'success.fg' : 'fg.muted', display: 'block', mt: 1 }}>{remaining(entry.can_collect_at)}</Text>
+    {ready(entry.can_collect_at) ? <Button size="small" sx={{ mt: 2 }} disabled={busy} onClick={() => void perform('collect', entry)}>Забрать</Button> : entry.currency === 'coins' && entry.can_collect_at ? <Button size="small" variant="invisible" sx={{ mt: 1 }} disabled={busy} onClick={() => void perform('cancel', entry)}>Отменить</Button> : null}
+  </Box>;
+  const main = <>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 3 }}><Box><Heading as="h2" sx={{ fontSize: 3 }}>Федеральный резерв</Heading><Text sx={{ color: 'fg.muted', fontSize: 1 }}>{acc ? `${acc.name} · вклады выбранного аккаунта` : 'Выберите аккаунт справа'}</Text></Box><Button leadingVisual={SyncIcon} disabled={!acc || busy} loading={busy} onClick={() => acc && void refresh(acc.id)}>Обновить</Button></Box>
+    {error && <Flash variant="warning" sx={{ mb: 3 }}>{error}</Flash>}{notice && <Flash variant="success" sx={{ mb: 3 }}>{notice}</Flash>}
+    {acc && <>
+      {snapshot?.updated_at && <Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted', mb: 2 }}>Снимок от {fmtDate(snapshot.updated_at)} · обновление только по кнопке</Text>}
+      {grade && <Box sx={{ ...panel, display: 'flex', gap: 3, alignItems: 'center', mb: 3 }}><Box sx={{ width: 48, height: 48, borderRadius: '50%', bg: 'accent.subtle', color: 'accent.fg', display: 'grid', placeItems: 'center', fontWeight: 'bold', flexShrink: 0 }}>{grade.grade}</Box><Box sx={{ flex: 1, minWidth: 0 }}><Text sx={{ fontWeight: 'bold', display: 'block' }}>Уровень резерва {grade.grade}</Text><Text sx={{ color: 'fg.muted', fontSize: 0 }}>«Золотая лихорадка»: {fmt(progress)}{next ? ` / ${fmt(next)}` : ''}</Text><Box sx={{ mt: 2, height: 6, borderRadius: 2, bg: 'neutral.muted' }}><Box sx={{ width: `${pct}%`, height: '100%', borderRadius: 2, bg: 'accent.emphasis' }}/></Box></Box></Box>}
+      <Heading as="h3" sx={{ fontSize: 2, mb: 2 }}>Ячейки хранилища</Heading>
+      {(['coins','crystals'] as Currency[]).map(c => { const own=entries.filter(e => e.currency === c), empty=Number.isSafeInteger(per) && (per ?? 0) >= 0 ? Math.max(0, (per ?? 0) - own.length) : 0; return <Box key={c} sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 2, mb: 2 }}>{own.map(cell)}{Array.from({length: Math.min(empty, 50)}, (_, i) => <Box key={i} sx={{ ...panel, borderStyle: 'dashed', bg: 'canvas.subtle', minHeight: 90, display: 'grid', placeItems: 'center', color: 'fg.muted', fontSize: 0 }}>Свободна для {c === 'coins' ? 'монет' : 'алмазов'}</Box>)}</Box>; })}
+      {!entries.length && !data && <Text sx={{ display: 'block', color: 'fg.muted', mb: 3 }}>В локальной базе вкладов нет. Обновите данные, чтобы увидеть ячейки и условия.</Text>}
+      <Heading as="h3" sx={{ fontSize: 2, mt: 3, mb: 2 }}>Новый вклад</Heading>
+      <Box sx={panel}><CatTabs tabs={[`Монеты ${count('coins')}${per != null ? ` / ${per}` : ''}`, `Алмазы ${count('crystals')}${per != null ? ` / ${per}` : ''}`]} value={currency === 'coins' ? 0 : 1} onChange={i => { setCurrency(i ? 'crystals' : 'coins'); setAmount(null); setDays(null); }}/>
+        {!data ? <Text sx={{ display: 'block', color: 'fg.muted', fontSize: 1, mt: 3 }}>Нажмите «Обновить», чтобы получить доступные суммы и сроки.</Text> : <>
+          <Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted', fontWeight: 'bold', mt: 3, mb: 2 }}>СУММА</Text><Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 2 }}>{amounts.map(a => <Button key={a} disabled={busy || a > balance} variant={amount === a ? 'primary' : 'default'} onClick={() => setAmount(a)}>{fmt(a)}</Button>)}</Box>
+          {whale.length > 0 && <><Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted', fontWeight: 'bold', mt: 3, mb: 2 }}>СЛИТКИ «АКУЛЫ БИЗНЕСА»</Text><Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 2 }}>{whale.map((w,i) => <Button key={i} disabled={busy || w.in_use || w.amount > balance} variant={amount === w.amount && !w.in_use ? 'primary' : 'default'} onClick={() => setAmount(w.amount)}>{fmt(w.amount)}{w.in_use ? ' · занят' : ` · ${w.rarity}`}</Button>)}</Box></>}
+          <Text sx={{ display: 'block', fontSize: 0, color: 'fg.muted', fontWeight: 'bold', mt: 3, mb: 2 }}>СРОК</Text><Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 2 }}>{terms.map(t => <Button key={t.days} disabled={busy} variant={days === t.days ? 'primary' : 'default'} onClick={() => setDays(t.days)}>{`+${Number((t.rate * (multiplier ?? 0) * 100).toFixed(2))}% · ${t.days} дн.`}</Button>)}</Box>
+          <Box sx={{ mt: 2, mb: 2, py: 2, bg: 'canvas.subtle', borderRadius: 2 }}>{[['Вклад', amount == null ? '—' : value(amount,currency)],['Доход', payout == null || amount == null ? '—' : value(payout-amount,currency)],['Срок вклада',days == null ? '—' : `${days} дн.`],['К получению',payout == null ? '—' : value(payout,currency)]].map(([label,v]) => <Box key={String(label)} sx={{ display: 'flex', justifyContent: 'space-between', py: 1, fontWeight: label === 'К получению' ? 'bold' : 'normal', borderTop: label === 'К получению' ? '1px solid' : 0, borderColor: 'border.default' }}><Text>{label}</Text><Text>{v}</Text></Box>)}</Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}><Text sx={{ fontSize: 0, color: 'fg.muted' }}>{count(currency) >= (per ?? 0) ? 'Все ячейки для этой валюты заняты' : <>Доступно: {value(balance,currency)}</>}</Text><Button variant="primary" disabled={!canStake || busy} onClick={() => void perform('stake')}>Создать вклад</Button></Box>
+        </>}
+      </Box>
+      <Box sx={{ mt: 3 }}><Button size="small" onClick={() => setHistory(!history)}>{history ? 'Скрыть историю' : 'История вкладов'}</Button>{history && <Box sx={{ ...panel, mt: 2 }}>{rows.filter(e => e.account === acc.name && e.collected).length === 0 ? <Text sx={{ color: 'fg.muted' }}>Собранных вкладов нет</Text> : rows.filter(e => e.account === acc.name && e.collected).map(e => <Box key={e.entry_id} sx={{ py: 2, borderBottom: '1px solid', borderColor: 'border.muted', display: 'flex', justifyContent: 'space-between', gap: 2 }}><Text>{value(e.amount_to_collect,e.currency)}</Text><Text sx={{ color: 'fg.muted', fontSize: 0 }}>{e.collected_at ? fmtDate(e.collected_at) : 'Дата неизвестна'}</Text></Box>)}</Box>}</Box>
+    </>}
+  </>;
+  return <SidePage main={main} side={side}/>;
 }
